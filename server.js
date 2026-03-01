@@ -1,6 +1,7 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const { ethers } = require('ethers');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -12,6 +13,7 @@ const pool = new Pool({
 
 app.use(cors());
 app.use(express.json());
+
 app.use((req, res, next) => {
   if (req.path === '/health') return next();
   const apiKey = req.headers['x-api-key'];
@@ -32,23 +34,18 @@ app.get('/api/fr/sessions', async (req, res) => {
     const result = await pool.query(
       'SELECT * FROM session_templates ORDER BY session_number'
     );
-    res.json({
-      success: true,
-      total_sessions: result.rows.length,
-      sessions: result.rows
-    });
+    res.json({ success: true, total_sessions: result.rows.length, sessions: result.rows });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// GET single session by id
+// GET single session
 app.get('/api/fr/sessions/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
-      'SELECT * FROM session_templates WHERE session_number = $1',
-      [id]
+      'SELECT * FROM session_templates WHERE session_number = $1', [id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Session not found' });
@@ -59,7 +56,7 @@ app.get('/api/fr/sessions/:id', async (req, res) => {
   }
 });
 
-// F-4: POST vault entry
+// POST vault entry
 app.post('/api/fr/vault', async (req, res) => {
   try {
     const { user_id, session_number, vault_response, session_type } = req.body;
@@ -77,13 +74,12 @@ app.post('/api/fr/vault', async (req, res) => {
   }
 });
 
-// GET vault entries for a user
+// GET vault entries
 app.get('/api/fr/vault/:user_id', async (req, res) => {
   try {
     const { user_id } = req.params;
     const result = await pool.query(
-      'SELECT * FROM vault_entries WHERE user_id = $1 ORDER BY created_at DESC',
-      [user_id]
+      'SELECT * FROM vault_entries WHERE user_id = $1 ORDER BY created_at DESC', [user_id]
     );
     res.json({ success: true, entries: result.rows });
   } catch (error) {
@@ -91,7 +87,7 @@ app.get('/api/fr/vault/:user_id', async (req, res) => {
   }
 });
 
-// F-5: POST session progress
+// POST session progress
 app.post('/api/fr/progress', async (req, res) => {
   try {
     const { user_id, session_number, completed, coherence_score, duration_seconds, session_type } = req.body;
@@ -112,7 +108,7 @@ app.post('/api/fr/progress', async (req, res) => {
   }
 });
 
-// GET progress for a user
+// GET progress for user
 app.get('/api/fr/progress/:user_id', async (req, res) => {
   try {
     const { user_id } = req.params;
@@ -129,7 +125,39 @@ app.get('/api/fr/progress/:user_id', async (req, res) => {
   }
 });
 
+// POST blockchain mint
+const CONTRACT_ABI = [
+  "function mintVerification(address recipient, uint256 sessionNumber, string memory arcName) public returns (uint256)"
+];
+
+app.post('/api/fr/mint', async (req, res) => {
+  try {
+    const { user_wallet, session_number, arc_name } = req.body;
+    if (!user_wallet || !session_number || !arc_name) {
+      return res.status(400).json({ success: false, error: 'user_wallet, session_number, and arc_name are required' });
+    }
+    const provider = new ethers.JsonRpcProvider(process.env.POLYGON_RPC_URL);
+    const signer = new ethers.Wallet(process.env.VERIFICATION_SERVICE_PRIVATE_KEY, provider);
+    const contract = new ethers.Contract(
+      '0x5a19139e42527de9a5bb796494275d352d953375',
+      CONTRACT_ABI,
+      signer
+    );
+    const tx = await contract.mintVerification(user_wallet, session_number, arc_name);
+    const receipt = await tx.wait();
+    res.json({
+      success: true,
+      transaction_hash: receipt.hash,
+      block_number: receipt.blockNumber,
+      session_number,
+      arc_name,
+      recipient: user_wallet
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.listen(port, () => {
   console.log('ASCEN API running on port ' + port);
 });
-
