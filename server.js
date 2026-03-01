@@ -20,13 +20,11 @@ app.get('/health', (req, res) => {
 app.get('/api/fr/sessions', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM session_templates WHERE track = $1 ORDER BY session_number',
-      ['fr_apprentice']
+      'SELECT * FROM session_templates ORDER BY session_number'
     );
     res.json({
       success: true,
       total_sessions: result.rows.length,
-      track: 'fr_apprentice',
       sessions: result.rows
     });
   } catch (error) {
@@ -37,4 +35,3 @@ app.get('/api/fr/sessions', async (req, res) => {
 app.listen(port, () => {
   console.log('ASCEN API running on port ' + port);
 });
-
