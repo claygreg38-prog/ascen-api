@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Co-Breathe Test - Ascen BreathWorx</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: #e2e8f0;
+            font-family: system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            color: #60a5fa;
+            margin-bottom: 8px;
+            font-weight: 300;
+            letter-spacing: 2px;
+        }
+        
+        .header p {
+            color: #94a3b8;
+            margin: 0;
+        }
+        
+        .test-panels {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .panel {
+            background: rgba(16, 32, 64, 0.6);
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            border-radius: 12px;
+            padding: 24px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .panel h3 {
+            color: #60a5fa;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef4444;
+            margin-right: 10px;
+            transition: background-color 0.3s;
+        }
+        
+        .status-dot.connected {
+            background: #10b981;
+        }
+        
+        .input-group {
+            margin-bottom: 16px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 4px;
+            color: #cbd5e1;
+            font-size: 14px;
+        }
+        
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            border-radius: 6px;
+            color: #e2e8f0;
+            font-size: 14px;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6, #1e40af);
+            color: white;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #047857);
+            color: white;
+        }
+        
+        .log-panel {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(100, 200, 255, 0.2);
+            border-radius: 8px;
+            padding: 16px;
+            height: 300px;
+            overflow-y: auto;
+        }
+        
+        .log-entry {
+            margin: 4px 0;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .log-info { color: #60a5fa; }
+        .log-success { color: #10b981; }
+        .log-error { color: #ef4444; }
+        
+        .breath-viz {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(96, 165, 250, 0.3), rgba(59, 130, 246, 0.1));
+            margin: 20px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: transform 0.5s ease-in-out;
+        }
+        
+        .breath-viz.inhale { transform: scale(1.3); }
+        .breath-viz.hold { transform: scale(1.2); }
+        .breath-viz.exhale { transform: scale(0.8); }
+        
+        .room-code {
+            font-size: 28px;
+            font-weight: bold;
+            letter-spacing: 6px;
+            text-align: center;
+            background: rgba(59, 130, 246, 0.2);
+            padding: 12px;
+            border-radius: 8px;
+            color: #60a5fa;
+            margin: 16px 0;
+        }
+        
+        @media (max-width: 768px) {
+            .test-panels {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Co-Breathe WebSocket Test</h1>
+            <p>Family Connection System for Ascen BreathWorx</p>
+        </div>
+        
+        <div class="test-panels">
+            <!-- Participant Panel -->
+            <div class="panel">
+                <h3>
+                    <div class="status-dot" id="participant-status"></div>
+                    Participant Mode
+                </h3>
+                
+                <div class="input-group">
+                    <label>User ID:</label>
+                    <input type="text" id="participant-id" value="test_participant_001" placeholder="Enter participant ID">
+                </div>
+                
+                <div class="input-group">
+                    <label>Session Number:</label>
+                    <select id="session-number">
+                        <option value="1">Session 1 - Foundation</option>
+                        <option value="5">Session 5 - BreathMatch Ready</option>
+                        <option value="10">Session 10 - Advanced</option>
+                    </select>
+                </div>
+                
+                <button class="btn btn-primary" onclick="connectParticipant()">Connect as Participant</button>
+                
+                <div id="participant-actions" style="margin-top: 16px; display: none;">
+                    <button class="btn btn-success" onclick="createRoom()" style="margin-bottom: 8px;">Create Family Room</button>
+                    <button class="btn" onclick="startBreathTest()" style="background: #8b5cf6; color: white; margin-bottom: 8px;">Start Breath Test</button>
+                    <button class="btn" onclick="completeSession()" style="background: #10b981; color: white;">Complete Session</button>
+                </div>
+                
+                <div id="room-display" style="display: none;">
+                    <h4 style="color: #cbd5e1; margin: 16px 0 8px 0;">Family Room Code:</h4>
+                    <div class="room-code" id="room-code-display"></div>
+                </div>
+                
+                <div class="breath-viz" id="participant-breath">
+                    <span>Ready</span>
+                </div>
+            </div>
+            
+            <!-- Family Panel -->
+            <div class="panel">
+                <h3>
+                    <div class="status-dot" id="family-status"></div>
+                    Family Mode
+                </h3>
+                
+                <div class="input-group">
+                    <label>Family Member ID:</label>
+                    <input type="text" id="family-id" value="test_family_001" placeholder="Enter family member ID">
+                </div>
+                
+                <div class="input-group">
+                    <label>Relationship:</label>
+                    <select id="relationship">
+                        <option value="parent">Parent</option>
+                        <option value="spouse">Spouse</option>
+                        <option value="child">Child</option>
+                        <option value="sibling">Sibling</option>
+                        <option value="friend">Friend</option>
+                    </select>
+                </div>
+                
+                <button class="btn btn-primary" onclick="connectFamily()">Connect as Family</button>
+                
+                <div id="family-actions" style="margin-top: 16px; display: none;">
+                    <div class="input-group">
+                        <label>Room Code:</label>
+                        <input type="text" id="room-code-input" placeholder="Enter 6-digit code" style="text-transform: uppercase;">
+                    </div>
+                    <button class="btn btn-success" onclick="joinRoom()">Join Family Session</button>
+                </div>
+                
+                <div class="breath-viz" id="family-breath">
+                    <span>Waiting</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Log Panel -->
+        <div class="panel">
+            <h3>Connection Log</h3>
+            <div class="log-panel" id="log-panel">
+                <div class="log-entry log-info">Initializing Co-Breathe test...</div>
+            </div>
+            <button class="btn" onclick="clearLog()" style="background: #6b7280; color: white; margin-top: 8px;">Clear Log</button>
+        </div>
+    </div>
+
+    <script>
+        // Global connection objects
+        let participantConnection = null;
+        let familyConnection = null;
+        let breathTestInterval = null;
+        let currentBreathPhase = 'ready';
+        let breathCount = 0;
+
+        // Logging function
+        function log(message, type = 'info') {
+            const logPanel = document.getElementById('log-panel');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logPanel.appendChild(entry);
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log-panel').innerHTML = '';
+            log('Log cleared', 'info');
+        }
+
+        // WebSocket Connection Class (simplified for testing)
+        class TestCoBreathConnection {
+            constructor(userType) {
+                this.userType = userType;
+                this.ws = null;
+                this.userId = null;
+                this.roomId = null;
+                this.isConnected = false;
+            }
+
+            connect(userId) {
+                this.userId = userId;
+                
+                // Replace with your Railway WebSocket URL
+                const wsUrl = 'wss://hearty-optimism-production-2eb6.up.railway.app';
+                
+                try {
+                    this.ws = new WebSocket(wsUrl);
+                    
+                    this.ws.onopen = () => {
+                        log(`${this.userType} WebSocket connected`, 'success');
+                        this.isConnected = true;
+                        this.updateStatusDot(true);
+                        
+                        // Register user
+                        this.send({
+                            type: 'register',
+                            userId: this.userId,
+                            userType: this.userType
+                        });
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            this.handleMessage(data);
+                        } catch (error) {
+                            log(`Parse error: ${error.message}`, 'error');
+                        }
+                    };
+                    
+                    this.ws.onclose = () => {
+                        log(`${this.userType} WebSocket disconnected`, 'error');
+                        this.isConnected = false;
+                        this.updateStatusDot(false);
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                        log(`${this.userType} WebSocket error: ${error}`, 'error');
+                    };
+                    
+                } catch (error) {
+                    log(`Connection failed: ${error.message}`, 'error');
+                }
+            }
+
+            handleMessage(data) {
+                log(`${this.userType} received: ${data.type}`, 'info');
+                
+                switch(data.type) {
+                    case 'registered':
+                        log(`${this.userType} registration successful`, 'success');
+                        this.showActions();
+                        break;
+                        
+                    case 'room_created':
+                        this.roomId = data.roomId;
+                        log(`Room created: ${data.roomId}`, 'success');
+                        this.showRoomCode(data.roomId);
+                        break;
+                        
+                    case 'room_joined':
+                        this.roomId = data.roomId;
+                        log(`Joined room: ${data.roomId} (${data.familyCount} family members)`, 'success');
+                        break;
+                        
+                    case 'family_joined':
+                        log(`Family member joined: ${data.familyMember.relationship}`, 'success');
+                        break;
+                        
+                    case 'breath_sync':
+                        if (this.userType === 'family') {
+                            this.showBreathSync(data.phase, data.breathCount);
+                        }
+                        break;
+                        
+                    case 'family_breath_sync':
+                        if (this.userType === 'participant') {
+                            log(`Family breathing: ${data.phase}`, 'info');
+                        }
+                        break;
+                        
+                    case 'session_started':
+                        log('Session started', 'success');
+                        break;
+                        
+                    case 'session_completed':
+                        log('Session completed - celebrating!', 'success');
+                        break;
+                        
+                    case 'family_celebration':
+                        log(`Family celebration: ${data.message}`, 'success');
+                        this.showCelebration();
+                        break;
+                        
+                    case 'error':
+                        log(`Server error: ${data.message}`, 'error');
+                        break;
+                }
+            }
+
+            send(data) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify(data));
+                } else {
+                    log(`Cannot send - ${this.userType} not connected`, 'error');
+                }
+            }
+
+            updateStatusDot(connected) {
+                const statusDot = document.getElementById(`${this.userType}-status`);
+                if (connected) {
+                    statusDot.classList.add('connected');
+                } else {
+                    statusDot.classList.remove('connected');
+                }
+            }
+
+            showActions() {
+                const actionsEl = document.getElementById(`${this.userType}-actions`);
+                if (actionsEl) {
+                    actionsEl.style.display = 'block';
+                }
+            }
+
+            showRoomCode(roomId) {
+                const displayEl = document.getElementById('room-display');
+                const codeEl = document.getElementById('room-code-display');
+                if (displayEl && codeEl) {
+                    codeEl.textContent = roomId;
+                    displayEl.style.display = 'block';
+                }
+            }
+
+            showBreathSync(phase, count) {
+                const breathViz = document.getElementById('family-breath');
+                breathViz.className = 'breath-viz ' + phase;
+                breathViz.innerHTML = `<span>${phase.toUpperCase()}<br><small>${count} breaths</small></span>`;
+            }
+
+            showCelebration() {
+                const celebration = document.createElement('div');
+                celebration.style.cssText = `
+                    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                    background: linear-gradient(135deg, #10b981, #047857); color: white;
+                    padding: 20px 30px; border-radius: 12px; font-size: 18px;
+                    font-weight: bold; text-align: center; z-index: 10000;
+                    animation: pulse 2s ease-in-out;
+                `;
+                celebration.textContent = '🎉 Session Complete! 🎉';
+                document.body.appendChild(celebration);
+                
+                setTimeout(() => celebration.remove(), 3000);
+            }
+        }
+
+        // Connection functions
+        function connectParticipant() {
+            const userId = document.getElementById('participant-id').value.trim();
+            if (!userId) {
+                log('Please enter participant ID', 'error');
+                return;
+            }
+            
+            participantConnection = new TestCoBreathConnection('participant');
+            participantConnection.connect(userId);
+        }
+
+        function connectFamily() {
+            const userId = document.getElementById('family-id').value.trim();
+            if (!userId) {
+                log('Please enter family member ID', 'error');
+                return;
+            }
+            
+            familyConnection = new TestCoBreathConnection('family');
+            familyConnection.connect(userId);
+        }
+
+        function createRoom() {
+            if (!participantConnection || !participantConnection.isConnected) {
+                log('Participant not connected', 'error');
+                return;
+            }
+            
+            const sessionNumber = parseInt(document.getElementById('session-number').value);
+            
+            participantConnection.send({
+                type: 'create_room',
+                sessionNumber: sessionNumber,
+                privacySettings: {
+                    shareCoherence: true,
+                    shareHRV: false
+                }
+            });
+        }
+
+        function joinRoom() {
+            if (!familyConnection || !familyConnection.isConnected) {
+                log('Family member not connected', 'error');
+                return;
+            }
+            
+            const roomCode = document.getElementById('room-code-input').value.trim().toUpperCase();
+            const relationship = document.getElementById('relationship').value;
+            
+            if (!roomCode) {
+                log('Please enter room code', 'error');
+                return;
+            }
+            
+            familyConnection.send({
+                type: 'join_room',
+                roomId: roomCode,
+                relationship: relationship
+            });
+        }
+
+        function startBreathTest() {
+            if (!participantConnection || !participantConnection.roomId) {
+                log('No family room created', 'error');
+                return;
+            }
+            
+            // Start session
+            participantConnection.send({
+                type: 'session_start'
+            });
+            
+            // Begin breath simulation
+            log('Starting breath test sequence', 'info');
+            breathCount = 0;
+            currentBreathPhase = 'inhale';
+            
+            breathTestInterval = setInterval(() => {
+                // Cycle through breath phases
+                switch(currentBreathPhase) {
+                    case 'inhale':
+                        currentBreathPhase = 'hold';
+                        break;
+                    case 'hold':
+                        currentBreathPhase = 'exhale';
+                        break;
+                    case 'exhale':
+                        currentBreathPhase = 'inhale';
+                        breathCount++;
+                        break;
+                }
+                
+                // Update participant visualization
+                const participantBreath = document.getElementById('participant-breath');
+                participantBreath.className = 'breath-viz ' + currentBreathPhase;
+                participantBreath.innerHTML = `<span>${currentBreathPhase.toUpperCase()}<br><small>${breathCount} breaths</small></span>`;
+                
+                // Send to family
+                participantConnection.send({
+                    type: 'breath_sync',
+                    phase: currentBreathPhase,
+                    timestamp: Date.now(),
+                    sessionProgress: Math.min(breathCount / 10, 1),
+                    breathCount: breathCount
+                });
+                
+                // Auto-complete after 20 breaths
+                if (breathCount >= 20) {
+                    completeSession();
+                }
+                
+            }, 2000); // 2 second intervals for testing
+        }
+
+        function completeSession() {
+            if (breathTestInterval) {
+                clearInterval(breathTestInterval);
+                breathTestInterval = null;
+            }
+            
+            if (participantConnection && participantConnection.roomId) {
+                participantConnection.send({
+                    type: 'session_complete',
+                    coherenceScore: 0.85,
+                    breathCount: breathCount,
+                    sessionDuration: breathCount * 2
+                });
+                
+                log('Session completed!', 'success');
+            }
+            
+            // Reset breath visualization
+            const participantBreath = document.getElementById('participant-breath');
+            participantBreath.className = 'breath-viz';
+            participantBreath.innerHTML = '<span>Complete</span>';
+        }
+
+        // Initialize
+        log('Co-Breathe WebSocket test initialized', 'success');
+        log('1. Connect as Participant and create room', 'info');
+        log('2. Connect as Family and join using room code', 'info');
+        log('3. Start breath test to see real-time synchronization', 'info');
+    </script>
+</body>
+</html>
