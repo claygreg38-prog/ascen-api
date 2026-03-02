@@ -25,21 +25,3 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log('Server running on port', PORT);
 });
-// Clinical Dashboard API  
-app.get('/api/clinical/dashboard', (req, res) => {
-  res.json({
-    participants: [
-      {
-        id: 'p001',
-        name: 'Marcus J.',
-        compliance: 89,
-        status: 'Engaged',
-        sessions_completed: 24
-      }
-    ],
-    metrics: {
-      total_participants: 12,
-      avg_compliance: 78
-    }
-  });
-});
