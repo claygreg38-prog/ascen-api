@@ -53,3 +53,4 @@ app.get('/api/clinical/dashboard', (req, res) => {
     }
   });
 });
+endpoints: ['/api/health', '/api/clinical/dashboard']
