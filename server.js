@@ -25,3 +25,11 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log('Server running on port', PORT);
 });
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    message: 'CHOS + AOT System Online',
+    timestamp: new Date().toISOString(),
+    system: 'Maryland AOT Ready'
+  });
+});
