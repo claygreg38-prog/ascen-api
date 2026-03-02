@@ -10,7 +10,7 @@ const pool = new Pool({
 });
 
 app.use(express.json());
-
+app.use(express.static('public'));
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
   try {
@@ -190,3 +190,4 @@ app.listen(PORT, () => {
   console.log('CHOS + AOT Server running on port ' + PORT);
   console.log('Maryland AOT Ready!');
 });
+
