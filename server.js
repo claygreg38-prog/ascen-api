@@ -54,3 +54,24 @@ app.get('/api/clinical/dashboard', (req, res) => {
   });
 });
 endpoints: ['/api/health', '/api/clinical/dashboard']
+// Court Dashboard API (42 CFR Part 2 compliant)
+app.get('/api/court/participants', (req, res) => {
+  res.json({
+    participants: [
+      {
+        id: 'p001',
+        initials: 'M.J.',
+        compliance_rate: 89,
+        engagement_status: 'Engaged',
+        milestones_completed: 8,
+        total_milestones: 10
+      }
+    ],
+    summary: {
+      total_active: 12,
+      avg_compliance: 78,
+      engaged_participants: 9
+    },
+    compliance_note: "Data abstracted for court reporting - clinical details protected per 42 CFR Part 2"
+  });
+});
