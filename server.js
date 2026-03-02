@@ -1,193 +1,207 @@
-const express = require('express');
-const { Pool } = require('pg');
-const app = express();
-const PORT = process.env.PORT || 3000;
+// ================================================================
+// BREATHMATCH + PROGRESS ENDPOINT — Complete Integration
+// Paste this entire block BEFORE the final app.listen() line in server.js
+// ================================================================
 
-// Database connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
-
-app.use(express.json());
-app.use(express.static('public'));
-// Health check endpoint
-app.get('/api/health', async (req, res) => {
+// Session Progress Tracking
+app.post('/api/fr/progress', async (req, res) => {
   try {
-    const result = await pool.query('SELECT NOW()');
-    res.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      database: 'connected',
-      system: 'CHOS + AOT Unified System',
-      message: 'Maryland AOT Ready!',
-      version: '4.0-production'
+    const { user_id, session_number, completed, coherence_score, duration_seconds, session_type } = req.body;
+
+    // Insert progress record
+    await pool.query(`
+      INSERT INTO progress (user_id, session_number, completed, coherence_score, duration_seconds, session_type, timestamp)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+    `, [user_id, session_number, completed, coherence_score, duration_seconds, session_type || 'breathing']);
+
+    // Fire-and-forget BreathMatch analyzer
+    void analyzeBreathProfile(user_id).catch(console.error);
+
+    res.json({ 
+      success: true, 
+      message: 'Progress saved successfully' 
     });
-  } catch (error) {
-    res.status(503).json({
-      status: 'unhealthy',
-      error: error.message
-    });
+  } catch (err) {
+    console.error('Progress save error:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// CHOS Dashboard endpoint
-app.get('/api/dashboard', (req, res) => {
-  res.json({
-    message: 'CHOS + AOT System - Maryland AOT Ready!',
-    components: [
-      'Clinical Dashboard',
-      'Court Dashboard', 
-      'Family Bridge',
-      'Success Prediction',
-      'Communication Tracking',
-      'LightBridge Integration'
-    ],
-    compliance: [
-      '42 CFR Part 2',
-      'HIPAA',
-      'NIST Cybersecurity Framework',
-      'Maryland State Requirements'
-    ],
-    status: 'production-ready'
-  });
+// ── BREATHMATCH ANALYZER ────────────────────────────────────────
+// Fires after session completion. Fire-and-forget, never awaited.
+async function analyzeBreathProfile(participantId) {
+  try {
+    // Need minimum 5 sessions before building a profile
+    const completions = await pool.query(`
+      SELECT session_number, coherence_score, duration_seconds, session_type
+      FROM progress
+      WHERE user_id = $1 AND completed = true
+      ORDER BY id DESC
+      LIMIT 20
+    `, [participantId]);
+
+    if (completions.rows.length < 5) return;
+
+    const rows = completions.rows;
+
+    // Rolling baseline: avg coherence across last 10 sessions
+    const recent10 = rows.slice(0, 10);
+    const baselineCoherence = recent10.reduce((sum, r) =>
+      sum + (parseFloat(r.coherence_score) || 0), 0) / recent10.length;
+
+    // Best performing session: highest coherence
+    const best = rows.reduce((a, b) =>
+      (parseFloat(a.coherence_score) || 0) > (parseFloat(b.coherence_score) || 0) ? a : b
+    );
+
+    // Look up session content for best session to get its ratio
+    const sessionContent = await pool.query(`
+      SELECT ratio, breath_mode FROM session_templates
+      WHERE session_number = $1 LIMIT 1
+    `, [best.session_number]);
+
+    const bestSession = sessionContent.rows[0] || {};
+
+    // Adjustment factor: clamped to [0.75, 1.25]
+    const adjustmentFactor = baselineCoherence > 0
+      ? Math.min(1.25, Math.max(0.75,
+          (parseFloat(best.coherence_score) || 1) / baselineCoherence))
+      : 1.0;
+
+    // Check retroactive replay eligibility (15+ sessions)
+    const replayEligible = rows.length >= 15;
+
+    // Upsert breath profile
+    await pool.query(`
+      INSERT INTO breath_profiles (
+        participant_id, baseline_coherence, best_ratio, best_mode,
+        best_duration_seconds, adjustment_factor, sessions_analyzed,
+        last_analyzed_at, replay_eligible, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),$8,NOW())
+      ON CONFLICT (participant_id) DO UPDATE SET
+        baseline_coherence    = EXCLUDED.baseline_coherence,
+        best_ratio            = EXCLUDED.best_ratio,
+        best_mode             = EXCLUDED.best_mode,
+        best_duration_seconds = EXCLUDED.best_duration_seconds,
+        adjustment_factor     = EXCLUDED.adjustment_factor,
+        sessions_analyzed     = EXCLUDED.sessions_analyzed,
+        last_analyzed_at      = NOW(),
+        replay_eligible       = EXCLUDED.replay_eligible,
+        updated_at            = NOW()
+    `, [
+      participantId,
+      baselineCoherence,
+      bestSession.ratio || null,
+      bestSession.breath_mode || null,
+      best.duration_seconds || null,
+      adjustmentFactor,
+      rows.length,
+      replayEligible
+    ]);
+
+    console.log(`[BreathMatch] Profile updated for ${participantId} — factor: ${adjustmentFactor.toFixed(3)}`);
+  } catch (err) {
+    console.error('[BreathMatch] Analyzer error:', err.message);
+  }
+}
+
+// ── GET PROFILE ──────────────────────────────────────────────────
+// Returns a participant's BreathMatch profile
+app.get('/api/fr/breathmatch/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await pool.query(
+      'SELECT * FROM breath_profiles WHERE participant_id = $1',
+      [userId]
+    );
+    if (result.rows.length === 0) {
+      return res.json({ success: true, profile: null, message: 'No profile yet — need 5+ sessions' });
+    }
+    res.json({ success: true, profile: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
-// Clinical Dashboard API
-app.get('/api/clinical/dashboard', async (req, res) => {
+// ── SESSION LOAD WITH BREATHMATCH ADJUSTMENT ─────────────────────
+// Returns session content with ratio adjusted for this participant
+app.get('/api/fr/sessions/:sessionNumber/adjusted/:userId', async (req, res) => {
   try {
-    res.json({
-      participants: [
-        {
-          id: 'p001',
-          name: 'Marcus J.',
-          compliance: 89,
-          status: 'Engaged',
-          sessions_completed: 24,
-          hrv_improvement: 15,
-          family_engagement: 'Active',
-          next_session: '2026-03-02T10:00:00Z'
-        }
-      ],
-      metrics: {
-        total_participants: 12,
-        avg_compliance: 78,
-        sessions_this_week: 45,
-        hrv_improvements: 85
+    const { sessionNumber, userId } = req.params;
+
+    // Get base session
+    const sessionResult = await pool.query(
+      'SELECT * FROM session_templates WHERE session_number = $1 LIMIT 1',
+      [parseInt(sessionNumber)]
+    );
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+
+    const session = { ...sessionResult.rows[0] };
+
+    // Normalize ratio format: colons to dashes (5:5:5:5 → 5-5-5-5)
+    // Database stores colons, breath engine expects dashes
+    if (session.ratio) {
+      session.ratio = session.ratio.replace(/:/g, '-');
+    }
+
+    // Get BreathMatch profile
+    const profileResult = await pool.query(
+      'SELECT * FROM breath_profiles WHERE participant_id = $1',
+      [userId]
+    );
+    const profile = profileResult.rows[0];
+
+    // Apply BreathMatch if profile exists, 5+ sessions analyzed, not locked
+    if (profile &&
+        profile.sessions_analyzed >= 5 &&
+        !profile.profile_locked &&
+        session.ratio) {
+
+      // ratio is already normalized to dashes at this point
+      const parts = session.ratio.split('-').map(Number);
+      if (parts.length >= 2) {
+        const inhale  = parts[0];
+        const hold    = parts.length === 3 ? parts[1] : 0;
+        const exhale  = parts.length === 3 ? parts[2] : parts[1];
+
+        // Apply adjustment to exhale only (per spec)
+        // Cap compound exhale at 12 seconds max
+        const adjustedExhale = Math.min(12, Math.round(exhale * profile.adjustment_factor));
+
+        session.ratio = hold > 0
+          ? `${inhale}-${hold}-${adjustedExhale}`
+          : `${inhale}-${adjustedExhale}`;
+
+        session.breathmatch_applied = true;
+        session.adjustment_factor = profile.adjustment_factor;
       }
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Database error' });
+    }
+
+    res.json({ success: true, session, profile: profile || null });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Court Dashboard API (42 CFR Part 2 compliant)
-app.get('/api/court/participants', async (req, res) => {
+// ── COORDINATOR: VIEW ALL PROFILES (Clinical tier) ───────────────
+app.get('/api/fr/breathmatch/cohort/summary', async (req, res) => {
   try {
-    res.json({
-      participants: [
-        {
-          id: 'p001',
-          initials: 'M.J.',
-          compliance_rate: 89,
-          engagement_status: 'Engaged',
-          milestones_completed: 8,
-          total_milestones: 10,
-          last_update: '2026-03-01T14:30:00Z'
-        }
-      ],
-      summary: {
-        total_active: 12,
-        avg_compliance: 78,
-        engaged_participants: 9,
-        needs_support: 3
-      },
-      note: 'Data abstracted for court reporting - clinical details protected per 42 CFR Part 2'
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Database error' });
+    const result = await pool.query(`
+      SELECT
+        participant_id,
+        baseline_coherence,
+        adjustment_factor,
+        sessions_analyzed,
+        best_ratio,
+        replay_eligible,
+        last_analyzed_at
+      FROM breath_profiles
+      ORDER BY last_analyzed_at DESC
+    `);
+    res.json({ success: true, profiles: result.rows, count: result.rows.length });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
-
-// Analytics & Predictions
-app.get('/api/analytics/predictions', (req, res) => {
-  res.json({
-    success_predictions: [
-      { participant_id: 'p001', success_probability: 87, confidence: 'high' },
-      { participant_id: 'p002', success_probability: 64, confidence: 'medium' }
-    ],
-    model_accuracy: 87.3,
-    last_updated: new Date().toISOString()
-  });
-});
-
-// LightBridge Integration
-app.post('/api/lightbridge/activate', (req, res) => {
-  res.json({
-    status: 'activated',
-    participant_id: req.body.participant_id,
-    light_duration: '30_minutes',
-    family_notified: true,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Family Bridge API
-app.get('/api/family/dashboard/:participant_id', (req, res) => {
-  res.json({
-    participant_id: req.params.participant_id,
-    co_breathing_sessions: 12,
-    lightbridge_activations: 8,
-    connection_quality: 'strong',
-    last_session: '2026-03-01T19:00:00Z'
-  });
-});
-
-// Communication Tracking
-app.post('/api/zoom/create', (req, res) => {
-  res.json({
-    meeting_id: 'zm_' + Date.now(),
-    join_url: 'https://zoom.us/j/example',
-    participant_id: req.body.participant_id,
-    scheduled_time: req.body.scheduled_time,
-    created: new Date().toISOString()
-  });
-});
-
-// Progress Notes Generation
-app.post('/api/clinical/generate-note', (req, res) => {
-  res.json({
-    note_id: 'note_' + Date.now(),
-    participant_id: req.body.participant_id,
-    generated_note: 'Participant completed breathing session with improved HRV metrics. Family engagement active through LightBridge connection.',
-    timestamp: new Date().toISOString(),
-    compliance_note: 'Generated note follows HIPAA and 42 CFR Part 2 guidelines'
-  });
-});
-
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({
-    system: 'CHOS + AOT Unified System',
-    version: '4.0-production',
-    status: 'Maryland AOT Ready',
-    message: 'Comprehensive Healing Operating System for Assisted Outpatient Treatment',
-    endpoints: [
-      'GET /api/health',
-      'GET /api/dashboard', 
-      'GET /api/clinical/dashboard',
-      'GET /api/court/participants',
-      'GET /api/analytics/predictions',
-      'POST /api/lightbridge/activate',
-      'GET /api/family/dashboard/:id',
-      'POST /api/zoom/create',
-      'POST /api/clinical/generate-note'
-    ]
-  });
-});
-
-app.listen(PORT, () => {
-  console.log('CHOS + AOT Server running on port ' + PORT);
-  console.log('Maryland AOT Ready!');
-});
-
