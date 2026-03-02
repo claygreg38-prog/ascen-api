@@ -74,4 +74,6 @@ app.get('/api/court/participants', (req, res) => {
     },
     compliance_note: "Data abstracted for court reporting - clinical details protected per 42 CFR Part 2"
   });
+  endpoints: ['/api/health', '/api/clinical/dashboard', '/api/court/participants']
 });
+
