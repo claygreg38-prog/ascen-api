@@ -1,4 +1,17 @@
-// Session Progress Tracking
+const express = require('express');
+const { Pool } = require('pg');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Database connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Middleware
+app.use(express.json());
+app.use(express.static('public'));// Session Progress Tracking
 app.post('/api/fr/progress', async (req, res) => {
   try {
     const { user_id, session_number, completed, coherence_score, duration_seconds, session_type } = req.body;
@@ -81,4 +94,9 @@ app.get('/api/fr/breathmatch/cohort/summary', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log('Maryland AOT Ready');
 });
