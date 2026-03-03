@@ -99,6 +99,21 @@ app.get('/api/court/participants', (req, res) => {
     compliance_note: "Data abstracted for court reporting - clinical details protected per 42 CFR Part 2",
     timestamp: new Date().toISOString()
   });
+});// LightBridge Family Connection System - GET endpoint for testing
+app.get('/api/lightbridge/activate', (req, res) => {
+  res.json({
+    message: "LightBridge Family Connection System",
+    description: "30-minute therapeutic light sessions for family healing",
+    features: [
+      "Family member notification system",
+      "Child bedtime protection protocols", 
+      "Co-regulation session tracking",
+      "Connection establishment verification"
+    ],
+    usage: "Send POST request with participant_id to activate session",
+    system_status: "Ready for activation",
+    timestamp: new Date().toISOString()
+  });
 });
 // LightBridge Family Connection System
 app.post('/api/lightbridge/activate', (req, res) => {
@@ -113,6 +128,7 @@ app.post('/api/lightbridge/activate', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
 
 
 
