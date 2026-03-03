@@ -100,6 +100,18 @@ app.get('/api/court/participants', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
-app.post('/api/lightbridge/activate', (req, res) => { 
-  // Family connection system for incarcerated parents & children
+// LightBridge Family Connection System
+app.post('/api/lightbridge/activate', (req, res) => {
+  res.json({
+    activation_id: 'lb_' + Date.now(),
+    participant_id: req.body.participant_id,
+    light_duration: '30_minutes',
+    family_members_notified: true,
+    connection_established: true,
+    child_bedtime_protected: true,
+    co_regulation_session: 'active',
+    timestamp: new Date().toISOString()
+  });
 });
+});
+
