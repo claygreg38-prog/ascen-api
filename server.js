@@ -100,3 +100,6 @@ app.get('/api/court/participants', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+app.post('/api/lightbridge/activate', (req, res) => { 
+  // Family connection system for incarcerated parents & children
+});
