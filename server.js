@@ -113,6 +113,7 @@ app.post('/api/lightbridge/activate', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
-});
+
+
 
 
