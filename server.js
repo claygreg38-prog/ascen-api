@@ -128,6 +128,29 @@ app.post('/api/lightbridge/activate', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+// Blockchain Session Verification
+app.post('/api/blockchain/verify-session', async (req, res) => {
+  try {
+    const { participantId, sessionNumber, sessionType, durationMinutes, coherenceScore, breathCount, familyWitnessed, notes } = req.body;
+    
+    // Fire-and-forget to mettle verification ledger
+    fetch('https://mettle-verifcation-ledger-production.up.railway.app/api/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participantId, sessionNumber, sessionType, durationMinutes, coherenceScore, breathCount, familyWitnessed, notes })
+    }).catch(err => console.error('Blockchain verify error:', err));
+
+    res.json({
+      success: true,
+      message: 'Session queued for blockchain verification',
+      participantId,
+      sessionNumber,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 
 
