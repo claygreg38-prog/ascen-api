@@ -18,7 +18,7 @@ app.get('/', (req, res) => {
     system: 'CHOS + AOT Unified System',
     status: 'Live and Ready',
     message: 'Maryland AOT Deployment Successful',
-    endpoints: ['/api/health']
+    endpoints: [ '/api/clinical/dashboard', '/api/court/participants', '/api/lightbridge/activate']
   });
 });
 
@@ -114,4 +114,5 @@ app.post('/api/lightbridge/activate', (req, res) => {
   });
 });
 });
+
 
