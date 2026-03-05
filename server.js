@@ -42,8 +42,8 @@ app.get('/api/schema', async (req, res) => {
 app.get('/api/sessions', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No database connection' });
   try {
-    const result = await pool.query('SELECT * FROM session_templates LIMIT 3');
-    res.json({ count: result.rows.length, sample: result.rows });
+    const result = await pool.query('SELECT session_number, title, arc, breath_mode, ratio, duration_seconds FROM session_templates ORDER BY session_number ASC');
+    res.json({ count: result.rows.length, sessions: result.rows });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -52,8 +52,11 @@ app.get('/api/sessions', async (req, res) => {
 app.get('/api/sessions/:id', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No database connection' });
   try {
-    const result = await pool.query('SELECT * FROM session_templates LIMIT 1');
-    res.json({ sample_row: result.rows[0], requested_id: req.params.id });
+    const { id } = req.params;
+    const num = parseInt(id.replace(/\D/g, '')) || 1;
+    const result = await pool.query('SELECT * FROM session_templates WHERE session_number = $1', [num]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Session not found' });
+    res.json(result.rows[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
