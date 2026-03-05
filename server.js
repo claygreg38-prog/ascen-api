@@ -53,6 +53,15 @@ app.get('/', (req, res) => {
 app.get('/api/sessions', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No database connection' });
   try {
+    const schema = await pool.query(`SELECT column_name FROM information_schema.columns WHERE table_name = 'session_templates' ORDER BY ordinal_position`);
+    const sample = await pool.query('SELECT * FROM session_templates LIMIT 3');
+    res.json({ columns: schema.rows.map(r => r.column_name), sample: sample.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+  if (!pool) return res.status(503).json({ error: 'No database connection' });
+  try {
     const result = await pool.query(
       'SELECT id, session_id, title, arc, session_number FROM session_templates ORDER BY session_number ASC'
     );
@@ -140,3 +149,4 @@ app.post('/api/blockchain/verify-session', async (req, res) => {
 app.listen(PORT, () => {
   console.log('Server running on port', PORT);
 });
+
