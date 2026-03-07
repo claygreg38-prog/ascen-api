@@ -111,8 +111,8 @@ app.use('/api/axis', axisRoutes);
 // ═══════════════════════════════════════════════════════════════
 // CAPACITY INTAKE ROUTES
 // ═══════════════════════════════════════════════════════════════
-const capacityIntakeRoutes = require('./src/routes/capacityIntake');
-app.use('/api', capacityIntakeRoutes);
+// const capacityIntakeRoutes = require('./src/routes/capacityIntake');
+// app.use('/api', capacityIntakeRoutes);
 
 
 // ═══════════════════════════════════════════════════════════════
