@@ -84,7 +84,14 @@ app.use('/api/abi/drills', authenticateOrApiKey('participant'));
 // /api/abi/health is handled by abiRoutes, no auth middleware above it
 
 app.use('/api/abi', abiRoutes);
-
+// FR Routes (Family Receiver)
+try {
+  const frRoutes = require('./src/routes/frRoutes');
+  app.use('/api/abi/fr', frRoutes);
+  console.log('[FR] Routes mounted at /api/abi/fr');
+} catch (err) {
+  console.warn('[FR] Could not mount:', err.message);
+}
 // ═══════════════════════════════════════════════════════════════
 // AXIS ROUTES — Brain stem analytics
 // ═══════════════════════════════════════════════════════════════
