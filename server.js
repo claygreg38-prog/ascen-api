@@ -247,15 +247,49 @@ app.post('/api/lightbridge/activate', authenticateOrApiKey('participant'), (req,
   res.json({ activation_id: 'lb_' + Date.now(), participant_id: req.body.participant_id, connection_established: true, timestamp: new Date().toISOString() });
 });
 
-// ── Blockchain verification ─────────────────────────────────
+// ── Blockchain verification (real Polygon contract wire) ─────
+const { VerificationService } = require('./src/blockchain/verificationService');
+const verificationService = new VerificationService(pool);
+verificationService.initialize().catch(err =>
+  console.warn('[BLOCKCHAIN] Deferred init:', err.message)
+);
+
+// Submit attestation — requires dual signatures (participant + facilitator)
+app.post('/api/blockchain/submit-attestation', authenticateOrApiKey('admin'), async (req, res) => {
+  try {
+    const result = await verificationService.submitAttestation(req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Process gas-deferred attestations (admin/cron)
+app.post('/api/blockchain/process-deferred', authenticateOrApiKey('admin'), async (req, res) => {
+  try {
+    const result = await verificationService.processDeferred();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Legacy endpoint — backwards compatible, queues for attestation
 app.post('/api/blockchain/verify-session', authenticateOrApiKey('participant'), async (req, res) => {
   try {
-    const { participantId, sessionNumber, sessionType, durationMinutes, coherenceScore, breathCount, familyWitnessed, notes } = req.body;
-    fetch('https://mettle-verifcation-ledger-production.up.railway.app/api/verify', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ participantId, sessionNumber, sessionType, durationMinutes, coherenceScore, breathCount, familyWitnessed, notes })
-    }).catch(err => console.error('Blockchain verify error:', err));
-    res.json({ success: true, message: 'Session queued for blockchain verification', participantId, sessionNumber, timestamp: new Date().toISOString() });
+    const { participantId, sessionNumber, sessionType } = req.body;
+    // Queue in attestation_queue as awaiting_facilitator
+    await pool.query(
+      `INSERT INTO attestation_queue (user_id, packet_hash, status)
+       SELECT $1, sc.packet_hash, 'awaiting_facilitator'
+       FROM session_completions sc
+       WHERE sc.user_id = $1 AND sc.session_number = $2
+         AND sc.packet_hash IS NOT NULL
+       ORDER BY sc.completed_at DESC LIMIT 1
+       ON CONFLICT DO NOTHING`,
+      [participantId, sessionNumber]
+    );
+    res.json({ success: true, message: 'Session queued for blockchain attestation', participantId, sessionNumber, timestamp: new Date().toISOString() });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
