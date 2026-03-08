@@ -73,12 +73,23 @@ function adaptBreathProtocol(session, user) {
     ? trackConfig.duration[0] + Math.floor(Math.random() * (trackConfig.duration[1] - trackConfig.duration[0]))
     : trackConfig.duration;
 
+  // Check if YAML session has adaptive_ratio: true (corrected sessions)
+  const yamlAdaptive = session.yaml_data?.adaptive_ratio === true
+    || session.adaptive_ratio === true;
+
+  const yamlRatioRange = session.yaml_data?.ratio_range || session.ratio_range || null;
+  const yamlDurationRange = session.yaml_data?.duration_range || session.duration_range || null;
+
   return {
     ...session,
     _arc: arc,
     _breathwork_mode: arcConfig.mode,
-    ratio: trackConfig.ratio,
-    duration_seconds: duration,
+    // If YAML says adaptive, defer ratio to determineBreathParams at arrival
+    adaptive_ratio: yamlAdaptive,
+    ratio: yamlAdaptive ? null : trackConfig.ratio,
+    ratio_range: yamlAdaptive ? yamlRatioRange : null,
+    duration_range: yamlAdaptive ? yamlDurationRange : null,
+    duration_seconds: yamlAdaptive ? null : duration,
     _hold_seconds: trackConfig.hold || 0,
     _touch_seconds: trackConfig.touch || 0,
     _return_seconds: trackConfig.return || 0,
@@ -87,16 +98,29 @@ function adaptBreathProtocol(session, user) {
   };
 }
 
+/**
+ * FR breath protocol — ABI-adaptive.
+ *
+ * Corrected FR sessions use adaptive_ratio: true with ratio_range
+ * and duration_range from YAML. ABI determines the actual ratio
+ * at arrival via determineBreathParams(). This function sets up
+ * the config with ranges; the orchestrator resolves the final
+ * ratio after baseline capture.
+ *
+ * Clinical Rule #10: FR sessions MUST use adaptive ratios.
+ * Never hardcode breathwork_ratio in FR sessions.
+ */
 function adaptFRBreathProtocol(session, user) {
-  const track = user.breath_track || 'standard';
-  const frBlock = Math.ceil((session.session_number || 1) / 5);
+  const sessNum = session.session_number || 1;
+  const frBlock = Math.ceil(sessNum / 5);
 
+  // FR ABI Progression Map (from corrected YAML spec)
   const FR_BLOCKS = {
-    1: { standard: '4:6', gentle: '3:5', minimal: '3:4', duration: 300 },
-    2: { standard: '4:6', gentle: '3:5', minimal: '3:4', duration: 360 },
-    3: { standard: '4:7', gentle: '3:6', minimal: '3:5', duration: 420 },
-    4: { standard: '4:7', gentle: '3:6', minimal: '3:5', duration: 480 },
-    5: { standard: '4:8', gentle: '3:6', minimal: '3:5', duration: 540 }
+    1: { ratio_range: '2:3 → 4:7', duration_range: '120-240', coherence_target: 0.40, abi_mode: 'guided_coherence', detection: 'arrival_baseline' },
+    2: { ratio_range: '2:3 → 4:8', duration_range: '150-300', coherence_target: 0.50, abi_mode: 'guided_coherence', detection: 'arrival_baseline' },
+    3: { ratio_range: '2:4 → 5:7', duration_range: '180-360', coherence_target: 0.55, abi_mode: 'coherence_building', detection: 'arrival_baseline' },
+    4: { ratio_range: '3:4 → 6:8', duration_range: '240-420', coherence_target: 0.60, abi_mode: 'user_chosen', detection: 'baseline_plus_history' },
+    5: { ratio_range: '3:4 → 6:10', duration_range: '300-480', coherence_target: 0.65, abi_mode: 'user_chosen', detection: 'baseline_plus_history' }
   };
 
   const block = FR_BLOCKS[Math.min(frBlock, 5)] || FR_BLOCKS[1];
@@ -104,10 +128,17 @@ function adaptFRBreathProtocol(session, user) {
   return {
     ...session,
     _breathwork_mode: 'simple_pacer',
-    ratio: block[track] || block.standard,
-    duration_seconds: block.duration,
     _is_fr: true,
-    _fr_block: frBlock
+    _fr_block: frBlock,
+    // ABI-adaptive: ratio resolved at arrival by determineBreathParams
+    adaptive_ratio: true,
+    ratio: null,
+    ratio_range: block.ratio_range,
+    duration_range: block.duration_range,
+    duration_seconds: null,
+    _coherence_target: block.coherence_target,
+    _abi_mode: block.abi_mode,
+    _detection_mode: block.detection
   };
 }
 

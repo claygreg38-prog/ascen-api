@@ -340,11 +340,10 @@ router.get('/session/status/:userId/:sessionId', (req, res) => {
 });
 
 // ── SESSION STATE (frontend pattern: x-session-key header) ──
-// GET /api/abi/session/state/:key?
-// Session key via header (preferred) or optional URL param (backward compat)
-router.get('/session/state/:key?', (req, res) => {
+// GET /api/abi/session/state
+router.get('/session/state', (req, res) => {
   try {
-    const key = req.headers['x-session-key'] || req.params.key;
+    const key = req.headers['x-session-key'];
     if (!key) return res.status(400).json({ error: 'Missing session key (send x-session-key header)' });
     const session = activeSessions.get(key);
     if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -364,10 +363,10 @@ router.get('/session/state/:key?', (req, res) => {
 });
 
 // ── ADAPTED SESSION ─────────────────────────────────────────
-// GET /api/abi/session/adapted/:key?
-router.get('/session/adapted/:key?', (req, res) => {
+// GET /api/abi/session/adapted
+router.get('/session/adapted', (req, res) => {
   try {
-    const key = req.headers['x-session-key'] || req.params.key;
+    const key = req.headers['x-session-key'];
     if (!key) return res.status(400).json({ error: 'Missing session key' });
     const session = activeSessions.get(key);
     if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -383,10 +382,10 @@ router.get('/session/adapted/:key?', (req, res) => {
 });
 
 // ── PENDING EVENTS (SSE-ready) ──────────────────────────────
-// GET /api/abi/session/events/:key?
-router.get('/session/events/:key?', (req, res) => {
+// GET /api/abi/session/events
+router.get('/session/events', (req, res) => {
   try {
-    const key = req.headers['x-session-key'] || req.params.key;
+    const key = req.headers['x-session-key'];
     if (!key) return res.status(400).json({ error: 'Missing session key' });
     const session = activeSessions.get(key);
     if (!session) return res.status(404).json({ error: 'Session not found' });

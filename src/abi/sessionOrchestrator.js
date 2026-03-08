@@ -48,6 +48,8 @@ const { IdentityGate, CompanionshipMode } = require('./identityEngagement');
 const { BaselineFilter } = require('./baselineFilter');
 const { adaptDrill, filterDrillRecommendation, getAllDrillsForUser } = require('./drillAdapter');
 const { analyzeTrends, shouldRunTrendAnalysis } = require('./trendAnalyzer');
+const { buildSessionDataPacket } = require('./buildSessionDataPacket');
+const { determineBreathParams } = require('./determineBreathParams');
 const { AxisEngine } = require('../axis/axisEngine');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -559,7 +561,66 @@ function createOrchestrator(callbacks = {}) {
       }
     }
 
-    // ── [NEW] LUNO — ARRIVAL DIALOGUE ───────────────────
+    // ── [ABI] DETERMINE BREATH PARAMS (adaptive ratio) ──
+    // If the adapted session has adaptive_ratio: true (FR corrected
+    // sessions or YAML-driven), resolve the actual ratio from the
+    // arrival baseline. The YAML provides guardrails, ABI decides.
+    let breathParamsResult = null;
+    if (adaptedSession.adaptive_ratio === true) {
+      try {
+        // Build history context for FR16-25 (baseline_plus_history)
+        let history = null;
+        if (adaptedSession._detection_mode === 'baseline_plus_history') {
+          const historyResult = await pool.query(
+            `SELECT coherence_score, breath_track_at_completion
+             FROM session_completions
+             WHERE user_id = $1
+             ORDER BY completed_at DESC LIMIT 5`,
+            [userId]
+          );
+          if (historyResult.rows.length > 0) {
+            const avgCoherence = historyResult.rows.reduce((s, r) => s + (parseFloat(r.coherence_score) || 0), 0) / historyResult.rows.length;
+            history = {
+              avg_coherence: avgCoherence,
+              last_ratio: adaptedSession.ratio || null
+            };
+          }
+        }
+
+        breathParamsResult = determineBreathParams(
+          {
+            resting_hr: cleanBaseline.resting_hr,
+            resting_hrv: cleanBaseline.resting_hrv,
+            respiratory_rate: cleanBaseline.respiratory_rate
+          },
+          {
+            adaptive_ratio: true,
+            ratio_range: adaptedSession.ratio_range,
+            duration_range: adaptedSession.duration_range
+          },
+          history
+        );
+
+        // Apply resolved params to adapted session
+        adaptedSession.ratio = breathParamsResult.ratio;
+        adaptedSession.breath_in = breathParamsResult.inhale;
+        adaptedSession.breath_out = breathParamsResult.exhale;
+        adaptedSession.duration_seconds = breathParamsResult.duration_seconds;
+        adaptedSession._breath_params_confidence = breathParamsResult.confidence;
+        adaptedSession._breath_params_method = breathParamsResult.method;
+      } catch (err) {
+        // Fallback: use safest ratio in range
+        console.error('[ABI] determineBreathParams failed, using fallback:', err.message);
+        adaptedSession.ratio = '3:4';
+        adaptedSession.breath_in = 3;
+        adaptedSession.breath_out = 4;
+        adaptedSession.duration_seconds = 180;
+        adaptedSession._breath_params_confidence = 0.2;
+        adaptedSession._breath_params_method = 'fallback_error';
+      }
+    }
+
+    // ── LUNO — ARRIVAL DIALOGUE ──────────────────────────
     let arrivalDialogue = null;
     if (lunoIntelligence) {
       try {
@@ -576,20 +637,24 @@ function createOrchestrator(callbacks = {}) {
       detection: detectionResult,
       biometrics_available: biometricsAvailable,
       baseline_filtered: cleanBaseline !== arrivalBaseline,
+      breath_params: breathParamsResult,
       arrival_dialogue: arrivalDialogue,
-      session_update: detectionResult.auto_assigned ? {
+      session_update: {
         pacer_active: adaptedSession._pacer_active !== false,
-        mode: adaptedSession._mode || 'simple_pacer',
-        breath_ratio: adaptedSession.breath_ratio,
+        mode: adaptedSession._breathwork_mode || 'simple_pacer',
+        breath_ratio: adaptedSession.ratio,
         breath_in: adaptedSession.breath_in,
         breath_out: adaptedSession.breath_out,
-        breath_hold: adaptedSession.breath_hold,
+        breath_hold: adaptedSession._hold_seconds || 0,
         pursed_lip: adaptedSession._pursed_lip || false,
+        duration_seconds: adaptedSession.duration_seconds,
         luno_inhale_cue: adaptedSession._luno_inhale_cue || null,
         luno_exhale_cue: adaptedSession._luno_exhale_cue || null,
         suppress_coherence_display: adaptedSession._suppress_coherence_display || false,
-        track: adaptedSession._track
-      } : null
+        track: user.breath_track,
+        adaptive_ratio: adaptedSession.adaptive_ratio || false,
+        coherence_target: adaptedSession._coherence_target || null
+      }
     };
   }
 
@@ -913,7 +978,78 @@ function createOrchestrator(callbacks = {}) {
     // ── WEIGHT COHERENCE ────────────────────────────────
     const coherenceEnd = rawMetrics.coherence_end || rawMetrics.coherence_peak || 0;
 
-    // ── SAVE SESSION COMPLETION ─────────────────────────
+    // ── STATE ENGINE — SESSION SUMMARY ───────────────────
+    // (Moved before INSERT so enrichment columns are available)
+    let stateSummary = null;
+    if (stateEngine) {
+      try {
+        stateSummary = stateEngine.getSessionSummary();
+      } catch (err) {
+        console.error('State summary failed (non-blocking):', err.message);
+      }
+    }
+
+    // ── COACHING ENGINE — SESSION SUMMARY ────────────────
+    let coachingSummary = null;
+    if (coachingEngine) {
+      try {
+        coachingSummary = coachingEngine.getCoachingSummary();
+      } catch (err) {
+        console.error('Coaching summary failed (non-blocking):', err.message);
+      }
+    }
+
+    // ── IMMUNE SYSTEM — POST-SESSION SCAN ────────────────
+    let immuneScan = null;
+    if (immuneSystem) {
+      try {
+        immuneScan = await immuneSystem.postSessionScan(
+          {
+            session_id: sessionId,
+            session_number: rawSession.session_number || 0,
+            coherence_peak: rawMetrics.coherence_peak || 0,
+            coherence_end: coherenceEnd,
+            cycle_completion_rate: cleanMetrics.adjusted_cycle_completion_rate || 0,
+            panic_event: rawMetrics.panic_event || false,
+            exit_type: cleanMetrics.exit_type || 'normal',
+            pause_count: cleanMetrics.total_pauses || 0,
+            track: user.breath_track || 'standard'
+          },
+          stateSummary
+        );
+      } catch (err) {
+        console.error('Immune post-scan failed (non-blocking):', err.message);
+      }
+    }
+
+    // ── [ABI] BUILD SESSION DATA PACKET ──────────────────
+    // Canonical hash for on-chain attestation. Every session
+    // from day one is retroactively attestable, even before
+    // blockchain writes are live.
+    let sessionPacket = null;
+    const biometricSource = biometricAnnotation?.source || 'none';
+    try {
+      sessionPacket = buildSessionDataPacket({
+        userId,
+        sessionId,
+        sessionNumber: rawSession.session_number || 0,
+        track: user.breath_track || 'standard',
+        arc: adaptedSession._arc || null,
+        mode: adaptedSession._breathwork_mode || 'simple_pacer',
+        arrivalBaseline,
+        cleanMetrics,
+        rawMetrics,
+        stateSummary,
+        coachingSummary,
+        immuneScan,
+        biometricSource,
+        coherenceEnd
+      });
+    } catch (err) {
+      console.error('[ABI] SessionDataPacket build failed (non-blocking):', err.message);
+    }
+
+    // ── SAVE SESSION COMPLETION ──────────────────────────
     try {
       await pool.query(
         `INSERT INTO session_completions (
@@ -921,8 +1057,13 @@ function createOrchestrator(callbacks = {}) {
            coherence_score, coherence_end, cycle_completion_rate,
            duration_seconds, active_duration_seconds,
            pause_count, pause_seconds, panic_event, exit_type,
-           breathwork_mode, breath_track_at_completion, arc_id
-         ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+           breathwork_mode, breath_track_at_completion, arc_id,
+           time_to_regulation_sec, arrival_hr, arrival_hrv,
+           coherence_trajectory, zone_time_profile,
+           packet_hash, state_summary, coaching_summary,
+           immune_flags_snapshot, biometric_source
+         ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                   $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
         [
           userId,
           sessionId,
@@ -938,7 +1079,17 @@ function createOrchestrator(callbacks = {}) {
           cleanMetrics.exit_type || 'normal',
           adaptedSession._breathwork_mode || 'simple_pacer',
           user.breath_track || 'standard',
-          adaptedSession._arc || null
+          adaptedSession._arc || null,
+          sessionPacket?.timeToRegulationSec ?? null,
+          sessionPacket?.arrivalHr ?? null,
+          sessionPacket?.arrivalHrv ?? null,
+          sessionPacket?.coherenceTrajectory ?? null,
+          sessionPacket?.zoneTimeProfile ? JSON.stringify(sessionPacket.zoneTimeProfile) : null,
+          sessionPacket?.packetHash ?? null,
+          stateSummary ? JSON.stringify(stateSummary) : null,
+          coachingSummary ? JSON.stringify(coachingSummary) : null,
+          immuneScan?.flags ? JSON.stringify(immuneScan.flags) : null,
+          biometricSource
         ]
       );
 
@@ -1019,56 +1170,13 @@ function createOrchestrator(callbacks = {}) {
 
     const primaryAffirmation = affirmations.length > 0 ? affirmations[0] : null;
 
-    // ── [NEW] STATE ENGINE — SESSION SUMMARY ────────────
-    let stateSummary = null;
-    if (stateEngine) {
-      try {
-        stateSummary = stateEngine.getSessionSummary();
-      } catch (err) {
-        console.error('State summary failed (non-blocking):', err.message);
-      }
-    }
-
-    // ── [NEW] COACHING ENGINE — SESSION SUMMARY ─────────
-    let coachingSummary = null;
-    if (coachingEngine) {
-      try {
-        coachingSummary = coachingEngine.getCoachingSummary();
-      } catch (err) {
-        console.error('Coaching summary failed (non-blocking):', err.message);
-      }
-    }
-
-    // ── [NEW] TREND ANALYZER — EVERY 10 SESSIONS ────────
+    // ── TREND ANALYZER — EVERY 10 SESSIONS ───────────────
     let trendReport = null;
     if (shouldRunTrendAnalysis(sessCount)) {
       try {
         trendReport = await analyzeTrends(userId);
       } catch (err) {
         console.error('Trend analysis failed (non-blocking):', err.message);
-      }
-    }
-
-    // ── [NEW] IMMUNE SYSTEM — POST-SESSION SCAN ─────────
-    let immuneScan = null;
-    if (immuneSystem) {
-      try {
-        immuneScan = await immuneSystem.postSessionScan(
-          {
-            session_id: sessionId,
-            session_number: rawSession.session_number || 0,
-            coherence_peak: rawMetrics.coherence_peak || 0,
-            coherence_end: coherenceEnd,
-            cycle_completion_rate: cleanMetrics.adjusted_cycle_completion_rate || 0,
-            panic_event: rawMetrics.panic_event || false,
-            exit_type: cleanMetrics.exit_type || 'normal',
-            pause_count: cleanMetrics.total_pauses || 0,
-            track: user.breath_track || 'standard'
-          },
-          stateSummary
-        );
-      } catch (err) {
-        console.error('Immune post-scan failed (non-blocking):', err.message);
       }
     }
 
