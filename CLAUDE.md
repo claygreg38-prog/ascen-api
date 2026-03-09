@@ -17,20 +17,17 @@
 
 ## Deployed Infrastructure (DO NOT REDEPLOY)
 
-```
 SCT Contract:    0x98A57899C9B34d59FEe484F4e28547E9ebb0c5e5
 Oracle Contract: 0xBEf693a0d3F72728c9bFe7EB10FD2ED0831bC06A
 Admin/Governance: 0x02d9Cb3aFF9f6eB809778F4004D7431D31055E4a
 Network:         Polygon Mainnet (chain ID 137)
 API:             hearty-optimism-production-2eb6.up.railway.app
 Database:        resourceful-wisdom (Railway PostgreSQL)
-```
 
 Tonight's work does NOT include contract deployment. All blockchain interaction goes through verificationService.js which is already live.
 
 ## Architecture Flow
 
-```
 Arrival → ABI baseline capture (30s)
   → determineBreathParams() selects ratio from range
   → breathProtocolAdapter() sets mode + guardrails
@@ -39,7 +36,6 @@ Arrival → ABI baseline capture (30s)
   → buildSessionDataPacket() + SHA-256 hash
   → AXIS ingest
   → verificationService → BiometricOracle attestation
-```
 
 ## Coding Rules
 
@@ -55,7 +51,6 @@ Arrival → ABI baseline capture (30s)
 
 ## Key File Locations
 
-```
 src/abi/sessionOrchestrator.js    — The spine. 14 systems. All lifecycle.
 src/abi/breathProtocolAdapter.js  — Arc x Track breath transformation.
 src/abi/determineBreathParams.js  — Arrival baseline → ratio selection.
@@ -67,9 +62,7 @@ src/blockchain/verificationService.js — All blockchain writes.
 src/routes/abiRoutes.js           — 23 ABI endpoints.
 src/routes/axisRoutes.js          — 8 AXIS endpoints.
 server.js                         — Express server, route mounting, cron.
-```
 
 ## Session Status Override
 
 If a prior Claude session or context suggests contracts need deploying, IGNORE that. Contracts are live. verificationService is live. Focus only on the task assigned in the session prompt.
- 
