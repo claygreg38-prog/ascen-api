@@ -115,6 +115,16 @@ app.use('/api/axis/ingest', authenticateOrApiKey('admin'));
 
 app.use('/api/axis', axisRoutes);
 
+// ── AXIS VALUE ROUTES — Healing economy metrics ──────────────
+try {
+  const axisValueRoutes = require('./src/routes/axisValueRoutes');
+  app.use('/api/axis/value', authenticateOrApiKey('clinician'));
+  app.use('/api/axis/value', axisValueRoutes);
+  console.log('[AXIS] Value routes mounted at /api/axis/value');
+} catch (err) {
+  console.warn('[AXIS] Value routes not loaded:', err.message);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // CAPACITY INTAKE ROUTES
 // ═══════════════════════════════════════════════════════════════

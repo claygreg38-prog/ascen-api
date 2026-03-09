@@ -48,9 +48,15 @@ const { IdentityGate, CompanionshipMode } = require('./identityEngagement');
 const { BaselineFilter } = require('./baselineFilter');
 const { adaptDrill, filterDrillRecommendation, getAllDrillsForUser } = require('./drillAdapter');
 const { analyzeTrends, shouldRunTrendAnalysis } = require('./trendAnalyzer');
-const { buildSessionDataPacket } = require('./buildSessionDataPacket');
+const { buildSessionDataPacket, queueAttestation } = require('./buildSessionDataPacket');
 const { determineBreathParams } = require('./determineBreathParams');
 const { AxisEngine } = require('../axis/axisEngine');
+const { PreSessionIntelligence } = require('./preSessionIntelligence');
+const { PostSessionIntelligence } = require('./postSessionIntelligence');
+const { ZoneTimeTracker, CoherenceMomentum } = require('./stateEngineEnhancements');
+const { CoachingEffectivenessTracker } = require('./coachingEnhancements');
+const { CrossSystemSynergy } = require('./crossSystemSynergy');
+const { VictoryLapEngine } = require('./victoryLapEngine');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -111,6 +117,15 @@ function createOrchestrator(callbacks = {}) {
   let identityGate = null;
   let companionshipMode = null;
   let baselineFilter = null;
+
+  // ── ENHANCEMENT SYSTEM INSTANCES ────────────────────────
+  let preSessionIntel = null;
+  let postSessionIntel = null;
+  let zoneTimeTracker = null;
+  let coherenceMomentum = null;
+  let coachingEffectiveness = null;
+  let crossSystemSynergy = null;
+  let victoryLapEngine = null;
 
   // ── COMPANIONSHIP MODE FLAG ─────────────────────────────
   let isCompanionshipMode = false;
@@ -397,6 +412,23 @@ function createOrchestrator(callbacks = {}) {
       track: user.breath_track || 'standard'
     });
 
+    // ── INITIALIZE ENHANCEMENT SYSTEMS ───────────────────
+    preSessionIntel = new PreSessionIntelligence(userId, pool);
+    postSessionIntel = new PostSessionIntelligence(pool);
+    zoneTimeTracker = new ZoneTimeTracker();
+    coherenceMomentum = new CoherenceMomentum();
+    coachingEffectiveness = new CoachingEffectivenessTracker();
+    crossSystemSynergy = new CrossSystemSynergy();
+    victoryLapEngine = new VictoryLapEngine();
+
+    // Pre-session intelligence (non-blocking)
+    let preSessionAnalysis = null;
+    try {
+      preSessionAnalysis = await preSessionIntel.analyze();
+    } catch (err) {
+      console.error('[ABI] PreSessionIntelligence failed (non-blocking):', err.message);
+    }
+
     sessionPhase = 'arrival';
 
     // Return initial session config for the engine
@@ -587,7 +619,7 @@ function createOrchestrator(callbacks = {}) {
           }
         }
 
-        breathParamsResult = determineBreathParams(
+        breathParamsResult = await determineBreathParams(
           {
             resting_hr: cleanBaseline.resting_hr,
             resting_hrv: cleanBaseline.resting_hrv,
@@ -596,9 +628,11 @@ function createOrchestrator(callbacks = {}) {
           {
             adaptive_ratio: true,
             ratio_range: adaptedSession.ratio_range,
-            duration_range: adaptedSession.duration_range
+            duration_range: adaptedSession.duration_range,
+            detection_mode: adaptedSession.detection_mode || adaptedSession._detection_mode || 'arrival_baseline'
           },
-          history
+          history,
+          { pool, userId }
         );
 
         // Apply resolved params to adapted session
@@ -621,9 +655,15 @@ function createOrchestrator(callbacks = {}) {
     }
 
     // ── LUNO — ARRIVAL DIALOGUE ──────────────────────────
+    // Add breath context so Luno can reference the selected ratio
     let arrivalDialogue = null;
     if (lunoIntelligence) {
       try {
+        if (breathParamsResult && lunoIntelligence.context) {
+          lunoIntelligence.context.breath_ratio = breathParamsResult.ratio;
+          lunoIntelligence.context.breath_mode = adaptedSession._breathwork_mode;
+          lunoIntelligence.context.breath_confidence = breathParamsResult.confidence;
+        }
         arrivalDialogue = await lunoIntelligence.getPhaseDialogue('arrival');
       } catch (err) {
         // Non-blocking — arrival dialogue is optional
@@ -816,6 +856,15 @@ function createOrchestrator(callbacks = {}) {
       if (result.detection_mode !== currentMode) {
         result.detection_mode = currentMode;
       }
+    }
+
+    // ── ENHANCEMENT SYSTEMS — TICK ─────────────────────
+    try {
+      if (zoneTimeTracker && stateResult) zoneTimeTracker.onTick(stateResult.state, elapsed);
+      if (coherenceMomentum) coherenceMomentum.update(biometrics.coherence || biometrics.coherence_score || 0);
+      if (coachingEffectiveness && stateResult) coachingEffectiveness.onTick(stateResult.state, stateResult.response_level);
+    } catch (err) {
+      // Non-blocking
     }
 
     // ── LIVE DETECTION (90-second check) ────────────────
@@ -1216,6 +1265,88 @@ function createOrchestrator(callbacks = {}) {
       console.error('AXIS ingest failed (non-blocking):', err.message);
     }
 
+    // ── LEDGER SYNC (non-blocking) ─────────────────────
+    try {
+      if (sessionPacket && sessionPacket.packetHash) {
+        // Update session_completions with packet_hash
+        await pool.query(
+          `UPDATE session_completions SET packet_hash = $1
+           WHERE user_id = $2 AND session_id = $3`,
+          [sessionPacket.packetHash, userId, sessionId]
+        );
+
+        // Queue attestation if user has a wallet
+        if (user.wallet_address) {
+          const scRow = await pool.query(
+            `SELECT id FROM session_completions
+             WHERE user_id = $1 AND session_id = $2
+             ORDER BY completed_at DESC LIMIT 1`,
+            [userId, sessionId]
+          );
+          const scId = scRow.rows[0]?.id || null;
+          await queueAttestation(pool, {
+            sessionCompletionId: scId,
+            userId,
+            packetHash: sessionPacket.packetHash
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Ledger sync failed (non-blocking):', err.message);
+    }
+
+    // ── POST-SESSION INTELLIGENCE (non-blocking) ──────
+    let postAnalysis = null;
+    try {
+      if (postSessionIntel) {
+        postAnalysis = await postSessionIntel.analyze({
+          userId, sessionId, sessionNumber: rawSession.session_number || 0,
+          cleanMetrics, stateSummary, coachingSummary,
+          immuneScan, sessionPacket, arrivalBaseline,
+          breathParamsResult: adaptedSession
+        });
+      }
+    } catch (err) {
+      console.error('[ABI] PostSessionIntelligence failed (non-blocking):', err.message);
+    }
+
+    // ── VICTORY LAP CHECK ────────────────────────────────
+    let victoryLap = null;
+    try {
+      if (victoryLapEngine) {
+        victoryLap = victoryLapEngine.evaluate({
+          sessionNumber: rawSession.session_number || 0,
+          coherenceEnd,
+          completionRate: cleanMetrics?.adjusted_cycle_completion_rate || cleanMetrics?.cycle_completion_rate || 0,
+          stateSummary, coachingSummary,
+          track: user.breath_track,
+          totalSessionsCompleted: (user.total_sessions_completed || 0) + 1,
+          advancementResult
+        });
+      }
+    } catch (err) {
+      console.error('[ABI] VictoryLapEngine failed (non-blocking):', err.message);
+    }
+
+    // ── ZONE TIME FINALIZATION ───────────────────────────
+    let zoneProfile = null;
+    try {
+      if (zoneTimeTracker) {
+        zoneProfile = zoneTimeTracker.finalize(breathingStartTime ? Math.floor((Date.now() - breathingStartTime) / 1000) : 0);
+      }
+    } catch (err) { /* non-blocking */ }
+
+    // ── OUTCOME-AWARE MIRROR ─────────────────────────────
+    try {
+      if (lunoIntelligence && lunoIntelligence.setSessionOutcome) {
+        lunoIntelligence.setSessionOutcome({
+          coherence_end: coherenceEnd,
+          panic_event: cleanMetrics?.panic_event || false,
+          exit_type: cleanMetrics?.exit_type || 'normal'
+        });
+      }
+    } catch (err) { /* non-blocking */ }
+
     // ── MIRROR SCREEN DATA ──────────────────────────────
     const mirrorData = {
       suppress_biometrics: adaptedSession._suppress_biometric_mirror || false,
@@ -1233,7 +1364,12 @@ function createOrchestrator(callbacks = {}) {
       biometric_annotation: biometricAnnotation,
       companionship_mode: isCompanionshipMode,
       companionship_data: isCompanionshipMode && companionshipMode
-        ? companionshipMode.getSessionConfig() : null
+        ? companionshipMode.getSessionConfig() : null,
+      victory_lap: victoryLap,
+      post_analysis: postAnalysis,
+      zone_time_profile: zoneProfile,
+      coherence_momentum: coherenceMomentum ? coherenceMomentum.getSummary() : null,
+      coaching_effectiveness: coachingEffectiveness ? coachingEffectiveness.getSummary() : null
     };
 
     onMirrorData(mirrorData);
@@ -1244,7 +1380,8 @@ function createOrchestrator(callbacks = {}) {
       metrics: cleanMetrics,
       advancement: advancementResult,
       affirmation: primaryAffirmation,
-      mirror: mirrorData
+      mirror: mirrorData,
+      victory_lap: victoryLap
     };
   }
 

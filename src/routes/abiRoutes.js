@@ -43,18 +43,18 @@ function makeSessionKey(userId, sessionId) {
 //   3. Legacy: userId + sessionId (camelCase)
 // Also reads x-session-key header for GET requests.
 function resolveSession(req) {
-  // Try header first (security: keeps key out of URLs)
+  // Security: session key ONLY from header — never from URL params
   let key = req.headers['x-session-key'] || null;
 
   if (!key) {
-    // Try composite session_key from body
+    // Try composite session_key from body (POST requests)
     key = req.body?.session_key || null;
   }
 
   if (!key) {
-    // Try individual fields (support both snake_case and camelCase)
-    const userId = req.body?.user_id || req.body?.userId || req.params?.userId;
-    const sessionId = req.body?.session_id || req.body?.sessionId || req.params?.sessionId;
+    // Try individual fields from body only (not query params)
+    const userId = req.body?.user_id || req.body?.userId;
+    const sessionId = req.body?.session_id || req.body?.sessionId;
     if (userId && sessionId) {
       key = makeSessionKey(userId, sessionId);
     }

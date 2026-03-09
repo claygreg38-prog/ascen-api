@@ -197,4 +197,22 @@ function deriveTimeToRegulation(stateSummary) {
   return activationTicks > 0 ? activationTicks : null;
 }
 
-module.exports = { buildSessionDataPacket };
+/**
+ * Queue a session attestation for facilitator review.
+ * Inserts into attestation_queue with status 'awaiting_facilitator'.
+ *
+ * @param {Object} pool - pg Pool instance
+ * @param {Object} params
+ * @param {number} params.sessionCompletionId - session_completions.id
+ * @param {string} params.userId
+ * @param {string} params.packetHash - SHA-256 hash from buildSessionDataPacket
+ */
+async function queueAttestation(pool, { sessionCompletionId, userId, packetHash }) {
+  await pool.query(
+    `INSERT INTO attestation_queue (session_completion_id, user_id, packet_hash, status)
+     VALUES ($1, $2, $3, 'awaiting_facilitator')`,
+    [sessionCompletionId || null, userId, packetHash]
+  );
+}
+
+module.exports = { buildSessionDataPacket, queueAttestation };
