@@ -1,10 +1,14 @@
 const express = require('express');
+const path = require('path');
 const { Pool } = require('pg');
 const cron = require('node-cron');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// ── CLINICAL TEST HARNESS (temporary — delete after 5-day test) ──
+app.get('/test', (req, res) => res.sendFile(path.join(__dirname, 'public/test.html')));
 
 // ── DATABASE ────────────────────────────────────────────────
 // Declared FIRST so all middleware and routes can reference it
