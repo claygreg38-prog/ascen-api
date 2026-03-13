@@ -203,6 +203,31 @@ router.post('/session/arrival-complete', async (req, res) => {
 });
 
 
+// ── SOMATIC COMPLETE ────────────────────────────────────────
+// POST /api/abi/session/somatic-complete
+// Body: { exerciseId, hrvPre, hrvPost }
+// Returns: pivot (next exercise) or proceed to breathwork
+
+router.post('/session/somatic-complete', async (req, res) => {
+  try {
+    const { key, session } = resolveSession(req);
+    if (!session) return res.status(404).json({ error: 'No active session' });
+
+    const { exerciseId, hrvPre, hrvPost } = req.body;
+    if (!exerciseId || hrvPre == null || hrvPost == null) {
+      return res.status(400).json({ error: 'exerciseId, hrvPre, and hrvPost required' });
+    }
+
+    const result = await session.abi.onSomaticComplete(exerciseId, hrvPre, hrvPost);
+    const events = drainEvents(session);
+
+    res.json({ success: true, result, events });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 // ── BREATHING TICK ──────────────────────────────────────────
 // POST /api/abi/session/tick
 // Body: { userId, sessionId, biometrics }

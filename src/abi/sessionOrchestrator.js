@@ -130,6 +130,11 @@ function createOrchestrator(callbacks = {}) {
   // ── COMPANIONSHIP MODE FLAG ─────────────────────────────
   let isCompanionshipMode = false;
 
+  // ── SOMATIC RESET STATE ───────────────────────────────────
+  let somaticActive = false;
+  let somaticExerciseCount = 0;
+  let stressorFlag = null;  // court_day | visitation_window | release_approaching
+
   // ═══════════════════════════════════════════════════════════
   // 1. SESSION START
   // ═══════════════════════════════════════════════════════════
@@ -138,6 +143,7 @@ function createOrchestrator(callbacks = {}) {
     userId = _userId;
     sessionId = _sessionId;
     sessionPhase = 'pre_session';
+    stressorFlag = options.stressor_flag || null;
 
     // ── LOAD USER ───────────────────────────────────────
     const userResult = await pool.query(
@@ -510,6 +516,45 @@ function createOrchestrator(callbacks = {}) {
         }
       } catch (err) {
         console.error('Baseline filter failed (using raw):', err.message);
+      }
+    }
+
+    // ── [ABI] SOMATIC RESET GATEWAY ─────────────────────
+    // If arrival HR signals hyperarousal (>100) or hypoarousal (<55),
+    // deploy somatic exercise BEFORE breathwork. Non-optional.
+    // Special case: stressor_flag + HR 60-85 → court_day protocol.
+    const arrivalHR = cleanBaseline.resting_hr;
+    if (arrivalHR) {
+      let somaticProtocol = null;
+
+      if (arrivalHR > 100) {
+        somaticProtocol = 'hyperarousal';
+      } else if (arrivalHR < 55) {
+        somaticProtocol = 'hypoarousal';
+      } else if (stressorFlag && ['court_day', 'visitation_window', 'release_approaching'].includes(stressorFlag)
+                 && arrivalHR >= 60 && arrivalHR <= 85) {
+        somaticProtocol = 'court_day';
+      }
+
+      if (somaticProtocol) {
+        try {
+          const exercise = await getSomaticExercise(somaticProtocol, 1);
+          if (exercise) {
+            somaticActive = true;
+            somaticExerciseCount = 1;
+            sessionPhase = 'somatic';
+            onLunoSpeak(exercise.luno_intro);
+            return {
+              somatic_required: true,
+              somatic_exercise: exercise,
+              protocol: somaticProtocol,
+              baseline_filtered: cleanBaseline !== arrivalBaseline,
+              biometrics_available: biometricsAvailable
+            };
+          }
+        } catch (err) {
+          console.error('[ABI] Somatic exercise lookup failed (proceeding to breathwork):', err.message);
+        }
       }
     }
 
@@ -1386,6 +1431,99 @@ function createOrchestrator(callbacks = {}) {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // SOMATIC RESET — HELPERS + LIFECYCLE
+  // ═══════════════════════════════════════════════════════════
+
+  async function getSomaticExercise(protocol, activityNumber) {
+    const result = await pool.query(
+      'SELECT * FROM somatic_exercises WHERE protocol = $1 AND activity_number = $2 AND active = true',
+      [protocol, activityNumber]
+    );
+    return result.rows[0] || null;
+  }
+
+  async function updateSessionSomatic(exerciseId, hrvPre, hrvPost, shiftPct) {
+    await pool.query(
+      `UPDATE session_completions
+       SET somatic_exercise_used = $1, somatic_hrv_pre = $2, somatic_hrv_post = $3, somatic_shift_pct = $4
+       WHERE user_id = $5 AND session_id = $6`,
+      [exerciseId, hrvPre, hrvPost, shiftPct, userId, rawSession?.session_number || 1]
+    );
+  }
+
+  async function onSomaticComplete(exerciseId, hrvPre, hrvPost) {
+    const shiftPct = hrvPre > 0 ? ((hrvPost - hrvPre) / hrvPre) * 100 : 0;
+
+    // Log to session_completions
+    try {
+      await updateSessionSomatic(exerciseId, hrvPre, hrvPost, shiftPct);
+    } catch (err) {
+      console.error('[ABI] Failed to log somatic data:', err.message);
+    }
+
+    // Pivot logic: if shift < 10%, try next exercise (max 2 total)
+    if (shiftPct < 10 && somaticExerciseCount < 2) {
+      // Check current exercise for pivot_if_no_shift
+      try {
+        const current = await getSomaticExercise(
+          arrivalBaseline.resting_hr > 100 ? 'hyperarousal'
+            : arrivalBaseline.resting_hr < 55 ? 'hypoarousal'
+            : 'court_day',
+          somaticExerciseCount
+        );
+        if (current?.abi_watch_for?.pivot_if_no_shift) {
+          const nextExercise = await getSomaticExercise(
+            current.protocol,
+            somaticExerciseCount + 1
+          );
+          if (nextExercise) {
+            somaticExerciseCount++;
+            onLunoSpeak(nextExercise.luno_intro);
+            return {
+              pivot: true,
+              somatic_exercise: nextExercise,
+              shift_pct: shiftPct,
+              attempt: somaticExerciseCount
+            };
+          }
+        }
+      } catch (err) {
+        console.error('[ABI] Somatic pivot lookup failed:', err.message);
+      }
+    }
+
+    // Max exercises attempted with no shift → Companionship Mode
+    if (shiftPct < 10 && somaticExerciseCount >= 2) {
+      somaticActive = false;
+      isCompanionshipMode = true;
+      companionshipMode = new CompanionshipMode();
+      companionshipMode.activate();
+      sessionPhase = 'breathing';
+      onLunoSpeak("Your body is asking for something different today. Unc's just going to sit with you.");
+      return {
+        somatic_complete: true,
+        shift_pct: shiftPct,
+        companionship_mode: true
+      };
+    }
+
+    // Sufficient shift — proceed to breathwork
+    somaticActive = false;
+    sessionPhase = 'breathing';
+    breathingStartTime = Date.now();
+
+    // Now run the rest of onArrivalComplete logic (state engine, detection, breath params)
+    // by re-calling with the stored baseline
+    if (stateEngine) stateEngine.setBaseline(arrivalBaseline);
+
+    return {
+      somatic_complete: true,
+      shift_pct: shiftPct,
+      proceed_to_breathwork: true
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // PUBLIC API
   // ═══════════════════════════════════════════════════════════
 
@@ -1404,6 +1542,7 @@ function createOrchestrator(callbacks = {}) {
     onDrillSelected,      // user picks a drill from coaching intervention
     onBLEDisconnect,      // Polar H10 drops
     onBLEReconnect,       // Polar H10 returns
+    onSomaticComplete,    // somatic exercise finished — pivot or proceed
 
     // Getters for session engine
     getAdaptedSession: () => adaptedSession,
@@ -1416,7 +1555,8 @@ function createOrchestrator(callbacks = {}) {
     getStateEngine: () => stateEngine,
     getCoachingEngine: () => coachingEngine,
     getDetectionMode: () => biometricResilience ? biometricResilience.getDetectionMode() : 'unknown',
-    getImmuneSystem: () => immuneSystem
+    getImmuneSystem: () => immuneSystem,
+    isSomaticActive: () => somaticActive
   };
 }
 
