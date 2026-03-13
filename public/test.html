@@ -35,11 +35,15 @@ textarea{min-height:80px;resize:vertical}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .progress-bar{width:100%;max-width:320px;height:6px;background:#1a1a3a;border-radius:3px;margin:12px 0;overflow:hidden}
 .progress-fill{height:100%;background:var(--accent2);border-radius:3px;transition:width .5s}
-/* Breath ring */
+/* Breath ring — CSS transition driven */
 .breath-container{position:relative;width:220px;height:220px;margin:20px auto}
-.breath-ring{width:220px;height:220px;border-radius:50%;border:3px solid var(--accent);display:flex;align-items:center;justify-content:center;transition:transform .1s linear;position:relative}
+.breath-ring{width:220px;height:220px;border-radius:50%;border:3px solid var(--accent);display:flex;align-items:center;justify-content:center;flex-direction:column;position:relative}
 .breath-ring::after{content:'';position:absolute;width:200px;height:200px;border-radius:50%;border:1px solid rgba(108,99,255,.2)}
 .breath-label{font-size:1.4em;font-weight:300;color:var(--accent)}
+.breath-dots{display:flex;gap:6px;margin-top:8px}
+.breath-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:1;transition:opacity .3s}
+.breath-dot.gone{opacity:.15}
+.breath-ratio{font-size:.85em;color:var(--dim);margin-top:10px;letter-spacing:1px}
 .breath-stats{display:flex;gap:24px;justify-content:center;margin:16px 0}
 .breath-stat{text-align:center}
 .breath-stat .val{font-size:1.5em;font-weight:700}
@@ -68,6 +72,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
 .session-dot{width:12px;height:12px;border-radius:50%;background:#1a1a3a;border:1px solid #333}
 .session-dot.done{background:var(--success);border-color:var(--success)}
 .session-dot.current{background:var(--accent);border-color:var(--accent)}
+/* Loading spinner */
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading{display:none;align-items:center;gap:10px;margin-top:16px;color:var(--dim);font-size:.9em}
+.loading.active{display:flex}
+.loading .spinner{width:20px;height:20px;border:2px solid #333;border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
 </style>
 </head>
 <body>
@@ -80,6 +89,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <input type="text" id="input-name" placeholder="First name" autocomplete="off" style="margin:16px 0">
   <button class="btn" id="btn-begin" onclick="handleLogin()">Begin</button>
   <p id="login-status" style="color:var(--dim);font-size:.8em;margin-top:12px"></p>
+  <div class="loading" id="login-loading"><div class="spinner"></div><span>Connecting...</span></div>
 </div>
 
 <!-- ARRIVAL -->
@@ -103,8 +113,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <div class="breath-container">
     <div class="breath-ring" id="breath-ring">
       <span class="breath-label" id="breath-label">Inhale</span>
+      <div class="breath-dots" id="breath-dots"></div>
     </div>
   </div>
+  <div class="breath-ratio" id="breath-ratio-display"></div>
   <div class="breath-stats">
     <div class="breath-stat"><div class="val" id="bs-coherence">0.00</div><div class="lbl">Coherence</div></div>
     <div class="breath-stat"><div class="val" id="bs-cycles">0</div><div class="lbl">Cycles</div></div>
@@ -182,7 +194,7 @@ let state = {
   currentSession: 1, sessionsCompleted: [],
   ble: { connected: false, device: null, char: null, deviceName: 'Synthetic', hr: 72, hrv: 40, rr: 14, rrIntervals: [] },
   arrival: { samples: [], elapsed: 0, timer: null },
-  breathing: { elapsed: 0, timer: null, tickTimer: null, cycles: 0, phase: 'inhale', phaseElapsed: 0, coherencePeak: 0, coherenceEnd: 0, inhale: 4, exhale: 6, coachingFired: false, paused: false },
+  breathing: { elapsed: 0, timer: null, tickTimer: null, dotTimer: null, cycles: 0, phase: 'inhale', phaseElapsed: 0, coherencePeak: 0, coherenceEnd: 0, inhale: 4, exhale: 6, coachingFired: false, paused: false },
   mirror: {}
 };
 
@@ -257,6 +269,51 @@ function loadState(name) {
   try { return JSON.parse(raw); } catch(e) { return null; }
 }
 
+// ─── SESSION STATE RESET (#5 session bleed) ──────────
+function resetSessionState() {
+  // Clear timers from any prior session
+  if (state.arrival.timer) clearInterval(state.arrival.timer);
+  if (state.breathing.timer) clearInterval(state.breathing.timer);
+  if (state.breathing.tickTimer) clearInterval(state.breathing.tickTimer);
+  if (state.breathing.dotTimer) clearInterval(state.breathing.dotTimer);
+
+  // Reset arrival
+  state.arrival = { samples: [], elapsed: 0, timer: null };
+
+  // Reset breathing
+  state.breathing = {
+    elapsed: 0, timer: null, tickTimer: null, dotTimer: null,
+    cycles: 0, phase: 'inhale', phaseElapsed: 0,
+    coherencePeak: 0, coherenceEnd: 0,
+    inhale: 4, exhale: 6, coachingFired: false, paused: false
+  };
+
+  // Reset mirror
+  state.mirror = {};
+
+  // Clear UI artifacts from prior session
+  document.getElementById('coaching-overlay').classList.remove('active');
+  const lunoMid = document.getElementById('luno-mid');
+  lunoMid.style.display = 'none';
+  lunoMid.textContent = '';
+  document.getElementById('luno-arrival').textContent = "Luno's checking in with you. You don't have to do anything yet. Just land.";
+  document.getElementById('luno-mirror').textContent = 'Look at what you just did.';
+  document.getElementById('luno-closing').textContent = 'Your body remembers this now.';
+  document.getElementById('vault-text').value = '';
+  document.getElementById('vault-slider').value = 50;
+  document.getElementById('arr-progress').style.width = '0';
+  document.getElementById('arr-timer').textContent = '30 seconds remaining';
+  document.getElementById('breath-dots').innerHTML = '';
+
+  // Reset breath ring
+  const ring = document.getElementById('breath-ring');
+  ring.style.transition = 'none';
+  ring.style.transform = 'scale(1)';
+  ring.style.borderColor = 'var(--accent)';
+
+  debugLog('Session state cleared', 'api');
+}
+
 // ─── LOGIN ────────────────────────────────────────────
 function handleLogin() {
   const name = document.getElementById('input-name').value.trim();
@@ -283,7 +340,11 @@ function handleLogin() {
   renderDots('login-dots', state.currentSession, state.sessionsCompleted);
   saveState();
 
-  setTimeout(() => startSession(), 500);
+  // Show loading indicator (#7)
+  document.getElementById('btn-begin').disabled = true;
+  document.getElementById('login-loading').classList.add('active');
+
+  setTimeout(() => startSession(), 300);
 }
 
 // ─── BLE ──────────────────────────────────────────────
@@ -330,7 +391,6 @@ function handleHRData(event) {
   const flags = value.getUint8(0);
   let hr, offset;
 
-  // Bit 0: HR format — 0 = uint8, 1 = uint16
   if (flags & 0x01) {
     hr = value.getUint16(1, true);
     offset = 3;
@@ -341,12 +401,11 @@ function handleHRData(event) {
 
   state.ble.hr = hr;
 
-  // Bit 4: RR intervals present
   if (flags & 0x10) {
     const rrIntervals = [];
     while (offset + 1 < value.byteLength) {
       const rr = value.getUint16(offset, true);
-      rrIntervals.push(rr / 1024.0 * 1000); // Convert to ms
+      rrIntervals.push(rr / 1024.0 * 1000);
       offset += 2;
     }
     if (rrIntervals.length > 0) {
@@ -372,13 +431,9 @@ function calcRMSSD(intervals) {
 }
 
 function estimateRR(rrIntervals, hr) {
-  // Estimate from HR if no good RR data
   if (rrIntervals.length > 0) {
     const avgRR = rrIntervals.reduce((a, b) => a + b, 0) / rrIntervals.length;
-    // Very rough: breathing modulates RR intervals
-    // Use HR-based estimation as more reliable
   }
-  // Simple estimation: RR ~ HR/5 with some variance
   return Math.max(8, Math.min(22, hr / 5 + (Math.random() - 0.5) * 2));
 }
 
@@ -405,13 +460,12 @@ function getBiometrics() {
       resting_hr: state.ble.hr,
       hrv: state.ble.hrv,
       resting_hrv: state.ble.hrv,
-      respiratory_rate: state.ble.rr,
-      current_rr: state.ble.rr,
+      respiratory_rate: parseFloat(state.ble.rr.toFixed(1)),
+      current_rr: parseFloat(state.ble.rr.toFixed(1)),
       coherence: 0,
       source: 'ble'
     };
   }
-  // Synthetic — realistic variance
   const baseHR = 72 + Math.sin(Date.now() / 8000) * 5 + (Math.random() - 0.5) * 4;
   const baseHRV = 38 + Math.sin(Date.now() / 12000) * 8 + (Math.random() - 0.5) * 5;
   const baseRR = 14 + Math.sin(Date.now() / 15000) * 2 + (Math.random() - 0.5) * 1.5;
@@ -430,6 +484,9 @@ function getBiometrics() {
 
 // ─── SESSION START ────────────────────────────────────
 async function startSession() {
+  // #5: Clear all prior session state
+  resetSessionState();
+
   const sessionId = `S${String(state.currentSession).padStart(3,'0')}`;
   state.sessionKey = `${state.userId}:${sessionId}`;
 
@@ -446,10 +503,8 @@ async function startSession() {
   if (result.error) {
     debugLog('Session start failed, running local session', 'error');
   } else {
-    // Accept session_key from API (format: "userId:sessionId")
     if (result.session_key) state.sessionKey = result.session_key;
 
-    // Extract breath params from config
     if (result.config?.session_update) {
       const su = result.config.session_update;
       if (su.breath_in) state.breathing.inhale = su.breath_in;
@@ -463,6 +518,10 @@ async function startSession() {
 
     debugLog(`API session OK: key=${result.session_key || 'local'}`, 'api');
   }
+
+  // Hide loading indicator (#7)
+  document.getElementById('btn-begin').disabled = false;
+  document.getElementById('login-loading').classList.remove('active');
 
   showScreen('screen-arrival');
   startArrival();
@@ -479,14 +538,13 @@ function startArrival() {
     const bio = getBiometrics();
     state.arrival.samples.push(bio);
 
-    // Update UI
+    // Update UI — #6: round RR to 1 decimal
     document.getElementById('arr-hr').textContent = bio.heart_rate + ' bpm';
     document.getElementById('arr-hrv').textContent = bio.hrv + ' ms';
-    document.getElementById('arr-rr').textContent = bio.respiratory_rate + ' bpm';
+    document.getElementById('arr-rr').textContent = bio.respiratory_rate.toFixed(1) + ' bpm';
     document.getElementById('arr-progress').style.width = (state.arrival.elapsed / ARRIVAL_DURATION * 100) + '%';
     document.getElementById('arr-timer').textContent = (ARRIVAL_DURATION - state.arrival.elapsed) + ' seconds remaining';
 
-    // Send arrival sample to API
     api('/api/abi/session/arrival-sample', { biometrics: bio }).catch(() => {});
 
     if (state.arrival.elapsed >= ARRIVAL_DURATION) {
@@ -497,7 +555,6 @@ function startArrival() {
 }
 
 async function completeArrival() {
-  // Compute baseline from samples
   const samples = state.arrival.samples;
   const avgHR = Math.round(samples.reduce((s, b) => s + b.heart_rate, 0) / samples.length);
   const avgHRV = Math.round(samples.reduce((s, b) => s + b.hrv, 0) / samples.length);
@@ -507,7 +564,6 @@ async function completeArrival() {
 
   const result = await api('/api/abi/session/arrival-complete', { biometrics: baseline });
 
-  // Extract breath params
   if (result.result?.session_update) {
     const su = result.result.session_update;
     if (su.breath_in) state.breathing.inhale = su.breath_in;
@@ -517,13 +573,11 @@ async function completeArrival() {
     if (bp.inhale) state.breathing.inhale = bp.inhale;
     if (bp.exhale) state.breathing.exhale = bp.exhale;
   } else {
-    // Fallback: high RR gets easy ratio, low RR gets harder
     if (avgRR > 18) { state.breathing.inhale = 2; state.breathing.exhale = 3; }
     else if (avgRR > 14) { state.breathing.inhale = 3; state.breathing.exhale = 4; }
     else { state.breathing.inhale = 4; state.breathing.exhale = 6; }
   }
 
-  // Luno arrival dialogue
   if (result.result?.arrival_dialogue?.text) {
     document.getElementById('luno-arrival').textContent = result.result.arrival_dialogue.text;
   }
@@ -533,7 +587,7 @@ async function completeArrival() {
   startBreathing();
 }
 
-// ─── BREATHING ────────────────────────────────────────
+// ─── BREATHING (#2 CSS transition pacer, #3 dots, #4 ratio) ───
 function startBreathing() {
   showScreen('screen-breathing');
   state.breathing.elapsed = 0;
@@ -548,70 +602,46 @@ function startBreathing() {
   const ring = document.getElementById('breath-ring');
   const label = document.getElementById('breath-label');
   const { inhale, exhale } = state.breathing;
-  const cycleTime = inhale + exhale;
+
+  // #4: Show selected ratio
+  document.getElementById('breath-ratio-display').textContent = `Ratio ${inhale}:${exhale}`;
 
   debugLog(`Breathing: ${inhale}:${exhale} ratio, ${BREATHING_DURATION}s`, 'api');
 
-  // Breath animation — runs every 100ms for smooth animation
-  state.breathing.timer = setInterval(() => {
-    if (state.breathing.paused) return;
+  // #2: CSS transition-driven pacer
+  // Kick off the first phase
+  startBreathPhase();
 
-    state.breathing.phaseElapsed += 0.1;
-    const phaseDuration = state.breathing.phase === 'inhale' ? inhale : exhale;
+  // Phase transition timer — fires at the end of each phase
+  schedulePhaseTransition();
 
-    if (state.breathing.phaseElapsed >= phaseDuration) {
-      state.breathing.phaseElapsed = 0;
-      if (state.breathing.phase === 'inhale') {
-        state.breathing.phase = 'exhale';
-      } else {
-        state.breathing.phase = 'inhale';
-        state.breathing.cycles++;
-      }
-    }
+  // #3: Breath counting dots — 1-second tick to remove dots
+  startBreathDots();
 
-    // Scale: 1.0 → 1.35 on inhale, 1.35 → 1.0 on exhale
-    let scale;
-    const progress = state.breathing.phaseElapsed / phaseDuration;
-    if (state.breathing.phase === 'inhale') {
-      scale = 1.0 + 0.35 * progress;
-      label.textContent = 'Inhale';
-      ring.style.borderColor = 'var(--accent)';
-    } else {
-      scale = 1.35 - 0.35 * progress;
-      label.textContent = 'Exhale';
-      ring.style.borderColor = 'var(--accent2)';
-    }
-    ring.style.transform = `scale(${scale})`;
-  }, 100);
-
-  // Tick — runs every second
+  // Tick — runs every second for biometrics + UI
   let midDialogueShown = false;
   state.breathing.tickTimer = setInterval(async () => {
     if (state.breathing.paused) return;
     state.breathing.elapsed++;
 
     const bio = getBiometrics();
-    // Simulate coherence that improves over time
     const baseCoherence = 0.2 + (state.breathing.elapsed / BREATHING_DURATION) * 0.5;
     bio.coherence = Math.min(0.95, baseCoherence + (Math.random() - 0.3) * 0.15);
     bio.coherence_score = bio.coherence;
-    bio.cycle_completion_rate = Math.min(1, state.breathing.cycles / Math.max(1, state.breathing.elapsed / (state.breathing.inhale + state.breathing.exhale)));
+    bio.cycle_completion_rate = Math.min(1, state.breathing.cycles / Math.max(1, state.breathing.elapsed / (inhale + exhale)));
 
     state.breathing.coherenceEnd = bio.coherence;
     state.breathing.coherencePeak = Math.max(state.breathing.coherencePeak, bio.coherence);
 
-    // Update UI
     document.getElementById('bs-coherence').textContent = bio.coherence.toFixed(2);
     document.getElementById('bs-cycles').textContent = state.breathing.cycles;
     document.getElementById('bs-elapsed').textContent = formatTime(state.breathing.elapsed);
 
-    // State zone
     let zone = 'REGULATED';
     if (bio.coherence > 0.7) zone = 'FLOW';
     else if (bio.heart_rate > 90) zone = 'ACTIVATION';
     document.getElementById('breathing-zone').textContent = zone;
 
-    // Send tick
     const tickResult = await api('/api/abi/session/tick', { biometrics: bio });
 
     if (tickResult.result?.coaching?.type === 'intervention') {
@@ -620,7 +650,6 @@ function startBreathing() {
 
     debugLog(`T${state.breathing.elapsed} HR:${bio.heart_rate} C:${bio.coherence.toFixed(2)} Z:${zone}`, 'tick');
 
-    // Mid-session Luno (~40% through)
     if (!midDialogueShown && state.breathing.elapsed > BREATHING_DURATION * 0.4) {
       midDialogueShown = true;
       const lunoMid = document.getElementById('luno-mid');
@@ -629,17 +658,87 @@ function startBreathing() {
       setTimeout(() => { lunoMid.style.display = 'none'; }, 8000);
     }
 
-    // Coaching intervention (~30% chance at 60% through, once)
     if (!state.breathing.coachingFired && state.breathing.elapsed > BREATHING_DURATION * 0.6 && Math.random() < 0.3) {
       state.breathing.coachingFired = true;
       triggerCoaching("Let's pause here. Your body is asking for something.");
     }
 
-    // Session end
     if (state.breathing.elapsed >= BREATHING_DURATION) {
-      clearInterval(state.breathing.timer);
       clearInterval(state.breathing.tickTimer);
+      clearInterval(state.breathing.dotTimer);
+      clearTimeout(state.breathing.phaseTimeout);
+      ring.style.transition = 'none';
+      ring.style.transform = 'scale(1)';
       showMirror();
+    }
+  }, 1000);
+}
+
+// #2: CSS transition breath animation
+function startBreathPhase() {
+  const ring = document.getElementById('breath-ring');
+  const label = document.getElementById('breath-label');
+  const { inhale, exhale } = state.breathing;
+
+  if (state.breathing.phase === 'inhale') {
+    ring.style.transition = `transform ${inhale}s ease-in-out`;
+    ring.style.transform = 'scale(1.35)';
+    ring.style.borderColor = 'var(--accent)';
+    label.textContent = 'Inhale';
+  } else {
+    ring.style.transition = `transform ${exhale}s ease-in-out`;
+    ring.style.transform = 'scale(1.0)';
+    ring.style.borderColor = 'var(--accent2)';
+    label.textContent = 'Exhale';
+  }
+}
+
+function schedulePhaseTransition() {
+  const { inhale, exhale } = state.breathing;
+  const duration = state.breathing.phase === 'inhale' ? inhale : exhale;
+
+  state.breathing.phaseTimeout = setTimeout(() => {
+    if (state.breathing.paused) {
+      // Re-check after pause
+      schedulePhaseTransition();
+      return;
+    }
+    if (state.breathing.phase === 'inhale') {
+      state.breathing.phase = 'exhale';
+    } else {
+      state.breathing.phase = 'inhale';
+      state.breathing.cycles++;
+      document.getElementById('bs-cycles').textContent = state.breathing.cycles;
+    }
+    startBreathPhase();
+    renderBreathDots();
+    schedulePhaseTransition();
+  }, duration * 1000);
+}
+
+// #3: Visual breath counting dots
+function renderBreathDots() {
+  const container = document.getElementById('breath-dots');
+  const count = state.breathing.phase === 'inhale' ? state.breathing.inhale : state.breathing.exhale;
+  container.innerHTML = '';
+  for (let i = 0; i < count; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'breath-dot';
+    container.appendChild(dot);
+  }
+  state.breathing._dotIndex = 0;
+}
+
+function startBreathDots() {
+  renderBreathDots();
+  state.breathing._dotIndex = 0;
+
+  state.breathing.dotTimer = setInterval(() => {
+    if (state.breathing.paused) return;
+    const container = document.getElementById('breath-dots');
+    const dots = container.querySelectorAll('.breath-dot:not(.gone)');
+    if (dots.length > 0) {
+      dots[0].classList.add('gone');
     }
   }, 1000);
 }
@@ -660,8 +759,9 @@ function coachingContinue() {
 
 function coachingEnd() {
   document.getElementById('coaching-overlay').classList.remove('active');
-  clearInterval(state.breathing.timer);
   clearInterval(state.breathing.tickTimer);
+  clearInterval(state.breathing.dotTimer);
+  clearTimeout(state.breathing.phaseTimeout);
   showMirror();
 }
 
@@ -678,7 +778,6 @@ function showMirror() {
   document.getElementById('mir-duration').textContent = formatTime(duration);
   document.getElementById('mir-state').textContent = state.breathing.coherenceEnd > 0.5 ? 'Regulated' : 'Building';
 
-  // Luno mirror
   if (state.breathing.coherenceEnd > 0.6) {
     document.getElementById('luno-mirror').textContent = "Your nervous system found its rhythm today. Feel that.";
   } else {
@@ -728,7 +827,6 @@ async function completeSession() {
 // ─── INIT ─────────────────────────────────────────────
 (function init() {
   renderDots('login-dots', 1, []);
-  // Try to restore name from last visit
   const lastKey = Object.keys(localStorage).find(k => k.startsWith('ascen_test_'));
   if (lastKey) {
     try {
