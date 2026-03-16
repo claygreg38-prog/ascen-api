@@ -89,6 +89,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <input type="text" id="input-name" placeholder="First name" autocomplete="off" style="margin:16px 0">
   <button class="btn" id="btn-begin" onclick="handleLogin()">Begin</button>
   <p id="login-status" style="color:var(--dim);font-size:.8em;margin-top:12px"></p>
+  <button class="btn small secondary" id="btn-reset" onclick="resetUser()" style="margin-top:16px;display:none">Reset Progress</button>
   <div class="loading" id="login-loading"><div class="spinner"></div><span>Connecting...</span></div>
 </div>
 
@@ -146,6 +147,15 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     <div class="stat"><span class="stat-label">Duration</span><span class="stat-value" id="mir-duration">0:00</span></div>
     <div class="stat"><span class="stat-label">State</span><span class="stat-value" id="mir-state">--</span></div>
   </div>
+  <!-- Somatic Exercise Card — shown only when somatic_exercise_used -->
+  <div class="card" id="somatic-card" style="display:none;border:1px solid #4ECDC4">
+    <h2 style="color:#4ECDC4;font-size:1.1em;margin-bottom:8px" id="somatic-card-title">Your Reset Tool</h2>
+    <div style="font-weight:600;margin-bottom:6px" id="somatic-card-name"></div>
+    <div style="color:var(--dim);font-size:.85em;margin-bottom:8px" id="somatic-card-when"></div>
+    <ol style="text-align:left;padding-left:20px;font-size:.85em;line-height:1.6;margin-bottom:8px" id="somatic-card-steps"></ol>
+    <div style="color:var(--dim);font-size:.8em;margin-bottom:6px" id="somatic-card-duration"></div>
+    <div style="color:#4ECDC4;font-size:.85em;font-style:italic">This is your tool. You own it now.</div>
+  </div>
   <div class="card">
     <div class="luno-bubble" id="vault-prompt">What stayed with you from this session?</div>
     <div class="slider-container">
@@ -156,6 +166,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     <textarea id="vault-text" placeholder="Optional: write what came up..." style="margin-top:12px"></textarea>
   </div>
   <div class="luno-bubble" id="luno-closing">Your body remembers this now.</div>
+  <div class="luno-bubble" id="luno-personalized-close" style="display:none;border-left:3px solid #4ECDC4"></div>
   <button class="btn" onclick="completeSession()">Complete Session</button>
 </div>
 
@@ -299,6 +310,9 @@ function resetSessionState() {
   document.getElementById('luno-arrival').textContent = "Luno's checking in with you. You don't have to do anything yet. Just land.";
   document.getElementById('luno-mirror').textContent = 'Look at what you just did.';
   document.getElementById('luno-closing').textContent = 'Your body remembers this now.';
+  document.getElementById('luno-personalized-close').style.display = 'none';
+  document.getElementById('luno-personalized-close').textContent = '';
+  document.getElementById('somatic-card').style.display = 'none';
   document.getElementById('vault-text').value = '';
   document.getElementById('vault-slider').value = 50;
   document.getElementById('arr-progress').style.width = '0';
@@ -314,6 +328,18 @@ function resetSessionState() {
   debugLog('Session state cleared', 'api');
 }
 
+function resetUser() {
+  const name = document.getElementById('input-name').value.trim();
+  if (!name) return;
+  localStorage.removeItem('ascen_test_' + name.toLowerCase());
+  state.sessionsCompleted = [];
+  state.currentSession = 1;
+  renderDots('login-dots', 1, []);
+  document.getElementById('login-status').textContent = `Progress reset for ${name}.`;
+  document.getElementById('btn-reset').style.display = 'none';
+  debugLog(`Reset progress for ${name}`, 'api');
+}
+
 // ─── LOGIN ────────────────────────────────────────────
 function handleLogin() {
   const name = document.getElementById('input-name').value.trim();
@@ -321,20 +347,27 @@ function handleLogin() {
   state.name = name;
 
   const saved = loadState(name);
-  if (saved) {
+  if (saved && Array.isArray(saved.sessionsCompleted) && saved.sessionsCompleted.length > 0) {
     state.userId = saved.userId;
-    state.sessionsCompleted = saved.sessionsCompleted || [];
-    state.currentSession = saved.currentSession || (state.sessionsCompleted.length + 1);
+    state.sessionsCompleted = saved.sessionsCompleted;
+    state.currentSession = state.sessionsCompleted.length + 1;
   } else {
-    state.userId = 'test-' + name.toLowerCase() + '-' + Date.now().toString(36);
+    state.userId = saved?.userId || ('test-' + name.toLowerCase() + '-' + Date.now().toString(36));
     state.sessionsCompleted = [];
     state.currentSession = 1;
   }
 
   if (state.currentSession > 5) {
-    document.getElementById('login-status').textContent = 'All 5 sessions completed!';
+    document.getElementById('login-status').textContent = `All 5 sessions done for "${name}". Tap Reset to start over, or enter a different name.`;
+    document.getElementById('btn-reset').style.display = '';
+    renderDots('login-dots', state.currentSession, state.sessionsCompleted);
+    document.getElementById('btn-begin').disabled = false;
+    document.getElementById('login-loading').classList.remove('active');
     return;
   }
+
+  // Show reset if any prior sessions
+  document.getElementById('btn-reset').style.display = state.sessionsCompleted.length > 0 ? '' : 'none';
 
   document.getElementById('login-status').textContent = `Welcome back, ${name}. Session ${state.currentSession} of 5.`;
   renderDots('login-dots', state.currentSession, state.sessionsCompleted);
@@ -804,7 +837,34 @@ async function completeSession() {
     }
   };
 
-  await api('/api/abi/session/complete', { rawMetrics, metrics: rawMetrics });
+  const completeResult = await api('/api/abi/session/complete', { rawMetrics, metrics: rawMetrics });
+
+  // Render personalized close if returned
+  if (completeResult?.result?.personalized_close || completeResult?.personalized_close) {
+    const closeText = completeResult?.result?.personalized_close || completeResult?.personalized_close;
+    const closeEl = document.getElementById('luno-personalized-close');
+    closeEl.textContent = closeText;
+    closeEl.style.display = 'block';
+  }
+
+  // Render somatic card if exercise was used
+  if (completeResult?.result?.mirror?.somatic_exercise || completeResult?.somatic_exercise) {
+    const exercise = completeResult?.result?.mirror?.somatic_exercise || completeResult?.somatic_exercise;
+    const card = document.getElementById('somatic-card');
+    const cardContent = exercise.card_content || {};
+    document.getElementById('somatic-card-name').textContent = cardContent.title || exercise.name || '';
+    document.getElementById('somatic-card-when').textContent = cardContent.when_to_use ? 'When to use: ' + cardContent.when_to_use : '';
+    const stepsEl = document.getElementById('somatic-card-steps');
+    stepsEl.innerHTML = '';
+    const steps = exercise.instructions || cardContent.steps || [];
+    (Array.isArray(steps) ? steps : []).forEach(step => {
+      const li = document.createElement('li');
+      li.textContent = step;
+      stepsEl.appendChild(li);
+    });
+    document.getElementById('somatic-card-duration').textContent = exercise.duration_sec ? exercise.duration_sec + ' seconds' : '';
+    card.style.display = 'block';
+  }
 
   state.sessionsCompleted.push(state.currentSession);
   state.currentSession++;
@@ -832,10 +892,19 @@ async function completeSession() {
     try {
       const saved = JSON.parse(localStorage.getItem(lastKey));
       if (saved?.name) {
-        document.getElementById('input-name').value = saved.name;
         const current = (saved.sessionsCompleted?.length || 0) + 1;
-        renderDots('login-dots', current, saved.sessionsCompleted || []);
-        document.getElementById('login-status').textContent = `Welcome back, ${saved.name}. Session ${current} of 5.`;
+        if (current > 5) {
+          // Don't pre-fill a completed user — let them type fresh or reset
+          document.getElementById('login-status').textContent = `"${saved.name}" finished all 5 sessions. Enter a new name or type "${saved.name}" and tap Reset.`;
+          document.getElementById('btn-reset').style.display = '';
+          document.getElementById('input-name').value = saved.name;
+          renderDots('login-dots', current, saved.sessionsCompleted || []);
+        } else {
+          document.getElementById('input-name').value = saved.name;
+          renderDots('login-dots', current, saved.sessionsCompleted || []);
+          document.getElementById('login-status').textContent = `Welcome back, ${saved.name}. Session ${current} of 5.`;
+          if (saved.sessionsCompleted?.length > 0) document.getElementById('btn-reset').style.display = '';
+        }
       }
     } catch(e) {}
   }
