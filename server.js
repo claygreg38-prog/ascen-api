@@ -19,8 +19,9 @@ const pool = process.env.DATABASE_URL ? new Pool({
 
 // ── HARDENING MIDDLEWARE ────────────────────────────────────
 const abiHardening = require('./src/middleware/abiHardening');
-const rateLimiter = abiHardening.rateLimiter || ((req, res, next) => next());
-const validateABI = abiHardening.validateABI || ((req, res, next) => next());
+// rateLimiter is a factory — must be invoked to get middleware
+const rateLimiterMw = abiHardening.rateLimiter ? abiHardening.rateLimiter() : ((req, res, next) => next());
+const validateABI = abiHardening.validateBiometrics || ((req, res, next) => next());
 const auditLogger = abiHardening.auditLogger || ((req, res, next) => next());
 const cfrGuard = abiHardening.cfrGuard || ((req, res, next) => next());
 const createResilientPool = abiHardening.createResilientPool || (() => {});
@@ -66,7 +67,7 @@ app.use('/api/auth', authRoutes);
 const abiRoutes = require('./src/routes/abiRoutes');
 
 // Hardening on all ABI routes
-app.use('/api/abi', rateLimiter);
+app.use('/api/abi', rateLimiterMw);
 app.use('/api/abi', validateABI);
 app.use('/api/abi', auditLogger);
 
