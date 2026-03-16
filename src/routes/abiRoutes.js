@@ -92,8 +92,9 @@ function drainEvents(session) {
 
 router.post('/session/start', async (req, res) => {
   // Track if client disconnected (AbortController on frontend)
-  let aborted = false;
-  req.on('close', () => { aborted = true; });
+  // Note: req 'close' fires after body consumed in Node 18+, not on disconnect.
+  // Use res.destroyed or socket.destroyed to detect real client disconnection.
+  const isAborted = () => req.socket?.destroyed || res.destroyed;
 
   try {
     const { userId, sessionId } = extractIds(req.body);
@@ -144,7 +145,7 @@ router.post('/session/start', async (req, res) => {
     const config = await abi.onSessionStart(userId, sessionId, options);
 
     // Client may have disconnected while we were processing
-    if (aborted || res.headersSent) return;
+    if (isAborted() || res.headersSent) return;
 
     // Store orchestrator + event queue
     activeSessions.set(key, { abi, pendingEvents, startedAt: Date.now() });
@@ -156,7 +157,7 @@ router.post('/session/start', async (req, res) => {
     res.json({ success: true, session_key: key, config, events });
   } catch (error) {
     console.error('Session start error:', error.message);
-    if (!aborted && !res.headersSent) {
+    if (!isAborted() && !res.headersSent) {
       res.status(500).json({ error: error.message });
     }
   }
