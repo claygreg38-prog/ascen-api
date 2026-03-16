@@ -113,7 +113,7 @@ class AxisEngine {
         `SELECT
            COUNT(DISTINCT user_id) as total_users,
            COUNT(*) as total_sessions,
-           AVG(coherence_peak) as avg_coherence,
+           AVG(coherence_end) as avg_coherence,
            SUM(active_duration_seconds) as total_breath_seconds,
            COUNT(CASE WHEN packet_hash IS NOT NULL THEN 1 END) as attested_sessions,
            COUNT(CASE WHEN attestation_submitted THEN 1 END) as on_chain_attestations
