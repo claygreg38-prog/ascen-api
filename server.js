@@ -304,7 +304,7 @@ app.post('/api/blockchain/verify-session', authenticateOrApiKey('participant'), 
        ON CONFLICT DO NOTHING`,
       [participantId, sessionNumber]
     );
-    res.json({ success: true, message: 'Session queued for blockchain attestation', participantId, sessionNumber, timestamp: new Date().toISOString() });
+    res.json({ success: true, message: 'Session verification queued', participantId, sessionNumber, timestamp: new Date().toISOString() });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

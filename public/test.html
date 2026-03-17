@@ -194,8 +194,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
 
 <script>
 // ─── CONFIG ───────────────────────────────────────────
-const API = 'https://hearty-optimism-production-2eb6.up.railway.app';
-const API_KEY = 'ascen_test_harness_2026';
+const API = window.location.origin;
+const API_KEY = new URLSearchParams(window.location.search).get('key') || '';
 const ARRIVAL_DURATION = 30;
 const BREATHING_DURATION = 180;
 

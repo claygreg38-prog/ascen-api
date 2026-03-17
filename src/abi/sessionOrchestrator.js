@@ -506,7 +506,7 @@ function createOrchestrator(callbacks = {}) {
     let cleanBaseline = arrivalBaseline;
     if (baselineFilter && biometricsAvailable) {
       try {
-        const filtered = baselineFilter.getCleanBaseline();
+        const filtered = baselineFilter.getFilteredBaseline();
         if (filtered && filtered.valid) {
           cleanBaseline = {
             resting_hr: filtered.resting_hr || resting_hr,
@@ -800,28 +800,25 @@ function createOrchestrator(callbacks = {}) {
         const response = stateResult;
 
         // Notify frontend of state changes
+        const adjustments = stateResult.adjustments || {};
         onStateChange({
           type: 'state_tick',
           state: currentState,
-          secondsInState: stateEngine.secondsInState,
-          responseLevel: stateEngine.currentResponseLevel,
-          adjustments: stateEngine.activeAdjustments
+          secondsInState: stateResult.tick || 0,
+          responseLevel: stateResult.response_level || 0,
+          adjustments
         });
 
         // ── Apply graduated adjustments to pacer ────────
-        if (stateEngine.activeAdjustments) {
-          const adj = stateEngine.activeAdjustments;
-          if (adj.exhale_extend_sec > 0 || adj.pacer_slow_pct > 0 || adj.visual_warmth > 0) {
+        if (adjustments && Object.keys(adjustments).length > 0) {
+          const adj = adjustments;
+          if (adj.exhale_extend > 0 || adj.pacer_slow < 1 || adj.visual_warmth > 0) {
             result.pacer_adjustments = {
-              exhale_extend_sec: adj.exhale_extend_sec,
-              pacer_slow_pct: adj.pacer_slow_pct,
+              exhale_extend: adj.exhale_extend,
+              pacer_slow: adj.pacer_slow,
               visual_warmth: adj.visual_warmth,
-              luno_pulse: adj.luno_pulse
+              luno_pulse_slow: adj.luno_pulse_slow
             };
-          }
-          if (adj.haptic_pending) {
-            result.haptic = 'single_tap';
-            stateEngine.activeAdjustments.haptic_pending = false;
           }
         }
       } catch (err) {
@@ -1033,7 +1030,7 @@ function createOrchestrator(callbacks = {}) {
   // ═══════════════════════════════════════════════════════════
 
   function onPauseTap() {
-    if (pauseHandler) pauseHandler.manualPause();
+    if (pauseHandler) pauseHandler.pause();
     // Track manual pause in biometric resilience (indicates self-awareness)
     if (biometricResilience) biometricResilience.onManualPause();
   }
@@ -1043,7 +1040,7 @@ function createOrchestrator(callbacks = {}) {
   }
 
   function onExitTap() {
-    if (pauseHandler) pauseHandler.exitSession();
+    if (pauseHandler) pauseHandler.exit();
   }
 
   // ═══════════════════════════════════════════════════════════
