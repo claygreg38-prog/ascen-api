@@ -58,19 +58,24 @@ app.use((req, res, next) => {
 });
 
 // ── SENTRY USER CONTEXT ─────────────────────────────────────
-// Tag every request with participant_id, session_number, device_type when available
+// Uses addEventProcessor so req.user is read at capture time (after auth
+// middleware has run), not at registration time when req.user is undefined.
 app.use((req, res, next) => {
-  if (req.user) {
-    Sentry.setUser({ id: req.user.participant_id || req.user.user_id || req.user.sub });
-    Sentry.setTag('participant_id', req.user.participant_id || req.user.user_id || req.user.sub);
-  }
-  if (req.body) {
-    if (req.body.session_number) Sentry.setTag('session_number', req.body.session_number);
-    if (req.body.device_type) Sentry.setTag('device_type', req.body.device_type);
-  }
-  if (req.query) {
-    if (req.query.session_number) Sentry.setTag('session_number', req.query.session_number);
-  }
+  Sentry.addEventProcessor((event) => {
+    if (req.user) {
+      const pid = req.user.participant_id || req.user.user_id || req.user.sub;
+      event.user = { ...event.user, id: pid };
+      event.tags = { ...event.tags, participant_id: pid };
+    }
+    if (req.body) {
+      if (req.body.session_number) event.tags = { ...event.tags, session_number: req.body.session_number };
+      if (req.body.device_type) event.tags = { ...event.tags, device_type: req.body.device_type };
+    }
+    if (req.query && req.query.session_number) {
+      event.tags = { ...event.tags, session_number: req.query.session_number };
+    }
+    return event;
+  });
   next();
 });
 
