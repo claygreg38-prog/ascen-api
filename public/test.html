@@ -1105,7 +1105,9 @@ async function loadGallery() {
 
   try {
     const userId = state.userId || 'test-user';
-    const result = await fetch(`${API}/api/art/gallery/${userId}?page=${galleryPage}&limit=20`);
+    const result = await fetch(`${API}/api/art/gallery/${userId}?page=${galleryPage}&limit=20`, {
+      headers: { 'x-api-key': API_KEY }
+    });
     const data = await result.json();
     galleryData = data.pieces || [];
     renderGallery(data);
@@ -1220,7 +1222,7 @@ async function decodeArt() {
 
   try {
     const resp = await fetch(`${API}/api/art/decode/${expandedPiece.art_token_id}`, {
-      headers: { 'X-Clinical-Key': 'clinical-access' }
+      headers: { 'x-api-key': API_KEY, 'X-Clinical-Key': 'clinical-access' }
     });
     if (resp.status === 403) {
       clinicalDiv.innerHTML = '<div style="color:var(--warn)">Clinical access denied</div>';
