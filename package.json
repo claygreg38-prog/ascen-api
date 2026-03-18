@@ -17,7 +17,6 @@
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^3.0.3",
     "pg": "^8.8.0",
-    "pinata-sdk": "^0.1.7",
     "sharp": "^0.34.5"
   },
   "engines": {
