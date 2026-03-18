@@ -77,6 +77,39 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
 .loading{display:none;align-items:center;gap:10px;margin-top:16px;color:var(--dim);font-size:.9em}
 .loading.active{display:flex}
 .loading .spinner{width:20px;height:20px;border:2px solid #333;border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+/* Breath Art — mirror screen */
+.art-reveal{text-align:center;padding:20px}
+.art-canvas{position:relative;width:320px;height:320px;margin:0 auto;border-radius:16px;overflow:hidden;background:#061a2a}
+.art-canvas svg{width:100%;height:100%;position:absolute;top:0;left:0}
+.art-canvas .crown-overlay{opacity:0.35;z-index:1}
+.art-canvas .clinical-art{z-index:2}
+.art-message{color:#fff;font-size:1.2em;margin:20px 0 8px;font-weight:300;letter-spacing:.5px}
+.art-loading{display:flex;align-items:center;justify-content:center;height:320px;width:320px;margin:0 auto}
+.art-loading .spinner{width:32px;height:32px;border:3px solid #1a3a4a;border-top-color:#5ffce0;border-radius:50%;animation:spin 1s linear infinite}
+.crown-selector{display:flex;gap:10px;justify-content:center;margin:16px 0;flex-wrap:wrap}
+.crown-option{width:56px;height:56px;background:#0a1a2a;border:2px solid #1a3a4a;border-radius:12px;cursor:pointer;padding:6px;transition:.2s}
+.crown-option:hover{border-color:#5ffce0}
+.crown-option.selected{border-color:#5ffce0;box-shadow:0 0 12px rgba(95,252,224,.3)}
+.crown-option svg,.crown-option img{width:100%;height:100%;opacity:.6}
+.intention-row{display:flex;gap:8px;max-width:320px;margin:12px auto;align-items:center}
+.intention-row input{flex:1}
+.intention-row .btn{padding:10px 16px}
+.gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;padding:12px;max-width:600px;margin:0 auto}
+.gallery-piece{position:relative;background:#0a1a2a;border-radius:12px;overflow:hidden;cursor:pointer;aspect-ratio:1;border:1px solid #1a2a3a;transition:.2s}
+.gallery-piece:hover{border-color:#5ffce0}
+.gallery-piece img,.gallery-piece svg{width:100%;height:100%;object-fit:cover}
+.gallery-piece .badge{position:absolute;top:6px;right:6px;font-size:.6em;padding:2px 6px;border-radius:8px;background:rgba(0,0,0,.7)}
+.gallery-piece .badge.milestone{color:#ffd700;border:1px solid #ffd700}
+.gallery-piece .badge.victory{color:#5ffce0;border:1px solid #5ffce0}
+.gallery-label{font-size:.75em;color:var(--dim);padding:4px 8px;text-align:center}
+.gallery-expanded{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:300;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.gallery-expanded.active{display:flex}
+.gallery-expanded .art-canvas{width:min(80vw,500px);height:min(80vw,500px)}
+.gallery-expanded .meta{color:var(--dim);font-size:.85em;margin-top:12px}
+.streak-bar{display:flex;gap:2px;align-items:center;max-width:400px;margin:12px auto;overflow-x:auto;padding:4px}
+.streak-day{width:8px;height:24px;border-radius:4px;background:#1a2a3a}
+.streak-day.active{background:#5ffce0}
+.streak-day.gap{background:#2a1a1a}
 </style>
 </head>
 <body>
@@ -182,6 +215,58 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <button class="btn" onclick="showScreen('screen-login')">Done</button>
 </div>
 
+<!-- BREATH ART REVEAL -->
+<div id="screen-art-reveal" class="screen">
+  <div class="art-reveal">
+    <div class="art-loading" id="art-loading">
+      <div class="spinner"></div>
+    </div>
+    <div class="art-canvas" id="art-canvas" style="display:none">
+      <div class="crown-overlay" id="art-crown-layer"></div>
+      <div class="clinical-art" id="art-clinical-layer"></div>
+    </div>
+    <div class="art-message" id="art-message" style="display:none">Your breath just created this.</div>
+    <div id="art-crown-section" style="display:none">
+      <p style="color:var(--dim);font-size:.8em;margin-top:16px">Choose a sacred geometry overlay</p>
+      <div class="crown-selector" id="crown-selector"></div>
+    </div>
+    <div id="art-intention-section" style="display:none">
+      <div class="intention-row">
+        <input type="text" id="intention-input" placeholder="Set an intention (optional)" maxlength="50">
+        <button class="btn small" onclick="submitIntention()">Set</button>
+      </div>
+    </div>
+    <div id="art-actions" style="display:none;margin-top:16px">
+      <button class="btn" onclick="showGallery()">View your Healing Gallery</button>
+      <button class="btn secondary" onclick="finishArtReveal()">Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- GALLERY -->
+<div id="screen-gallery" class="screen">
+  <h2 style="color:var(--accent2)">Your Healing Gallery</h2>
+  <div class="streak-bar" id="gallery-streak"></div>
+  <div class="gallery-grid" id="gallery-grid"></div>
+  <div id="gallery-pagination" style="margin:16px;text-align:center"></div>
+  <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
+</div>
+
+<!-- GALLERY EXPANDED VIEW -->
+<div class="gallery-expanded" id="gallery-expanded">
+  <button class="btn small" onclick="closeGalleryExpanded()" style="position:absolute;top:16px;right:16px">Close</button>
+  <div class="art-canvas" id="expanded-art-canvas">
+    <div class="crown-overlay" id="expanded-crown-layer"></div>
+    <div class="clinical-art" id="expanded-clinical-layer"></div>
+  </div>
+  <div class="meta" id="expanded-meta"></div>
+  <div style="margin-top:12px;display:flex;gap:8px">
+    <button class="btn small" onclick="downloadArt()">Share</button>
+    <button class="btn small secondary" id="btn-decode" style="display:none" onclick="decodeArt()">Decode</button>
+  </div>
+  <div id="expanded-clinical" style="display:none;margin-top:12px;text-align:left;max-width:320px"></div>
+</div>
+
 <!-- DEBUG -->
 <div class="debug-toggle" onclick="toggleDebug()">&#9881;</div>
 <div class="debug-panel" id="debug-panel">
@@ -206,7 +291,8 @@ let state = {
   ble: { connected: false, device: null, char: null, deviceName: 'Synthetic', hr: 72, hrv: 40, rr: 14, rrIntervals: [] },
   arrival: { samples: [], elapsed: 0, timer: null },
   breathing: { elapsed: 0, timer: null, tickTimer: null, dotTimer: null, cycles: 0, phase: 'inhale', phaseElapsed: 0, coherencePeak: 0, coherenceEnd: 0, inhale: 4, exhale: 6, coachingFired: false, paused: false },
-  mirror: {}
+  mirror: {},
+  lastArt: null
 };
 
 // ─── UTILITIES ────────────────────────────────────────
@@ -228,9 +314,10 @@ function toggleDebug() {
   document.getElementById('debug-panel').classList.toggle('active');
 }
 
-async function api(path, body = null, timeoutMs = 10000) {
+async function api(path, body = null, methodOverride = null, timeoutMs = 10000) {
+  if (typeof methodOverride === 'number') { timeoutMs = methodOverride; methodOverride = null; }
   const opts = {
-    method: body ? 'POST' : 'GET',
+    method: methodOverride || (body ? 'POST' : 'GET'),
     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY }
   };
   if (state.sessionKey) opts.headers['x-session-key'] = state.sessionKey;
@@ -870,18 +957,301 @@ async function completeSession() {
   state.currentSession++;
   saveState();
 
-  showScreen('screen-complete');
-  document.getElementById('cmp-session').textContent = 'S' + (state.currentSession - 1);
-  renderDots('complete-dots', state.currentSession, state.sessionsCompleted);
+  // Check for breath art in response
+  const artData = completeResult?.result?.mirror?.breath_art || completeResult?.mirror?.breath_art || null;
+  const sessionId = completeResult?.result?.session_id || completeResult?.session_id || null;
+  state.lastArt = { artData, sessionId, sessionNumber: state.currentSession - 1 };
 
+  if (artData?.svgString || artData?.imageHash) {
+    showArtReveal(artData, sessionId);
+  } else {
+    finishArtReveal();
+  }
+
+  debugLog(`Session ${state.currentSession - 1} complete. ${state.sessionsCompleted.length}/5 done.`, 'api');
+}
+
+// ─── BREATH ART REVEAL ───────────────────────────────
+const CROWNS = ['flower_of_life','metatrons_cube','sri_yantra','seed_of_life','vesica_piscis'];
+const CROWN_LABELS = {'flower_of_life':'Flower of Life','metatrons_cube':"Metatron's Cube",'sri_yantra':'Sri Yantra','seed_of_life':'Seed of Life','vesica_piscis':'Vesica Piscis'};
+
+function showArtReveal(artData, sessionId) {
+  showScreen('screen-art-reveal');
+  const loading = document.getElementById('art-loading');
+  const canvas = document.getElementById('art-canvas');
+  const message = document.getElementById('art-message');
+  const crownSection = document.getElementById('art-crown-section');
+  const intentionSection = document.getElementById('art-intention-section');
+  const actions = document.getElementById('art-actions');
+
+  loading.style.display = 'flex';
+  canvas.style.display = 'none';
+  message.style.display = 'none';
+  crownSection.style.display = 'none';
+  intentionSection.style.display = 'none';
+  actions.style.display = 'none';
+  document.getElementById('art-crown-layer').innerHTML = '';
+
+  setTimeout(() => {
+    loading.style.display = 'none';
+    canvas.style.display = 'block';
+
+    if (artData.svgString) {
+      document.getElementById('art-clinical-layer').innerHTML = artData.svgString;
+    } else if (artData.imageHash) {
+      document.getElementById('art-clinical-layer').innerHTML =
+        `<img src="https://gateway.pinata.cloud/ipfs/${artData.imageHash}" style="width:100%;height:100%;object-fit:cover">`;
+    }
+
+    message.style.display = 'block';
+
+    setTimeout(() => {
+      buildCrownSelector(sessionId);
+      crownSection.style.display = 'block';
+      intentionSection.style.display = 'block';
+      actions.style.display = 'block';
+    }, 3000);
+  }, 2500);
+}
+
+function buildCrownSelector(sessionId) {
+  const container = document.getElementById('crown-selector');
+  container.innerHTML = '';
+  CROWNS.forEach(id => {
+    const opt = document.createElement('div');
+    opt.className = 'crown-option';
+    opt.title = CROWN_LABELS[id];
+    opt.innerHTML = `<img src="/assets/crowns/${id}.svg" alt="${CROWN_LABELS[id]}">`;
+    opt.onclick = function() { selectCrown(id, sessionId, container, this); };
+    container.appendChild(opt);
+  });
+}
+
+async function selectCrown(crownId, sessionId, container, el) {
+  container.querySelectorAll('.crown-option').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+
+  try {
+    const resp = await fetch(`/assets/crowns/${crownId}.svg`);
+    const svgText = await resp.text();
+    document.getElementById('art-crown-layer').innerHTML = svgText;
+  } catch(e) {}
+
+  if (sessionId) {
+    try {
+      await api(`/api/art/session/${sessionId}/crown`, { crown_id: crownId }, 'PATCH');
+      debugLog(`Crown set: ${crownId}`, 'api');
+    } catch(e) {
+      debugLog(`Crown save failed: ${e.message}`, 'error');
+    }
+  }
+}
+
+async function submitIntention() {
+  const input = document.getElementById('intention-input');
+  const phrase = input.value.trim();
+  if (!phrase) return;
+
+  const encoder = new TextEncoder();
+  const data = encoder.encode(phrase);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const intentionHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+  input.value = 'Intention set';
+  input.disabled = true;
+
+  const sessionId = state.lastArt?.sessionId;
+  if (sessionId) {
+    try {
+      await api(`/api/art/session/${sessionId}/intention`, { intention_hash: intentionHash }, 'PATCH');
+      debugLog(`Intention hash stored`, 'api');
+    } catch(e) {
+      debugLog(`Intention save failed: ${e.message}`, 'error');
+    }
+  }
+}
+
+function finishArtReveal() {
+  showScreen('screen-complete');
+  const sn = state.currentSession - 1;
+  document.getElementById('cmp-session').textContent = 'S' + sn;
+  renderDots('complete-dots', state.currentSession, state.sessionsCompleted);
   if (state.currentSession > 5) {
     document.getElementById('cmp-next').textContent = 'All done!';
     document.getElementById('cmp-note').textContent = 'You have completed all 5 test sessions. Thank you!';
   } else {
     document.getElementById('cmp-next').textContent = `S${state.currentSession} — Tomorrow`;
   }
+}
 
-  debugLog(`Session ${state.currentSession - 1} complete. ${state.sessionsCompleted.length}/5 done.`, 'api');
+// ─── GALLERY ─────────────────────────────────────────
+let galleryData = [];
+let galleryPage = 1;
+let expandedPiece = null;
+
+async function showGallery() {
+  showScreen('screen-gallery');
+  galleryPage = 1;
+  await loadGallery();
+}
+
+async function loadGallery() {
+  const grid = document.getElementById('gallery-grid');
+  grid.innerHTML = '<div style="color:var(--dim);padding:40px">Loading...</div>';
+
+  try {
+    const userId = state.userId || 'test-user';
+    const result = await fetch(`${API}/api/art/gallery/${userId}?page=${galleryPage}&limit=20`);
+    const data = await result.json();
+    galleryData = data.pieces || [];
+    renderGallery(data);
+    renderStreak(galleryData);
+  } catch(e) {
+    grid.innerHTML = '<div style="color:var(--warn);padding:40px">Gallery unavailable</div>';
+    debugLog('Gallery load failed: ' + e.message, 'error');
+  }
+}
+
+function renderGallery(data) {
+  const grid = document.getElementById('gallery-grid');
+  grid.innerHTML = '';
+
+  if (!data.pieces || data.pieces.length === 0) {
+    grid.innerHTML = '<div style="color:var(--dim);padding:40px;grid-column:1/-1">No art pieces yet. Complete a session to generate your first.</div>';
+    return;
+  }
+
+  data.pieces.forEach((piece) => {
+    const div = document.createElement('div');
+    div.className = 'gallery-piece';
+    div.onclick = () => expandPiece(piece);
+
+    if (piece.ipfs_image_url) {
+      div.innerHTML = `<img src="${piece.ipfs_image_url}" alt="Breath #${piece.session_number}">`;
+    } else {
+      div.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--dim);font-size:.75em">Breath #${piece.session_number}</div>`;
+    }
+
+    if (piece.is_milestone) div.innerHTML += `<span class="badge milestone">&#9733;</span>`;
+    if (piece.is_victory_lap) div.innerHTML += `<span class="badge victory">&#10022;</span>`;
+    div.innerHTML += `<div class="gallery-label">Breath #${piece.session_number}<br>${piece.date || ''}</div>`;
+    grid.appendChild(div);
+  });
+
+  const pagDiv = document.getElementById('gallery-pagination');
+  pagDiv.innerHTML = '';
+  if (data.pages > 1) {
+    for (let i = 1; i <= data.pages; i++) {
+      const btn = document.createElement('button');
+      btn.className = 'btn small' + (i === data.page ? '' : ' secondary');
+      btn.textContent = i;
+      btn.onclick = () => { galleryPage = i; loadGallery(); };
+      pagDiv.appendChild(btn);
+    }
+  }
+}
+
+function renderStreak(pieces) {
+  const bar = document.getElementById('gallery-streak');
+  bar.innerHTML = '';
+  if (!pieces || pieces.length === 0) return;
+
+  const dates = new Set(pieces.map(p => p.date).filter(Boolean));
+  if (dates.size === 0) return;
+
+  const sorted = [...dates].sort();
+  const start = new Date(sorted[0]);
+  const end = new Date(sorted[sorted.length - 1]);
+  const days = Math.min(30, Math.ceil((end - start) / 86400000) + 1);
+
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    const div = document.createElement('div');
+    div.className = 'streak-day' + (dates.has(dateStr) ? ' active' : ' gap');
+    div.title = dateStr;
+    bar.appendChild(div);
+  }
+}
+
+function expandPiece(piece) {
+  expandedPiece = piece;
+  document.getElementById('gallery-expanded').classList.add('active');
+
+  const artLayer = document.getElementById('expanded-clinical-layer');
+  const crownLayer = document.getElementById('expanded-crown-layer');
+  crownLayer.innerHTML = '';
+  document.getElementById('expanded-clinical').style.display = 'none';
+  document.getElementById('expanded-clinical').innerHTML = '';
+
+  if (piece.ipfs_image_url) {
+    artLayer.innerHTML = `<img src="${piece.ipfs_image_url}" style="width:100%;height:100%;object-fit:cover">`;
+  } else {
+    artLayer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--dim)">No image</div>`;
+  }
+
+  if (piece.crown_id) {
+    fetch(`/assets/crowns/${piece.crown_id}.svg`).then(r => r.text()).then(svg => {
+      crownLayer.innerHTML = svg;
+    }).catch(() => {});
+  }
+
+  document.getElementById('expanded-meta').textContent =
+    `Breath #${piece.session_number} — ${piece.date || ''} — ${piece.arc_name || ''}`;
+
+  document.getElementById('btn-decode').style.display = piece.art_token_id ? '' : 'none';
+}
+
+function closeGalleryExpanded() {
+  document.getElementById('gallery-expanded').classList.remove('active');
+  expandedPiece = null;
+}
+
+async function decodeArt() {
+  if (!expandedPiece?.art_token_id) return;
+  const clinicalDiv = document.getElementById('expanded-clinical');
+  clinicalDiv.style.display = 'block';
+  clinicalDiv.innerHTML = '<div style="color:var(--dim)">Decoding...</div>';
+
+  try {
+    const resp = await fetch(`${API}/api/art/decode/${expandedPiece.art_token_id}`, {
+      headers: { 'X-Clinical-Key': 'clinical-access' }
+    });
+    if (resp.status === 403) {
+      clinicalDiv.innerHTML = '<div style="color:var(--warn)">Clinical access denied</div>';
+      return;
+    }
+    const data = await resp.json();
+    const cr = data.clinical_readout;
+    clinicalDiv.innerHTML = `
+      <div class="card" style="margin:0">
+        <div class="stat"><span class="stat-label">NS3 Peak</span><span class="stat-value">${cr.ns3_peak}</span></div>
+        <div class="stat"><span class="stat-label">NS3 Floor</span><span class="stat-value">${cr.ns3_floor}</span></div>
+        <div class="stat"><span class="stat-label">NS3 Mean</span><span class="stat-value">${cr.ns3_mean}</span></div>
+        <div class="stat"><span class="stat-label">Coherence Peak</span><span class="stat-value">${(cr.coherence_peak || 0).toFixed(2)}</span></div>
+        <div class="stat"><span class="stat-label">Trajectory</span><span class="stat-value">${cr.trajectory}</span></div>
+      </div>`;
+  } catch(e) {
+    clinicalDiv.innerHTML = '<div style="color:var(--warn)">Decode failed</div>';
+  }
+}
+
+async function downloadArt() {
+  if (!expandedPiece?.ipfs_image_url) return;
+  try {
+    const resp = await fetch(expandedPiece.ipfs_image_url);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `breath_${expandedPiece.session_number}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    debugLog('Download failed: ' + e.message, 'error');
+  }
 }
 
 // ─── INIT ─────────────────────────────────────────────

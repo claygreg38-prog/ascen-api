@@ -446,6 +446,61 @@ function generate(summary, packetHash, options = {}) {
     svgParts.push(`  <circle cx="400" cy="400" r="80" stroke="${pulseColor}" fill="none" stroke-width="0.3" opacity="0.2"/>`);
   }
 
+  // ── INTENTION SEED (decorative only — NEVER overrides clinical encoding) ──
+  const intentionHash = options.intention_hash || null;
+  if (intentionHash && intentionHash.length >= 16) {
+    const iParticleCount = 8 + (parseInt(intentionHash.slice(0, 4), 16) % 17); // 8-24
+    const iSpread = parseInt(intentionHash.slice(4, 8), 16) / 65535; // 0-1
+    const iEdgeStyle = parseInt(intentionHash.slice(8, 12), 16) / 65535; // 0=angular, 1=curved
+    const iColorTemp = parseInt(intentionHash.slice(12, 16), 16) / 65535; // 0=cool, 1=warm
+
+    // Blend between cool teal-blue and warm amber-gold
+    const coolR = 95, coolG = 252, coolB = 224;   // #5ffce0
+    const warmR = 240, warmG = 184, warmB = 96;    // #f0b860
+    const iR = Math.round(coolR + (warmR - coolR) * iColorTemp);
+    const iG = Math.round(coolG + (warmG - coolG) * iColorTemp);
+    const iB = Math.round(coolB + (warmB - coolB) * iColorTemp);
+    const intentColor = `rgb(${iR},${iG},${iB})`;
+
+    // Intention particles (70-85% opacity) — uses its own seeded PRNG
+    const intentionSeed = parseInt(intentionHash.slice(0, 8), 16);
+    const rngI = seededRandom(intentionSeed);
+    const spreadMin = 50 + (1 - iSpread) * 150;
+    const spreadMax = spreadMin + 100 + iSpread * 200;
+
+    svgParts.push(`  <!-- Intention Seed (decorative) -->`);
+    for (let i = 0; i < iParticleCount; i++) {
+      const angle = rngI() * Math.PI * 2;
+      const dist = spreadMin + rngI() * (spreadMax - spreadMin);
+      const px = 400 + Math.cos(angle) * dist;
+      const py = 400 + Math.sin(angle) * dist;
+      const pr = 1.5 + rngI() * 1.0;
+      const opacity = 0.7 + rngI() * 0.15;
+      svgParts.push(`  <circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${pr.toFixed(1)}" fill="${intentColor}" opacity="${opacity.toFixed(2)}"/>`);
+    }
+
+    // Edge flourishes (40-55% opacity, corner regions)
+    const corners = [{ x: 60, y: 60 }, { x: 740, y: 60 }, { x: 60, y: 740 }, { x: 740, y: 740 }];
+    for (let i = 0; i < 4; i++) {
+      const c = corners[i];
+      const len = 30 + rngI() * 40;
+      const a = rngI() * Math.PI * 2;
+      const ex = c.x + Math.cos(a) * len;
+      const ey = c.y + Math.sin(a) * len;
+      const opacity = 0.4 + rngI() * 0.15;
+      const sw = (1.0 + rngI() * 0.4).toFixed(1);
+      if (iEdgeStyle > 0.5) {
+        const cpx = c.x + Math.cos(a) * len * 0.5;
+        const cpy = c.y + Math.sin(a) * len * 0.5;
+        svgParts.push(`  <path d="M${c.x},${c.y} Q${cpx.toFixed(1)},${cpy.toFixed(1)} ${ex.toFixed(1)},${ey.toFixed(1)}" fill="none" stroke="${intentColor}" stroke-width="${sw}" opacity="${opacity.toFixed(2)}"/>`);
+      } else {
+        const mx = (c.x + ex) / 2 + (rngI() - 0.5) * 20;
+        const my = (c.y + ey) / 2 + (rngI() - 0.5) * 20;
+        svgParts.push(`  <polyline points="${c.x},${c.y} ${mx.toFixed(1)},${my.toFixed(1)} ${ex.toFixed(1)},${ey.toFixed(1)}" fill="none" stroke="${intentColor}" stroke-width="${sw}" opacity="${opacity.toFixed(2)}"/>`);
+      }
+    }
+  }
+
   svgParts.push(`</svg>`);
 
   const svgString = svgParts.join('\n');
@@ -519,6 +574,10 @@ function loadCrown(crownId) {
     return null;
   }
 }
+
+// TODO Session 10+: Invisible watermark injection point
+// Embed hash of session_id + wallet_address + timestamp into SVG metadata
+// See Design Spec §13.3
 
 module.exports = {
   generate,

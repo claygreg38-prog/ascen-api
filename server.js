@@ -11,6 +11,9 @@ app.use(express.json());
 // ── CLINICAL TEST HARNESS (temporary — delete after 5-day test) ──
 app.get('/test', (req, res) => res.sendFile(path.join(__dirname, 'public/test.html')));
 
+// ── CROWN SVGs — static assets ──────────────────────────────
+app.use('/assets/crowns', express.static(path.join(__dirname, 'src/assets/crowns')));
+
 // ── DATABASE ────────────────────────────────────────────────
 // Declared FIRST so all middleware and routes can reference it
 const pool = process.env.DATABASE_URL ? new Pool({
@@ -151,6 +154,20 @@ try {
   console.log('[AXIS] Value routes mounted at /api/axis/value');
 } catch (err) {
   console.warn('[AXIS] Value routes not loaded:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ART ROUTES — Breath Art gallery, decode, crown, intention
+// ═══════════════════════════════════════════════════════════════
+try {
+  const artRoutes = require('./src/routes/artRoutes');
+  // Gallery, crown, intention, photo-palette — participant or above
+  app.use('/api/art', authenticateOrApiKey('participant'));
+  // Decode route also checks X-Clinical-Key internally for clinical access
+  app.use('/api/art', artRoutes);
+  console.log('[ART] Routes mounted at /api/art');
+} catch (err) {
+  console.warn('[ART] Could not mount:', err.message);
 }
 
 // ═══════════════════════════════════════════════════════════════

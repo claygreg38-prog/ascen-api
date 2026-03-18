@@ -41,10 +41,16 @@ Updated: March 18, 2026
 - ipfsService.js: Pinata IPFS upload + AES-256 clinical encryption
 - Breath art wired into onSessionComplete() (after NS3, before attestation)
 - 5 crown SVGs in src/assets/crowns/ (flower_of_life, metatrons_cube, sri_yantra, seed_of_life, vesica_piscis)
-- Dependencies: sharp, pinata-sdk, crypto-js
+- Dependencies: sharp, crypto-js
+- Art routes at /api/art (Session 9): gallery, decode, crown, intention, photo-palette
+- photoAbstractionService.js: 6x6 palette extraction
+- Crown SVGs served statically at /assets/crowns/
+- Mirror screen art reveal + gallery UI in test harness
 
 ## Do NOT Build Unless Assigned
-- artRoutes.js + gallery UI (Session 9 — Art Gallery)
+- Screenshot protection (dummyArtEngine.js) — Session 10+
+- Invisible watermark injection — Session 10+
+- Display offset for clinical values — Session 10+
 - Terra API wearable integration
 - Frequent Flyer Scoring Engine
 - Family Platform (18-section spec)
@@ -68,6 +74,8 @@ Focus only on the task assigned in the session prompt.
 - src/assets/crowns/ — 5 sacred geometry crown SVGs
 - src/blockchain/verificationService.js — all blockchain writes
 - src/routes/abiRoutes.js — ABI endpoints
+- src/routes/artRoutes.js — art gallery/decode/crown/intention API
+- src/services/photoAbstractionService.js — 6x6 palette extraction
 - src/routes/axisRoutes.js — AXIS endpoints
 - server.js — Express, route mounting, cron
 - public/test.html — throwaway test harness
