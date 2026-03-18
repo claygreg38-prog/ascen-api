@@ -57,6 +57,7 @@ const { ZoneTimeTracker, CoherenceMomentum } = require('./stateEngineEnhancement
 const { CoachingEffectivenessTracker } = require('./coachingEnhancements');
 const { CrossSystemSynergy } = require('./crossSystemSynergy');
 const { VictoryLapEngine } = require('./victoryLapEngine');
+const { onBiometricWindowReceived: ns3BiometricTick, onSessionComplete: ns3Complete, initializeNS3Session } = require('../services/ns3AxisBridge');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -129,6 +130,11 @@ function createOrchestrator(callbacks = {}) {
 
   // ── COMPANIONSHIP MODE FLAG ─────────────────────────────
   let isCompanionshipMode = false;
+
+  // ── NS3 ENGINE STATE ────────────────────────────────────────
+  let ns3Session = null;       // { aggregator, hrHistory, sdnnHistory, belowWindowDuration, sessionMinute }
+  let ns3TickCounter = 0;      // fires NS3 every 5 ticks (5 seconds)
+  let ns3Summary = null;       // populated on session complete
 
   // ── SOMATIC RESET STATE ───────────────────────────────────
   let somaticActive = false;
@@ -426,6 +432,10 @@ function createOrchestrator(callbacks = {}) {
     coachingEffectiveness = new CoachingEffectivenessTracker();
     crossSystemSynergy = new CrossSystemSynergy();
     victoryLapEngine = new VictoryLapEngine();
+
+    // ── [NS3] INITIALIZE NS3 SESSION AGGREGATOR ──────────
+    ns3Session = initializeNS3Session(userId, sessionId);
+    ns3TickCounter = 0;
 
     // Pre-session intelligence (non-blocking)
     let preSessionAnalysis = null;
@@ -747,7 +757,7 @@ function createOrchestrator(callbacks = {}) {
   // 3. BREATHING TICK (every second during Breathing phase)
   // ═══════════════════════════════════════════════════════════
 
-  function onBreathingTick(biometrics) {
+  async function onBreathingTick(biometrics) {
     if (sessionPhase !== 'breathing') return { action: 'none' };
 
     const elapsed = breathingStartTime ? Math.floor((Date.now() - breathingStartTime) / 1000) : 0;
@@ -907,6 +917,49 @@ function createOrchestrator(callbacks = {}) {
       if (coachingEffectiveness && stateResult) coachingEffectiveness.onTick(stateResult.state, stateResult.response_level);
     } catch (err) {
       // Non-blocking
+    }
+
+    // ── [NS3] NERVOUS SYSTEM STATE SCORE — EVERY 5 SECONDS ──
+    // Paused during somatic reset phase. Resumes after onSomaticComplete().
+    ns3TickCounter++;
+    if (ns3Session && ns3TickCounter >= 5 && !somaticActive) {
+      ns3TickCounter = 0;
+      try {
+        const rrBuffer = biometrics.rr_intervals || biometrics.rrIntervals || [];
+        if (rrBuffer.length >= 2) {
+          ns3Session.sessionMinute = Math.floor(elapsed / 60);
+
+          // Accumulate HR/SDNN history
+          if (biometrics.current_hr || biometrics.heart_rate) {
+            ns3Session.hrHistory.push(biometrics.current_hr || biometrics.heart_rate);
+          }
+          const sdnn = biometrics.sdnn || null;
+          if (sdnn !== null) ns3Session.sdnnHistory.push(sdnn);
+
+          const ns3Result = await ns3BiometricTick({
+            participantId: userId,
+            sessionId,
+            rrBuffer,
+            spO2: biometrics.spo2 || biometrics.spO2 || null,
+            hrHistory: ns3Session.hrHistory,
+            sdnnHistory: ns3Session.sdnnHistory,
+            deviceType: biometrics.device_type || biometrics.source || 'unknown',
+            currentTrack: user.breath_track || 'standard',
+            belowWindowDuration: ns3Session.aggregator.belowWindowDuration,
+            sessionMinute: ns3Session.sessionMinute,
+            aggregator: ns3Session.aggregator,
+            arrivalComplete: sessionPhase === 'breathing',
+            breathMatchActive: adaptedSession?.adaptive_ratio || false,
+          });
+
+          result.ns3 = {
+            score: ns3Result.ns3Score,
+            zone: ns3Result.zone,
+          };
+        }
+      } catch (err) {
+        console.error('[NS3] Tick failed (non-blocking):', err.message);
+      }
     }
 
     // ── LIVE DETECTION (90-second check) ────────────────
@@ -1113,6 +1166,39 @@ function createOrchestrator(callbacks = {}) {
       }
     }
 
+    // ── [NS3] SESSION COMPLETION — SUMMARIZE + STORE ──────
+    ns3Summary = null;
+    if (ns3Session && ns3Session.aggregator) {
+      try {
+        ns3Summary = await ns3Complete(ns3Session.aggregator, {
+          sessionId,
+          participantId: userId,
+        });
+
+        if (ns3Summary) {
+          await pool.query(
+            `UPDATE session_completions
+             SET ns3_mean = $1, ns3_peak = $2, ns3_floor = $3,
+                 optimal_zone_pct = $4, regulatory_trajectory = $5,
+                 sustained_optimal = $6
+             WHERE user_id = $7 AND session_id = $8`,
+            [
+              ns3Summary.ns3.mean,
+              ns3Summary.ns3.peak,
+              ns3Summary.ns3.floor,
+              ns3Summary.zoneDuration.optimalPct,
+              ns3Summary.clinical.regulatoryTrajectory,
+              ns3Summary.clinical.sustainedOptimal,
+              userId,
+              sessionId
+            ]
+          );
+        }
+      } catch (err) {
+        console.error('[NS3] Session completion failed (non-blocking):', err.message);
+      }
+    }
+
     // ── [ABI] BUILD SESSION DATA PACKET ──────────────────
     // Canonical hash for on-chain attestation. Every session
     // from day one is retroactively attestable, even before
@@ -1261,6 +1347,30 @@ function createOrchestrator(callbacks = {}) {
 
     const primaryAffirmation = affirmations.length > 0 ? affirmations[0] : null;
 
+    // ── [ABI] PERSONALIZED CLOSE — TAG COMPUTATION + LOOKUP ──
+    let personalizedClose = null;
+    let sessionTags = [];
+    const sessionNumber = rawSession.session_number || 0;
+    try {
+      sessionTags = await computeSessionTags({
+        cleanMetrics,
+        stateSummary,
+        rawMetrics,
+        arrivalBaseline,
+        sessionNumber,
+        userRecord: user,
+        somaticExerciseUsed: somaticExerciseCount > 0
+      });
+
+      personalizedClose = await selectPersonalizedClose(sessionTags, sessionNumber);
+
+      if (personalizedClose) {
+        await updateSessionClose(personalizedClose.id, sessionTags);
+      }
+    } catch (err) {
+      console.error('[ABI] Personalized close failed (non-blocking):', err.message);
+    }
+
     // ── TREND ANALYZER — EVERY 10 SESSIONS ───────────────
     let trendReport = null;
     if (shouldRunTrendAnalysis(sessCount)) {
@@ -1279,6 +1389,14 @@ function createOrchestrator(callbacks = {}) {
       } catch (err) {
         // Non-blocking
       }
+    }
+
+    // ── [ABI] PERSONALIZED CLOSE → LUNO CONTEXT ──────────
+    // Luno reads the close from DB. Zero API dependency for closes.
+    // Personalized close is the LAST thing Luno says before Abby's line.
+    let lunoPersonalizedClose = null;
+    if (personalizedClose) {
+      lunoPersonalizedClose = personalizedClose.text;
     }
 
     // ── [NEW] AXIS — INGEST SESSION DATA ────────────────
@@ -1407,6 +1525,8 @@ function createOrchestrator(callbacks = {}) {
       companionship_mode: isCompanionshipMode,
       companionship_data: isCompanionshipMode && companionshipMode
         ? companionshipMode.getSessionConfig() : null,
+      personalized_close: lunoPersonalizedClose,
+      personalized_close_tags: sessionTags,
       victory_lap: victoryLap,
       post_analysis: postAnalysis,
       zone_time_profile: zoneProfile,
@@ -1422,9 +1542,188 @@ function createOrchestrator(callbacks = {}) {
       metrics: cleanMetrics,
       advancement: advancementResult,
       affirmation: primaryAffirmation,
+      personalized_close: lunoPersonalizedClose,
       mirror: mirrorData,
       victory_lap: victoryLap
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // PERSONALIZED CLOSES — TAG COMPUTATION + LOOKUP
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * computeSessionTags — derives context tags from session data, participant profile, and engagement.
+   * Called inside onSessionComplete BEFORE close lookup.
+   */
+  async function computeSessionTags(sessionData) {
+    const tags = [];
+    const {
+      cleanMetrics, stateSummary, rawMetrics, arrivalBaseline: baseline,
+      sessionNumber, userRecord
+    } = sessionData;
+
+    // ── BIOMETRIC TAGS (NS3-derived when available) ──────
+    if (ns3Summary && ns3Summary.ns3) {
+      // NS3 engine provides authoritative HRV shift data
+      const ns3Shift = ns3Summary.ns3.peak - ns3Summary.ns3.floor;
+      if (ns3Shift > 30) tags.push('hrv_shift_large');
+      else if (ns3Shift > 15) tags.push('hrv_shift_moderate');
+
+      // regulation_fast: sustained optimal achieved within first 3 minutes
+      const earlyReadings = ns3Session?.aggregator?.readings?.slice(0, 36) || []; // ~3 min at 5s intervals
+      const regulationAchievedInFirstThreeMin = earlyReadings.some(r => r.zone === 'optimal');
+      if (ns3Summary.clinical.sustainedOptimal && regulationAchievedInFirstThreeMin) {
+        tags.push('regulation_fast');
+      }
+
+      // fought_through_activation: floor was below_window + trajectory improving
+      const floorWasBelowWindow = ns3Summary.ns3.floor <= 35;
+      if (ns3Summary.clinical.regulatoryTrajectory === 'improving' && floorWasBelowWindow) {
+        tags.push('fought_through_activation');
+      }
+    } else {
+      // Fallback: legacy HRV tag logic when NS3 is not available
+      const peakHRV = stateSummary?.peakHRV ?? rawMetrics?.peak_hrv ?? 0;
+      const floorHRV = stateSummary?.floorHRV ?? rawMetrics?.floor_hrv ?? (baseline?.resting_hrv || 0);
+      const hrvShift = peakHRV - floorHRV;
+
+      if (hrvShift > 30) tags.push('hrv_shift_large');
+      else if (hrvShift > 15) tags.push('hrv_shift_moderate');
+
+      const ttr = stateSummary?.timeToRegulation ?? null;
+      if (ttr !== null && ttr <= 180) tags.push('regulation_fast');
+
+      const trajectory = stateSummary?.trajectory ?? rawMetrics?.coherence_trajectory ?? null;
+      if (floorHRV < (baseline?.resting_hrv || 999) * 0.8 && (trajectory === 'improving' || trajectory === 'ascending')) {
+        tags.push('fought_through_activation');
+      }
+    }
+
+    if (rawMetrics?.panic_event) tags.push('panic_recovery');
+
+    if (rawMetrics?.somatic_exercise_used || sessionData.somaticExerciseUsed) {
+      tags.push('somatic_reset_completed');
+    }
+
+    // ── STRESSOR TAGS ───────────────────────────────────
+    const stressor = stressorFlag || userRecord?.stressor_flag || null;
+    if (stressor === 'court_day') tags.push('court_day');
+    if (stressor === 'visitation_window') tags.push('visitation_window');
+    if (stressor === 'release_approaching') tags.push('release_approaching');
+
+    const arrivalHR = baseline?.resting_hr ?? 0;
+    const track = userRecord?.breath_track || 'standard';
+    if (arrivalHR > 0 && arrivalHR < 55 && track === 'minimal') {
+      tags.push('depression_signal');
+    }
+
+    // ── FAMILY TAGS ─────────────────────────────────────
+    const familyUnitId = userRecord?.family_unit_id ?? null;
+    const lightbridgeEnabled = userRecord?.lightbridge_enabled ?? false;
+    const familyRecordingCount = userRecord?.family_recording_count ?? 0;
+
+    if (familyUnitId) {
+      tags.push('has_family_unit');
+    } else {
+      tags.push('no_family');
+    }
+
+    if (lightbridgeEnabled) tags.push('lightbridge_active');
+    if (familyRecordingCount > 0) tags.push('family_recording_active');
+    if (familyRecordingCount === 1) tags.push('family_recording_first');
+
+    // ── ENGAGEMENT TAGS ─────────────────────────────────
+    try {
+      const lastSession = await pool.query(
+        `SELECT completed_at FROM session_completions
+         WHERE user_id = $1 AND session_id != $2
+         ORDER BY completed_at DESC LIMIT 1`,
+        [userId, sessionId]
+      );
+      if (lastSession.rows.length > 0) {
+        const gap = (Date.now() - new Date(lastSession.rows[0].completed_at).getTime()) / (1000 * 60 * 60 * 24);
+        if (gap > 7) tags.push('dropout_return');
+      }
+    } catch (err) { /* non-blocking */ }
+
+    try {
+      const weekSessions = await pool.query(
+        `SELECT COUNT(*) as c FROM session_completions
+         WHERE user_id = $1 AND completed_at > NOW() - INTERVAL '7 days'`,
+        [userId]
+      );
+      if (parseInt(weekSessions.rows[0].c) >= 5) tags.push('consistency_streak');
+    } catch (err) { /* non-blocking */ }
+
+    const sessionHour = new Date().getHours();
+    if (sessionHour >= 18) tags.push('evening_session');
+
+    if (track === 'gentle') tags.push('track_gentle');
+    if (track === 'minimal') tags.push('track_minimal');
+    if (track === 'standard' && sessionNumber > 50) tags.push('track_advanced');
+
+    return tags;
+  }
+
+  /**
+   * selectPersonalizedClose — finds the best matching close for session tags + session number.
+   * Multi-tag closes (priority 4) always win over single-tag.
+   * Fallback: hrv_shift_moderate for session range.
+   */
+  async function selectPersonalizedClose(tags, sessionNumber) {
+    const closes = await pool.query(
+      `SELECT * FROM personalized_closes
+       WHERE session_range_min <= $1 AND session_range_max >= $1
+       AND active = true
+       ORDER BY priority DESC`,
+      [sessionNumber]
+    );
+
+    if (closes.rows.length === 0) return null;
+
+    // Filter: all tags in close.tags must exist in session tags
+    let bestMatch = null;
+    let bestScore = -1;
+
+    for (const close of closes.rows) {
+      const closeTags = Array.isArray(close.tags) ? close.tags : JSON.parse(close.tags || '[]');
+      const allMatch = closeTags.every(t => tags.includes(t));
+      if (!allMatch) continue;
+
+      // Score: priority * 10 + number of matching tags
+      const score = close.priority * 10 + closeTags.length;
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = close;
+      }
+    }
+
+    // Fallback: hrv_shift_moderate for session range
+    if (!bestMatch) {
+      bestMatch = closes.rows.find(c => {
+        const ct = Array.isArray(c.tags) ? c.tags : JSON.parse(c.tags || '[]');
+        return ct.length === 1 && ct[0] === 'hrv_shift_moderate';
+      }) || null;
+    }
+
+    return bestMatch;
+  }
+
+  /**
+   * updateSessionClose — saves personalized close reference on session_completions.
+   */
+  async function updateSessionClose(closeId, tags) {
+    try {
+      await pool.query(
+        `UPDATE session_completions
+         SET personalized_close_id = $1, personalized_close_tags = $2
+         WHERE user_id = $3 AND session_id = $4`,
+        [closeId, JSON.stringify(tags), userId, sessionId]
+      );
+    } catch (err) {
+      console.error('[ABI] Failed to save personalized close:', err.message);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
