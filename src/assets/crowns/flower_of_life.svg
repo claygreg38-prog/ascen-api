@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" fill="none" stroke="#5ffce0" stroke-width="0.75" opacity="0.35">
+  <!-- Flower of Life: 19 overlapping circles, hexagonal arrangement -->
+  <!-- Center -->
+  <circle cx="400" cy="400" r="100"/>
+  <!-- Ring 1: 6 circles -->
+  <circle cx="500" cy="400" r="100"/>
+  <circle cx="450" cy="486.6" r="100"/>
+  <circle cx="350" cy="486.6" r="100"/>
+  <circle cx="300" cy="400" r="100"/>
+  <circle cx="350" cy="313.4" r="100"/>
+  <circle cx="450" cy="313.4" r="100"/>
+  <!-- Ring 2: 12 circles -->
+  <circle cx="600" cy="400" r="100"/>
+  <circle cx="550" cy="486.6" r="100"/>
+  <circle cx="500" cy="573.2" r="100"/>
+  <circle cx="400" cy="573.2" r="100"/>
+  <circle cx="300" cy="573.2" r="100"/>
+  <circle cx="250" cy="486.6" r="100"/>
+  <circle cx="200" cy="400" r="100"/>
+  <circle cx="250" cy="313.4" r="100"/>
+  <circle cx="300" cy="226.8" r="100"/>
+  <circle cx="400" cy="226.8" r="100"/>
+  <circle cx="500" cy="226.8" r="100"/>
+  <circle cx="550" cy="313.4" r="100"/>
+</svg>

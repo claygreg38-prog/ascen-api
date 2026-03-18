@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" fill="none" stroke="#5ffce0" stroke-width="0.8" opacity="0.35">
+  <!-- Sri Yantra: 9 interlocking triangles (4 upward, 5 downward) -->
+  <!-- Outer circle -->
+  <circle cx="400" cy="400" r="300"/>
+  <!-- Upward triangles (Shiva) -->
+  <polygon points="400,130 580,590 220,590"/>
+  <polygon points="400,180 550,540 250,540"/>
+  <polygon points="400,230 520,500 280,500"/>
+  <polygon points="400,270 500,470 300,470"/>
+  <!-- Downward triangles (Shakti) -->
+  <polygon points="400,650 220,230 580,230"/>
+  <polygon points="400,610 250,270 550,270"/>
+  <polygon points="400,560 280,320 520,320"/>
+  <polygon points="400,520 300,350 500,350"/>
+  <polygon points="400,490 320,380 480,380"/>
+  <!-- Central bindu -->
+  <circle cx="400" cy="400" r="4" fill="#5ffce0" stroke="none" opacity="0.5"/>
+</svg>

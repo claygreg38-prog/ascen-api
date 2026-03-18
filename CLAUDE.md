@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 17, 2026
+Updated: March 18, 2026
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -36,10 +36,15 @@ Updated: March 17, 2026
 - NS3 Engine deployed: src/services/ns3Engine.js
 - NS3 Bridge deployed: src/services/ns3AxisBridge.js
 - Test harness at /test (throwaway — delete after pilot)
+- Migration 014: breath art columns on session_completions
+- breathArtEngine.js: deterministic sacred geometry generator
+- ipfsService.js: Pinata IPFS upload + AES-256 clinical encryption
+- Breath art wired into onSessionComplete() (after NS3, before attestation)
+- 5 crown SVGs in src/assets/crowns/ (flower_of_life, metatrons_cube, sri_yantra, seed_of_life, vesica_piscis)
+- Dependencies: sharp, pinata-sdk, crypto-js
 
 ## Do NOT Build Unless Assigned
-- Migration 014 + breathArtEngine.js (Session 8 — Breath Art)
-- ipfsService.js + artRoutes.js (Session 9 — Art Gallery)
+- artRoutes.js + gallery UI (Session 9 — Art Gallery)
 - Terra API wearable integration
 - Frequent Flyer Scoring Engine
 - Family Platform (18-section spec)
@@ -58,6 +63,9 @@ Focus only on the task assigned in the session prompt.
 - src/abi/biometricResilience.js — BLE disconnect handling
 - src/services/ns3Engine.js — NS3 scoring engine
 - src/services/ns3AxisBridge.js — NS3 → AXIS bridge
+- src/abi/breathArtEngine.js — deterministic breath art generator
+- src/services/ipfsService.js — Pinata IPFS upload + AES-256
+- src/assets/crowns/ — 5 sacred geometry crown SVGs
 - src/blockchain/verificationService.js — all blockchain writes
 - src/routes/abiRoutes.js — ABI endpoints
 - src/routes/axisRoutes.js — AXIS endpoints
