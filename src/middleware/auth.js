@@ -30,7 +30,8 @@ const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
 // Known API keys (transition period — remove when full JWT is adopted)
 const VALID_API_KEYS = new Set([
   process.env.CLINICAL_API_KEY,
-  process.env.API_KEY
+  process.env.API_KEY,
+  process.env.TEST_HARNESS_API_KEY
 ].filter(Boolean));
 
 

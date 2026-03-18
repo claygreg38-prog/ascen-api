@@ -10,6 +10,11 @@ app.use(express.json());
 
 // ── CLINICAL TEST HARNESS (temporary — delete after 5-day test) ──
 app.get('/test', (req, res) => res.sendFile(path.join(__dirname, 'public/test.html')));
+app.get('/test/config', (req, res) => {
+  // Serves the test harness API key so it's not hardcoded in HTML source
+  const key = process.env.TEST_HARNESS_API_KEY || '';
+  res.json({ key });
+});
 
 // ── CROWN SVGs — static assets ──────────────────────────────
 app.use('/assets/crowns', express.static(path.join(__dirname, 'src/assets/crowns')));

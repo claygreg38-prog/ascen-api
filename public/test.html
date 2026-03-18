@@ -280,7 +280,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
 <script>
 // ─── CONFIG ───────────────────────────────────────────
 const API = window.location.origin;
-const API_KEY = new URLSearchParams(window.location.search).get('key') || '';
+let API_KEY = new URLSearchParams(window.location.search).get('key') || '';
 const ARRIVAL_DURATION = 30;
 const BREATHING_DURATION = 180;
 
@@ -1255,7 +1255,14 @@ async function downloadArt() {
 }
 
 // ─── INIT ─────────────────────────────────────────────
-(function init() {
+(async function init() {
+  // Fetch test harness API key from server (not hardcoded in source)
+  if (!API_KEY) {
+    try {
+      const cfg = await fetch('/test/config').then(r => r.json());
+      if (cfg.key) API_KEY = cfg.key;
+    } catch(e) {}
+  }
   renderDots('login-dots', 1, []);
   const lastKey = Object.keys(localStorage).find(k => k.startsWith('ascen_test_'));
   if (lastKey) {
