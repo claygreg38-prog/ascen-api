@@ -487,7 +487,7 @@ async function renderToPNG(svgString) {
 // ── DECODE ────────────────────────────────────────────────────
 
 /**
- * Decode a minted token's clinical payload.
+ * Decode a session's encrypted clinical payload.
  *
  * @param {string} encryptedPayload - iv:ciphertext from IPFS metadata
  * @param {string} clinicalKey - AES-256 hex key
