@@ -1,3 +1,4 @@
+const Sentry = require('./src/instrument');
 const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
@@ -53,6 +54,23 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, x-session-key, Authorization');
   res.header('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
+// ── SENTRY USER CONTEXT ─────────────────────────────────────
+// Tag every request with participant_id, session_number, device_type when available
+app.use((req, res, next) => {
+  if (req.user) {
+    Sentry.setUser({ id: req.user.participant_id || req.user.user_id || req.user.sub });
+    Sentry.setTag('participant_id', req.user.participant_id || req.user.user_id || req.user.sub);
+  }
+  if (req.body) {
+    if (req.body.session_number) Sentry.setTag('session_number', req.body.session_number);
+    if (req.body.device_type) Sentry.setTag('device_type', req.body.device_type);
+  }
+  if (req.query) {
+    if (req.query.session_number) Sentry.setTag('session_number', req.query.session_number);
+  }
   next();
 });
 
@@ -310,6 +328,11 @@ app.post('/api/blockchain/verify-session', authenticateOrApiKey('participant'), 
   }
 });
 
+
+// ═══════════════════════════════════════════════════════════════
+// SENTRY ERROR HANDLER — after all routes, before error middleware
+// ═══════════════════════════════════════════════════════════════
+Sentry.setupExpressErrorHandler(app);
 
 // ═══════════════════════════════════════════════════════════════
 // SERVER START + CRON

@@ -58,6 +58,9 @@ const { CoachingEffectivenessTracker } = require('./coachingEnhancements');
 const { CrossSystemSynergy } = require('./crossSystemSynergy');
 const { VictoryLapEngine } = require('./victoryLapEngine');
 const { onBiometricWindowReceived: ns3BiometricTick, onSessionComplete: ns3Complete, initializeNS3Session } = require('../services/ns3AxisBridge');
+const breathArtEngine = require('./breathArtEngine');
+const ipfsService = require('../services/ipfsService');
+const Sentry = require('../instrument');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -151,6 +154,11 @@ function createOrchestrator(callbacks = {}) {
     sessionPhase = 'pre_session';
     stressorFlag = options.stressor_flag || null;
 
+    // ── SENTRY SESSION CONTEXT ───────────────────────────
+    Sentry.setUser({ id: userId });
+    Sentry.setTag('session_id', sessionId);
+    if (options.device_type) Sentry.setTag('device_type', options.device_type);
+
     // ── LOAD USER ───────────────────────────────────────
     const userResult = await pool.query(
       `SELECT * FROM users WHERE user_id = $1`,
@@ -170,6 +178,7 @@ function createOrchestrator(callbacks = {}) {
       throw new Error(`Session ${sessionId} not found`);
     }
     rawSession = sessResult.rows[0];
+    Sentry.setTag('session_number', rawSession.session_number);
 
     // ── [NEW] IDENTITY GATE ─────────────────────────────
     // Verify user identity on shared devices before Arrival
@@ -198,6 +207,7 @@ function createOrchestrator(callbacks = {}) {
       homeostaticResult = await homeostaticRegulator.preSessionCheck();
     } catch (err) {
       console.error('Homeostatic pre-check failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     if (homeostaticResult.allowed === false) {
@@ -218,6 +228,7 @@ function createOrchestrator(callbacks = {}) {
       immuneBarrier = immuneSystem.checkBarriers('start_session');
     } catch (err) {
       console.error('Immune barrier check failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     if (immuneBarrier.blocked) {
@@ -363,6 +374,7 @@ function createOrchestrator(callbacks = {}) {
       userContext = await generateContextPacket(userId, pool);
     } catch (err) {
       console.error('Luno context packet failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     lunoIntelligence = new LunoIntelligence(userContext, stateEngine, {
@@ -443,6 +455,7 @@ function createOrchestrator(callbacks = {}) {
       preSessionAnalysis = await preSessionIntel.analyze();
     } catch (err) {
       console.error('[ABI] PreSessionIntelligence failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     sessionPhase = 'arrival';
@@ -526,6 +539,7 @@ function createOrchestrator(callbacks = {}) {
         }
       } catch (err) {
         console.error('Baseline filter failed (using raw):', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -564,6 +578,7 @@ function createOrchestrator(callbacks = {}) {
           }
         } catch (err) {
           console.error('[ABI] Somatic exercise lookup failed (proceeding to breathwork):', err.message);
+      Sentry.captureException(err);
         }
       }
     }
@@ -697,9 +712,19 @@ function createOrchestrator(callbacks = {}) {
         adaptedSession.duration_seconds = breathParamsResult.duration_seconds;
         adaptedSession._breath_params_confidence = breathParamsResult.confidence;
         adaptedSession._breath_params_method = breathParamsResult.method;
+
+        // Alert if ratio hits or drops below 2:3 floor
+        if (breathParamsResult.ratio === '2:3' || (breathParamsResult.inhale <= 2 && breathParamsResult.exhale <= 3)) {
+          Sentry.captureMessage('Breath ratio at or below 2:3 floor', {
+            level: 'warning',
+            tags: { participant_id: userId, session_id: sessionId },
+            extra: { ratio: breathParamsResult.ratio, method: breathParamsResult.method, confidence: breathParamsResult.confidence },
+          });
+        }
       } catch (err) {
         // Fallback: use safest ratio in range
         console.error('[ABI] determineBreathParams failed, using fallback:', err.message);
+      Sentry.captureException(err);
         adaptedSession.ratio = '3:4';
         adaptedSession.breath_in = 3;
         adaptedSession.breath_out = 4;
@@ -833,6 +858,7 @@ function createOrchestrator(callbacks = {}) {
         }
       } catch (err) {
         console.error('State engine tick failed (non-blocking):', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -896,6 +922,7 @@ function createOrchestrator(callbacks = {}) {
         }
       } catch (err) {
         console.error('Coaching engine evaluate failed (non-blocking):', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -906,6 +933,13 @@ function createOrchestrator(callbacks = {}) {
     if (biometricResilience) {
       const currentMode = biometricResilience.getDetectionMode();
       if (result.detection_mode !== currentMode) {
+        if (currentMode === 'synthetic') {
+          Sentry.captureMessage('Biometric disconnect mid-session', {
+            level: 'warning',
+            tags: { participant_id: userId, session_id: sessionId },
+            extra: { previous_mode: result.detection_mode, new_mode: currentMode },
+          });
+        }
         result.detection_mode = currentMode;
       }
     }
@@ -956,9 +990,19 @@ function createOrchestrator(callbacks = {}) {
             score: ns3Result.ns3Score,
             zone: ns3Result.zone,
           };
+
+          // Alert on NS3 crisis zone
+          if (ns3Result.zone === 'below_window' && ns3Result.ns3Score !== null && ns3Result.ns3Score <= 20) {
+            Sentry.captureMessage('NS3 crisis zone — score critically low', {
+              level: 'warning',
+              tags: { participant_id: userId, session_id: sessionId, ns3_zone: ns3Result.zone },
+              extra: { ns3Score: ns3Result.ns3Score, sessionMinute: ns3Session.sessionMinute, device: biometrics.device_type || 'unknown' },
+            });
+          }
         }
       } catch (err) {
         console.error('[NS3] Tick failed (non-blocking):', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -1001,7 +1045,7 @@ function createOrchestrator(callbacks = {}) {
                updated_at = NOW()
              WHERE user_id = $2`,
             [newTrack, userId]
-          ).catch(err => console.error('Live detect DB update failed:', err.message));
+          ).catch(err => { console.error('Live detect DB update failed:', err.message); Sentry.captureException(err); });
 
           result.action = 'live_adjust';
           result.old_track = currentTrack;
@@ -1044,6 +1088,7 @@ function createOrchestrator(callbacks = {}) {
       };
     } catch (err) {
       console.error('Drill adaptation failed:', err.message);
+      Sentry.captureException(err);
       return { action: 'resume' };
     }
   }
@@ -1130,6 +1175,7 @@ function createOrchestrator(callbacks = {}) {
         stateSummary = stateEngine.getSessionSummary();
       } catch (err) {
         console.error('State summary failed (non-blocking):', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -1140,6 +1186,7 @@ function createOrchestrator(callbacks = {}) {
         coachingSummary = coachingEngine.getCoachingSummary();
       } catch (err) {
         console.error('Coaching summary failed (non-blocking):', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -1163,6 +1210,7 @@ function createOrchestrator(callbacks = {}) {
         );
       } catch (err) {
         console.error('Immune post-scan failed (non-blocking):', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -1196,6 +1244,7 @@ function createOrchestrator(callbacks = {}) {
         }
       } catch (err) {
         console.error('[NS3] Session completion failed (non-blocking):', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -1224,6 +1273,7 @@ function createOrchestrator(callbacks = {}) {
       });
     } catch (err) {
       console.error('[ABI] SessionDataPacket build failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     // ── SAVE SESSION COMPLETION ──────────────────────────
@@ -1279,6 +1329,71 @@ function createOrchestrator(callbacks = {}) {
       );
     } catch (err) {
       console.error('Session completion save failed:', err.message);
+      Sentry.captureException(err);
+    }
+
+    // ── [ABI] BREATH ART GENERATION ──────────────────────
+    // Generate deterministic sacred geometry art from NS3 summary
+    // + packetHash. Upload to IPFS, store hash in session_completions.
+    let artResult = null;
+    try {
+      if (sessionPacket && sessionPacket.packetHash) {
+        const sessCountForArt = (user.total_sessions_completed || 0) + 1;
+        const milestoneSession = [10, 30, 50].includes(sessCountForArt) ? sessCountForArt : 0;
+        const artOptions = {
+          session_count: sessCountForArt,
+          track: user.breath_track || 'standard',
+          arc_name: adaptedSession._arc || 'standard',
+          time_to_regulation_sec: sessionPacket?.timeToRegulationSec ?? null,
+          breath_accuracy: cleanMetrics?.adjusted_cycle_completion_rate ?? rawMetrics?.cycle_completion_rate ?? 50,
+          somatic_reset_used: !!rawMetrics?.somatic_reset_used,
+          family_unit_active: !!user.family_unit_id,
+          lightbridge_active: !!rawMetrics?.lightbridge_active,
+          court_day_flag: !!rawMetrics?.court_day_flag,
+          is_dropout_return: !!rawMetrics?.is_dropout_return,
+          milestone_session: milestoneSession,
+          is_fr_session: (adaptedSession._arc || '').toLowerCase().includes('fr'),
+          panic_recovery: !!(rawMetrics?.panic_event && cleanMetrics?.exit_type === 'normal'),
+        };
+
+        const { svgString, metadataJSON } = breathArtEngine.generate(
+          ns3Summary, sessionPacket.packetHash, artOptions
+        );
+
+        // Render SVG to PNG
+        const pngBuffer = await breathArtEngine.renderToPNG(svgString);
+
+        // Build clinical payload for encryption
+        const clinicalPayload = {
+          ns3_mean: ns3Summary?.ns3?.mean ?? null,
+          ns3_peak: ns3Summary?.ns3?.peak ?? null,
+          coherence_peak: rawMetrics.coherence_peak || 0,
+          zone_profile: ns3Summary?.zoneDuration ?? null,
+          trajectory: ns3Summary?.clinical?.regulatoryTrajectory ?? null,
+          sustained_optimal: ns3Summary?.clinical?.sustainedOptimal ?? false,
+          session_number: rawSession.session_number || 0,
+          track: user.breath_track || 'standard',
+        };
+
+        // Upload to IPFS
+        const { imageHash, metadataHash } = await ipfsService.upload(
+          pngBuffer, metadataJSON, clinicalPayload,
+          { sessionNumber: rawSession.session_number || 0, firstName: user.first_name || 'Participant' }
+        );
+
+        // Store art_ipfs_hash in session_completions
+        await pool.query(
+          `UPDATE session_completions SET art_ipfs_hash = $1, art_encoding_version = 1
+           WHERE user_id = $2 AND session_id = $3`,
+          [metadataHash, userId, sessionId]
+        );
+
+        artResult = { svgString, imageHash, metadataHash };
+        console.log(`[BreathArt] Generated for session ${sessionId}, IPFS: ${metadataHash}`);
+      }
+    } catch (err) {
+      console.error('[BreathArt] Generation failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     // ── TRACK ADVANCEMENT CHECK ─────────────────────────
@@ -1319,6 +1434,7 @@ function createOrchestrator(callbacks = {}) {
         }
       } catch (err) {
         console.error('Advancement check failed:', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -1369,6 +1485,7 @@ function createOrchestrator(callbacks = {}) {
       }
     } catch (err) {
       console.error('[ABI] Personalized close failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     // ── TREND ANALYZER — EVERY 10 SESSIONS ───────────────
@@ -1378,6 +1495,7 @@ function createOrchestrator(callbacks = {}) {
         trendReport = await analyzeTrends(userId);
       } catch (err) {
         console.error('Trend analysis failed (non-blocking):', err.message);
+      Sentry.captureException(err);
       }
     }
 
@@ -1423,6 +1541,7 @@ function createOrchestrator(callbacks = {}) {
       });
     } catch (err) {
       console.error('AXIS ingest failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     // ── LEDGER SYNC (non-blocking) ─────────────────────
@@ -1453,6 +1572,7 @@ function createOrchestrator(callbacks = {}) {
       }
     } catch (err) {
       console.error('Ledger sync failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     // ── POST-SESSION INTELLIGENCE (non-blocking) ──────
@@ -1468,6 +1588,7 @@ function createOrchestrator(callbacks = {}) {
       }
     } catch (err) {
       console.error('[ABI] PostSessionIntelligence failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     // ── VICTORY LAP CHECK ────────────────────────────────
@@ -1486,6 +1607,7 @@ function createOrchestrator(callbacks = {}) {
       }
     } catch (err) {
       console.error('[ABI] VictoryLapEngine failed (non-blocking):', err.message);
+      Sentry.captureException(err);
     }
 
     // ── ZONE TIME FINALIZATION ───────────────────────────
@@ -1531,7 +1653,8 @@ function createOrchestrator(callbacks = {}) {
       post_analysis: postAnalysis,
       zone_time_profile: zoneProfile,
       coherence_momentum: coherenceMomentum ? coherenceMomentum.getSummary() : null,
-      coaching_effectiveness: coachingEffectiveness ? coachingEffectiveness.getSummary() : null
+      coaching_effectiveness: coachingEffectiveness ? coachingEffectiveness.getSummary() : null,
+      breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null
     };
 
     onMirrorData(mirrorData);
@@ -1544,7 +1667,8 @@ function createOrchestrator(callbacks = {}) {
       affirmation: primaryAffirmation,
       personalized_close: lunoPersonalizedClose,
       mirror: mirrorData,
-      victory_lap: victoryLap
+      victory_lap: victoryLap,
+      breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null
     };
   }
 
@@ -1723,6 +1847,7 @@ function createOrchestrator(callbacks = {}) {
       );
     } catch (err) {
       console.error('[ABI] Failed to save personalized close:', err.message);
+      Sentry.captureException(err);
     }
   }
 
@@ -1755,6 +1880,7 @@ function createOrchestrator(callbacks = {}) {
       await updateSessionSomatic(exerciseId, hrvPre, hrvPost, shiftPct);
     } catch (err) {
       console.error('[ABI] Failed to log somatic data:', err.message);
+      Sentry.captureException(err);
     }
 
     // Pivot logic: if shift < 10%, try next exercise (max 2 total)
@@ -1785,6 +1911,7 @@ function createOrchestrator(callbacks = {}) {
         }
       } catch (err) {
         console.error('[ABI] Somatic pivot lookup failed:', err.message);
+      Sentry.captureException(err);
       }
     }
 
