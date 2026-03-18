@@ -110,6 +110,29 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
 .streak-day{width:8px;height:24px;border-radius:4px;background:#1a2a3a}
 .streak-day.active{background:#5ffce0}
 .streak-day.gap{background:#2a1a1a}
+/* Canvas */
+.canvas-container{position:relative;width:320px;height:320px;margin:0 auto;border-radius:16px;overflow:hidden;background:#061a2a}
+.canvas-container .base-art{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0}
+.canvas-container .color-wash{position:absolute;inset:0;pointer-events:none}
+.canvas-container .text-overlay{position:absolute;cursor:move;user-select:none;font-weight:600}
+.canvas-tools{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 0;max-width:360px}
+.canvas-tools label{font-size:.75em;color:var(--dim);display:block;margin-bottom:2px}
+.canvas-tools input[type=range]{width:120px}
+.canvas-tools input[type=color]{width:36px;height:28px;border:1px solid #333;background:transparent;border-radius:6px;cursor:pointer}
+/* Showcase */
+.showcase-feed{max-width:420px;margin:0 auto;padding:8px}
+.showcase-post{background:var(--card);border-radius:16px;margin:12px 0;overflow:hidden}
+.showcase-post img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.showcase-post .post-info{padding:12px 16px}
+.showcase-post .post-author{font-weight:600;font-size:.9em}
+.showcase-post .post-caption{color:var(--dim);font-size:.85em;margin:4px 0}
+.showcase-post .post-meta{font-size:.7em;color:#555;margin-top:4px}
+.showcase-post .post-actions{display:flex;gap:12px;align-items:center;padding:0 16px 12px}
+.like-btn{background:none;border:none;color:var(--dim);cursor:pointer;font-size:1em;padding:4px 8px;border-radius:8px}
+.like-btn.liked{color:#ff6b6b}
+.like-btn:hover{background:rgba(255,255,255,.05)}
+.showcase-tabs{display:flex;gap:8px;justify-content:center;margin:12px 0}
+.showcase-tabs .btn.active{background:var(--accent2);color:#000}
 </style>
 </head>
 <body>
@@ -249,7 +272,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <div class="streak-bar" id="gallery-streak"></div>
   <div class="gallery-grid" id="gallery-grid"></div>
   <div id="gallery-pagination" style="margin:16px;text-align:center"></div>
-  <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
+  <div style="display:flex;gap:8px;justify-content:center">
+    <button class="btn small" onclick="openShowcase()">Breath Art Showcase</button>
+    <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
+  </div>
 </div>
 
 <!-- GALLERY EXPANDED VIEW -->
@@ -262,9 +288,67 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <div class="meta" id="expanded-meta"></div>
   <div style="margin-top:12px;display:flex;gap:8px">
     <button class="btn small" onclick="downloadArt()">Share</button>
+    <button class="btn small" onclick="openCanvas()">Edit</button>
     <button class="btn small secondary" id="btn-decode" style="display:none" onclick="decodeArt()">Decode</button>
   </div>
   <div id="expanded-clinical" style="display:none;margin-top:12px;text-align:left;max-width:320px"></div>
+</div>
+
+<!-- CO-CREATION CANVAS -->
+<div id="screen-canvas" class="screen">
+  <h2 style="color:var(--accent2)">Create Your Art</h2>
+  <div class="canvas-container" id="canvas-container">
+    <img class="base-art" id="canvas-base-art" src="" alt="">
+    <div class="color-wash" id="canvas-wash"></div>
+    <div id="canvas-text-layer"></div>
+  </div>
+  <div class="canvas-tools">
+    <div>
+      <label>Color Wash</label>
+      <input type="color" id="canvas-wash-color" value="#1a7a6d" oninput="updateCanvasWash()">
+      <input type="range" id="canvas-wash-opacity" min="0" max="50" value="0" oninput="updateCanvasWash()">
+    </div>
+    <div>
+      <label>Brightness</label>
+      <input type="range" id="canvas-brightness" min="-50" max="50" value="0" oninput="updateCanvasFilters()">
+    </div>
+    <div>
+      <label>Contrast</label>
+      <input type="range" id="canvas-contrast" min="-50" max="50" value="0" oninput="updateCanvasFilters()">
+    </div>
+    <div>
+      <label>Saturation</label>
+      <input type="range" id="canvas-saturation" min="-50" max="50" value="0" oninput="updateCanvasFilters()">
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:center;margin:8px 0">
+    <input type="text" id="canvas-text-input" placeholder="Add text (max 30 chars)" maxlength="30" style="max-width:180px">
+    <input type="color" id="canvas-text-color" value="#ffffff">
+    <button class="btn small" onclick="addCanvasText()">Add</button>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:center;margin:12px 0">
+    <button class="btn small secondary" onclick="resetCanvas()">Reset</button>
+    <button class="btn" onclick="saveCanvas()">Save</button>
+    <button class="btn small secondary" onclick="closeCanvas()">Cancel</button>
+  </div>
+  <div id="canvas-share-section" style="display:none;margin-top:12px;text-align:center">
+    <p style="color:var(--accent2);font-size:.9em;margin-bottom:8px">Saved! Share your creation?</p>
+    <input type="text" id="showcase-caption" placeholder="Caption (140 chars max)" maxlength="140" style="margin-bottom:8px">
+    <button class="btn" onclick="shareToShowcase()">Share to Showcase</button>
+  </div>
+</div>
+
+<!-- SHOWCASE -->
+<div id="screen-showcase" class="screen">
+  <h2 style="color:var(--accent2)">Breath Art Showcase</h2>
+  <div class="showcase-tabs">
+    <button class="btn small active" onclick="loadShowcase('all', this)">All</button>
+    <button class="btn small secondary" onclick="loadShowcase('milestones', this)">Milestones</button>
+    <button class="btn small secondary" onclick="loadShowcase('family', this)">Family</button>
+  </div>
+  <div class="showcase-feed" id="showcase-feed"></div>
+  <div id="showcase-pagination" style="margin:16px;text-align:center"></div>
+  <button class="btn secondary" onclick="showScreen('screen-gallery')">Back to Gallery</button>
 </div>
 
 <!-- DEBUG -->
@@ -1256,6 +1340,249 @@ async function downloadArt() {
     URL.revokeObjectURL(url);
   } catch(e) {
     debugLog('Download failed: ' + e.message, 'error');
+  }
+}
+
+// ─── CO-CREATION CANVAS ──────────────────────────────
+let canvasPiece = null;
+let savedCanvasId = null;
+
+function openCanvas() {
+  closeGalleryExpanded();
+  canvasPiece = expandedPiece;
+  savedCanvasId = null;
+  showScreen('screen-canvas');
+
+  // Load base art
+  const baseArt = document.getElementById('canvas-base-art');
+  if (canvasPiece?.ipfs_image_url) {
+    baseArt.src = canvasPiece.ipfs_image_url;
+  } else {
+    baseArt.src = '';
+  }
+
+  // Reset tools
+  document.getElementById('canvas-wash-opacity').value = 0;
+  document.getElementById('canvas-brightness').value = 0;
+  document.getElementById('canvas-contrast').value = 0;
+  document.getElementById('canvas-saturation').value = 0;
+  document.getElementById('canvas-text-layer').innerHTML = '';
+  document.getElementById('canvas-share-section').style.display = 'none';
+  updateCanvasWash();
+  updateCanvasFilters();
+}
+
+function updateCanvasWash() {
+  const color = document.getElementById('canvas-wash-color').value;
+  const opacity = document.getElementById('canvas-wash-opacity').value / 100;
+  document.getElementById('canvas-wash').style.backgroundColor = color;
+  document.getElementById('canvas-wash').style.opacity = opacity;
+}
+
+function updateCanvasFilters() {
+  const b = 100 + parseInt(document.getElementById('canvas-brightness').value);
+  const c = 100 + parseInt(document.getElementById('canvas-contrast').value);
+  const s = 100 + parseInt(document.getElementById('canvas-saturation').value);
+  document.getElementById('canvas-base-art').style.filter = `brightness(${b}%) contrast(${c}%) saturate(${s}%)`;
+}
+
+function addCanvasText() {
+  const input = document.getElementById('canvas-text-input');
+  const text = input.value.trim();
+  if (!text) return;
+  const color = document.getElementById('canvas-text-color').value;
+  const layer = document.getElementById('canvas-text-layer');
+  const el = document.createElement('div');
+  el.className = 'text-overlay';
+  el.textContent = text;
+  el.style.color = color;
+  el.style.left = '50%';
+  el.style.top = '50%';
+  el.style.transform = 'translate(-50%, -50%)';
+  el.style.fontSize = '16px';
+
+  // Simple drag
+  let dragging = false, ox, oy;
+  el.onpointerdown = e => { dragging = true; ox = e.offsetX; oy = e.offsetY; el.setPointerCapture(e.pointerId); };
+  el.onpointermove = e => { if (!dragging) return; el.style.left = (e.clientX - el.parentElement.getBoundingClientRect().left - ox) + 'px'; el.style.top = (e.clientY - el.parentElement.getBoundingClientRect().top - oy) + 'px'; el.style.transform = 'none'; };
+  el.onpointerup = () => { dragging = false; };
+
+  layer.appendChild(el);
+  input.value = '';
+}
+
+function resetCanvas() {
+  document.getElementById('canvas-wash-opacity').value = 0;
+  document.getElementById('canvas-brightness').value = 0;
+  document.getElementById('canvas-contrast').value = 0;
+  document.getElementById('canvas-saturation').value = 0;
+  document.getElementById('canvas-text-layer').innerHTML = '';
+  document.getElementById('canvas-share-section').style.display = 'none';
+  updateCanvasWash();
+  updateCanvasFilters();
+}
+
+async function saveCanvas() {
+  const canvasState = {
+    layers: [],
+    brightness: parseInt(document.getElementById('canvas-brightness').value),
+    contrast: parseInt(document.getElementById('canvas-contrast').value),
+    saturation: parseInt(document.getElementById('canvas-saturation').value)
+  };
+
+  const washOpacity = parseInt(document.getElementById('canvas-wash-opacity').value);
+  if (washOpacity > 0) {
+    canvasState.layers.push({ type: 'colorWash', color: document.getElementById('canvas-wash-color').value, opacity: washOpacity / 100 });
+  }
+
+  document.querySelectorAll('#canvas-text-layer .text-overlay').forEach(el => {
+    canvasState.layers.push({ type: 'text', content: el.textContent, position: { x: parseInt(el.style.left), y: parseInt(el.style.top) }, color: el.style.color, fontSize: 16 });
+  });
+
+  const body = {
+    participant_id: state.userId || 'test-user',
+    session_completion_id: canvasPiece?.session_id || null,
+    original_token_id: canvasPiece?.art_token_id || null,
+    canvas_state: canvasState
+  };
+
+  try {
+    const result = await api('/api/canvas/save', body);
+    if (result.id) {
+      savedCanvasId = result.id;
+      document.getElementById('canvas-share-section').style.display = 'block';
+      debugLog('Canvas saved: ' + result.id, 'api');
+    }
+  } catch (e) {
+    debugLog('Canvas save failed: ' + e.message, 'error');
+  }
+}
+
+function closeCanvas() {
+  showScreen('screen-gallery');
+}
+
+async function shareToShowcase() {
+  if (!savedCanvasId) return;
+  const caption = document.getElementById('showcase-caption').value.trim();
+
+  try {
+    const result = await api('/api/showcase', {
+      personalized_art_id: savedCanvasId,
+      participant_id: state.userId || 'test-user',
+      caption: caption || null,
+      session_number: canvasPiece?.session_number || null,
+      arc_name: canvasPiece?.arc_name || null,
+      is_milestone: canvasPiece?.is_milestone || false
+    });
+    if (result.id) {
+      debugLog('Shared to showcase: ' + result.id, 'api');
+      document.getElementById('canvas-share-section').innerHTML = '<p style="color:var(--accent2)">Shared!</p>';
+      setTimeout(() => openShowcase(), 1500);
+    } else {
+      debugLog('Share failed: ' + (result.error || 'unknown'), 'error');
+    }
+  } catch (e) {
+    debugLog('Share failed: ' + e.message, 'error');
+  }
+}
+
+// ─── SHOWCASE ────────────────────────────────────────
+let showcaseFilter = 'all';
+
+function openShowcase() {
+  showScreen('screen-showcase');
+  loadShowcase('all');
+}
+
+async function loadShowcase(filter, tabEl) {
+  showcaseFilter = filter || 'all';
+  const feed = document.getElementById('showcase-feed');
+  feed.innerHTML = '<div style="color:var(--dim);padding:40px;text-align:center">Loading...</div>';
+
+  // Update tab styling
+  if (tabEl) {
+    document.querySelectorAll('.showcase-tabs .btn').forEach(b => { b.classList.remove('active'); b.classList.add('secondary'); });
+    tabEl.classList.add('active');
+    tabEl.classList.remove('secondary');
+  }
+
+  let url = '/api/showcase';
+  if (filter === 'milestones') url = '/api/showcase/milestones';
+  else if (filter === 'family') url = '/api/showcase/family';
+
+  try {
+    const result = await fetch(`${API}${url}?page=1&limit=20`, {
+      headers: { 'x-api-key': API_KEY }
+    });
+    const data = await result.json();
+    renderShowcase(data);
+  } catch (e) {
+    feed.innerHTML = '<div style="color:var(--warn);padding:40px;text-align:center">Showcase unavailable</div>';
+    debugLog('Showcase load failed: ' + e.message, 'error');
+  }
+}
+
+function renderShowcase(data) {
+  const feed = document.getElementById('showcase-feed');
+  feed.innerHTML = '';
+
+  const posts = data.posts || [];
+  if (posts.length === 0) {
+    feed.innerHTML = '<div style="color:var(--dim);padding:40px;text-align:center">No art shared yet. Be the first!</div>';
+    return;
+  }
+
+  posts.forEach(post => {
+    const div = document.createElement('div');
+    div.className = 'showcase-post';
+    const imgUrl = post.personalized_art_url || post.personalized_ipfs_hash;
+    const imgTag = imgUrl ? `<img src="${imgUrl}" alt="Breath art">` : '<div style="height:200px;background:#0a1a2a;display:flex;align-items:center;justify-content:center;color:var(--dim)">Art</div>';
+
+    div.innerHTML = `
+      ${imgTag}
+      <div class="post-info">
+        <div class="post-author">${post.participant_first_name || 'Participant'}</div>
+        ${post.caption ? `<div class="post-caption">${escapeHtml(post.caption)}</div>` : ''}
+        <div class="post-meta">Breath #${post.session_number || '?'} ${post.arc_name ? '- ' + post.arc_name : ''} ${post.is_milestone ? '&#9733; Milestone' : ''}</div>
+      </div>
+      <div class="post-actions">
+        <button class="like-btn ${post.liked_by_me ? 'liked' : ''}" onclick="toggleLike('${post.id}', this)">${post.liked_by_me ? '&#10084;' : '&#9825;'} ${post.likes_count || 0}</button>
+        <button class="like-btn" onclick="reportPost('${post.id}')">&#9873;</button>
+      </div>
+    `;
+    feed.appendChild(div);
+  });
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+async function toggleLike(postId, btn) {
+  const isLiked = btn.classList.contains('liked');
+  const method = isLiked ? 'DELETE' : 'POST';
+
+  try {
+    const result = await api(`/api/showcase/${postId}/like`, { participant_id: state.userId || 'test-user' }, method);
+    btn.classList.toggle('liked');
+    btn.innerHTML = (isLiked ? '&#9825; ' : '&#10084; ') + (result.likes_count || 0);
+  } catch (e) {
+    debugLog('Like failed: ' + e.message, 'error');
+  }
+}
+
+async function reportPost(postId) {
+  const reason = prompt('Why are you reporting this post?');
+  if (!reason) return;
+
+  try {
+    await api(`/api/showcase/${postId}/report`, { reporter_id: state.userId || 'test-user', reason });
+    debugLog('Post reported', 'api');
+  } catch (e) {
+    debugLog('Report failed: ' + e.message, 'error');
   }
 }
 

@@ -176,6 +176,30 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// CANVAS ROUTES — Co-Creation Canvas
+// ═══════════════════════════════════════════════════════════════
+try {
+  const canvasRoutes = require('./src/routes/canvasRoutes');
+  app.use('/api/canvas', authenticateOrApiKey('participant'));
+  app.use('/api/canvas', canvasRoutes);
+  console.log('[CANVAS] Routes mounted at /api/canvas');
+} catch (err) {
+  console.warn('[CANVAS] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SHOWCASE ROUTES — Breath Art Social Gallery
+// ═══════════════════════════════════════════════════════════════
+try {
+  const socialRoutes = require('./src/routes/socialRoutes');
+  app.use('/api/showcase', authenticateOrApiKey('participant'));
+  app.use('/api/showcase', socialRoutes);
+  console.log('[SHOWCASE] Routes mounted at /api/showcase');
+} catch (err) {
+  console.warn('[SHOWCASE] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // CAPACITY INTAKE ROUTES
 // ═══════════════════════════════════════════════════════════════
 // const capacityIntakeRoutes = require('./src/routes/capacityIntake');

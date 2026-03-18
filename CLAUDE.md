@@ -46,6 +46,11 @@ Updated: March 18, 2026
 - photoAbstractionService.js: 6x6 palette extraction
 - Crown SVGs served statically at /assets/crowns/
 - Mirror screen art reveal + gallery UI in test harness
+- Migration 015: personalized_art, showcase_posts, showcase_likes, showcase_reports
+- canvasRoutes.js at /api/canvas: co-creation canvas save/load/update
+- socialRoutes.js at /api/showcase: social gallery feed, like, report, milestones, family
+- contentFilter.js: caption moderation keyword blocklist
+- Canvas UI + Showcase UI in test harness
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -76,6 +81,9 @@ Focus only on the task assigned in the session prompt.
 - src/routes/abiRoutes.js — ABI endpoints
 - src/routes/artRoutes.js — art gallery/decode/crown/intention API
 - src/services/photoAbstractionService.js — 6x6 palette extraction
+- src/routes/canvasRoutes.js — co-creation canvas save/load/update
+- src/routes/socialRoutes.js — showcase feed/like/report
+- src/services/contentFilter.js — caption moderation
 - src/routes/axisRoutes.js — AXIS endpoints
 - server.js — Express, route mounting, cron
 - public/test.html — throwaway test harness
