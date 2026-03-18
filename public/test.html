@@ -958,15 +958,12 @@ async function completeSession() {
   saveState();
 
   // Check for breath art in response
-  const artData = completeResult?.result?.mirror?.breath_art || completeResult?.mirror?.breath_art || null;
+  const artData = completeResult?.result?.breath_art || completeResult?.breath_art || null;
   const sessionId = completeResult?.result?.session_id || completeResult?.session_id || null;
   state.lastArt = { artData, sessionId, sessionNumber: state.currentSession - 1 };
 
-  if (artData?.svgString || artData?.imageHash) {
-    showArtReveal(artData, sessionId);
-  } else {
-    finishArtReveal();
-  }
+  // Always show art reveal — crown/intention work even without generated art
+  showArtReveal(artData, sessionId);
 
   debugLog(`Session ${state.currentSession - 1} complete. ${state.sessionsCompleted.length}/5 done.`, 'api');
 }
@@ -996,11 +993,17 @@ function showArtReveal(artData, sessionId) {
     loading.style.display = 'none';
     canvas.style.display = 'block';
 
-    if (artData.svgString) {
-      document.getElementById('art-clinical-layer').innerHTML = artData.svgString;
-    } else if (artData.imageHash) {
-      document.getElementById('art-clinical-layer').innerHTML =
-        `<img src="https://gateway.pinata.cloud/ipfs/${artData.imageHash}" style="width:100%;height:100%;object-fit:cover">`;
+    const clinicalLayer = document.getElementById('art-clinical-layer');
+    if (artData && artData.imageHash) {
+      clinicalLayer.innerHTML =
+        `<img src="https://gateway.pinata.cloud/ipfs/${artData.imageHash}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;color:#5ffce0;font-size:.9em\\'>Art generating...</div>'">`;
+    } else {
+      // No IPFS art yet (synthetic biometrics or IPFS not configured)
+      // Show a placeholder with the sacred geometry aesthetic
+      clinicalLayer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;color:#5ffce0">
+        <svg width="120" height="120" viewBox="0 0 120 120" style="opacity:.4"><circle cx="60" cy="60" r="50" fill="none" stroke="#5ffce0" stroke-width="0.8"/><circle cx="60" cy="60" r="30" fill="none" stroke="#5ffce0" stroke-width="0.6"/><circle cx="60" cy="60" r="10" fill="#5ffce0" opacity="0.3"/></svg>
+        <div style="font-size:.8em;margin-top:12px;opacity:.6">Your art will appear here with biometric data</div>
+      </div>`;
     }
 
     message.style.display = 'block';
