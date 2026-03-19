@@ -22,11 +22,11 @@ async function runDailySnapshots() {
   const startTime = Date.now();
 
   try {
-    // Get all users with at least 1 session
+    // Get all active users with at least 1 session
     const users = await pool.query(
-      `SELECT DISTINCT u.id, u.user_id FROM users u
-       JOIN session_completions sc ON sc.user_id = u.user_id
-       WHERE u.user_id IS NOT NULL`
+      `SELECT DISTINCT u.id, u.participant_id FROM users u
+       WHERE u.is_active = true
+         AND EXISTS (SELECT 1 FROM session_completions sc WHERE sc.user_id = u.participant_id)`
     );
 
     const today = new Date().toISOString().split('T')[0];
@@ -34,10 +34,10 @@ async function runDailySnapshots() {
     for (const user of users.rows) {
       try {
         // Compute capacity score
-        const capacity = await capacityCurrency.computeCapacityScore(user.user_id);
+        const capacity = await capacityCurrency.computeCapacityScore(user.participant_id);
 
         // Get current balance from ledger
-        const balance = await capacityCurrency.getBalance(user.user_id);
+        const balance = await capacityCurrency.getBalance(user.participant_id);
 
         // Compute savings
         const savings = await capacityCurrency.computeSavings(user.id);
@@ -58,7 +58,7 @@ async function runDailySnapshots() {
         count++;
       } catch (err) {
         errors++;
-        console.error(`[CapacitySnapshot] Failed for user ${user.user_id}:`, err.message);
+        console.error(`[CapacitySnapshot] Failed for user ${user.participant_id}:`, err.message);
       }
     }
 
