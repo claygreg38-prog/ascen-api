@@ -61,6 +61,8 @@ const { onBiometricWindowReceived: ns3BiometricTick, onSessionComplete: ns3Compl
 const breathArtEngine = require('./breathArtEngine');
 const ipfsService = require('../services/ipfsService');
 const artAggregationEngine = require('./artAggregationEngine');
+const familyIntelligence = require('./familyIntelligence');
+const familyUnitEngine = require('./familyUnitEngine');
 const Sentry = require('../instrument');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -1420,6 +1422,52 @@ function createOrchestrator(callbacks = {}) {
       Sentry.captureException(err);
     }
 
+    // ── FAMILY INTELLIGENCE PROCESSING ─────────────────────
+    let familyIntelResult = null;
+    const familyUnitId = user.family_unit_id || null;
+    if (familyUnitId) {
+      try {
+        const familySessionData = {
+          sessionNumber: rawSession.session_number || 0,
+          ns3Zone: ns3Summary ? (ns3Summary.ns3.mean >= 56 ? 'optimal' : ns3Summary.ns3.mean >= 36 ? 'approaching' : 'below_window') : 'regulated',
+          ns3Mean: ns3Summary?.ns3?.mean ?? 50,
+          trajectory: ns3Summary?.clinical?.regulatoryTrajectory ?? 'stable',
+          coherenceEnd,
+          exitType: cleanMetrics?.exit_type || 'normal',
+          activeDurationSeconds: cleanMetrics?.active_duration_seconds || rawMetrics?.total_duration_seconds || 0
+        };
+
+        familyIntelResult = await familyIntelligence.onFamilyMemberSessionComplete(
+          userId, familySessionData, familyUnitId
+        );
+
+        // Queue automated messages
+        for (const msg of (familyIntelResult.messages || [])) {
+          await pool.query(
+            `INSERT INTO family_messages (family_unit_id, target_user_id, target_type, category, severity, message_template_id, message_text, cooldown_until)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [familyUnitId, msg.targetUserId, msg.targetType, msg.category, msg.severity, msg.templateId, msg.text, msg.cooldownUntil]
+          );
+        }
+
+        // Handle escalations
+        for (const esc of (familyIntelResult.escalations || [])) {
+          await pool.query(
+            'INSERT INTO family_escalations (family_unit_id, escalation_type, trigger_data, routed_to) VALUES ($1, $2, $3, $4)',
+            [familyUnitId, esc.type, JSON.stringify(esc.triggerData), esc.routeTo]
+          );
+        }
+
+        // Re-evaluate gates
+        await familyUnitEngine.evaluateGates(familyUnitId);
+
+        console.log(`[FamilyIntel] Processed for ${userId} in family ${familyUnitId}`);
+      } catch (err) {
+        console.error('[FamilyIntel] Processing failed (non-blocking):', err.message);
+        Sentry.captureException(err);
+      }
+    }
+
     // ── TRACK ADVANCEMENT CHECK ─────────────────────────
     let advancementResult = { action: 'none' };
     const sessCount = (user.total_sessions_completed || 0) + 1;
@@ -1679,7 +1727,8 @@ function createOrchestrator(callbacks = {}) {
       coherence_momentum: coherenceMomentum ? coherenceMomentum.getSummary() : null,
       coaching_effectiveness: coachingEffectiveness ? coachingEffectiveness.getSummary() : null,
       breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
-      aggregation: aggregationResult
+      aggregation: aggregationResult,
+      family_intelligence: familyIntelResult
     };
 
     onMirrorData(mirrorData);
@@ -1694,7 +1743,8 @@ function createOrchestrator(callbacks = {}) {
       mirror: mirrorData,
       victory_lap: victoryLap,
       breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
-      aggregation: aggregationResult
+      aggregation: aggregationResult,
+      family_intelligence: familyIntelResult
     };
   }
 

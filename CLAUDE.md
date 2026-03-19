@@ -70,6 +70,17 @@ Updated: March 18, 2026
 - Capstone seed = SHA-256 of ALL packetHashes chronologically — irreproducible
 - Merchandise verify returns signed JWT (24h) — print partners never see raw wallets
 - Gallery + poster UI in test harness (export button, poster generation, aggregation badges)
+- Migration 018: tenants, family_memberships, family_invitations, family_patterns, family_messages, family_escalations, message_templates
+- Default ASCEN tenant seeded + 19 message templates (warrior reassurance framework)
+- tenantResolver.js: multi-tenancy middleware (JWT → header → subdomain → default ASCEN)
+- familyUnitEngine.js: ABI System #14 — family creation, 3-gate progression, invitations
+- familyIntelligence.js: ABI System #15 — pattern correlation, response rules, escalation
+- familyRoutes.js at /api/family: unit CRUD, gates, invite, accept, patterns, messages, escalations
+- sessionOrchestrator.js updated: family intelligence processing after art aggregation
+- Family Intelligence reads ONLY structured metadata (zones, trajectories, engagement). NEVER raw biometrics.
+- Cooldowns enforced per category. Daily cap: 3 messages/individual/24h. Patterns need 3+ observations.
+- tenant_id nullable on users, session_completions, family_units (backward compatible)
+- Family Management UI in test harness (create, invite, join, gates, patterns, messages, escalations)
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -112,6 +123,10 @@ Focus only on the task assigned in the session prompt.
 - src/abi/artAggregationEngine.js — mandala + constellation generation
 - src/routes/merchandiseRoutes.js — export, poster, verify endpoints
 - scripts/rotateArtEncryption.js — key rotation script
+- src/middleware/tenantResolver.js — multi-tenancy resolution
+- src/abi/familyUnitEngine.js — family creation, gates, invitations
+- src/abi/familyIntelligence.js — pattern correlation, response rules, escalation
+- src/routes/familyRoutes.js — family API endpoints
 - server.js — Express, route mounting, cron
 - public/test.html — throwaway test harness
 

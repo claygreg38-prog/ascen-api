@@ -283,6 +283,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
     <button class="btn small" onclick="generatePoster()">Generate Poster</button>
     <button class="btn small" onclick="openShowcase()">Breath Art Showcase</button>
+    <button class="btn small" onclick="openFamilyScreen()">Family</button>
     <button class="btn small" style="background:#d4af37;color:#000" onclick="showScreen('screen-legacy-unlock')">Test Unlock</button>
     <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
   </div>
@@ -492,6 +493,63 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     </div>
     <button class="btn secondary small" onclick="showScreen('screen-gallery')" style="margin-top:8px">Back to Gallery</button>
   </div>
+</div>
+
+<!-- FAMILY MANAGEMENT -->
+<div id="screen-family" class="screen">
+  <h2 style="color:var(--accent2)">Family Unit</h2>
+
+  <div id="family-no-unit" style="display:none">
+    <p class="subtitle">Create a family unit to begin the healing journey together.</p>
+    <div class="card">
+      <input type="text" id="family-name-input" placeholder="Family name..." style="margin-bottom:8px">
+      <button class="btn" onclick="createFamilyUnit()">Create Family Unit</button>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <p class="subtitle">Or join an existing family:</p>
+      <input type="text" id="join-code-input" placeholder="Invitation code..." style="margin-bottom:8px">
+      <button class="btn secondary" onclick="acceptFamilyInvite()">Join Family</button>
+    </div>
+  </div>
+
+  <div id="family-has-unit" style="display:none">
+    <div class="card" id="family-info"></div>
+
+    <div class="card" style="margin-top:12px">
+      <h3 style="color:var(--accent2);margin:0 0 8px 0">Gate Status</h3>
+      <div id="family-gates"></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h3 style="color:var(--accent2);margin:0 0 8px 0">Members</h3>
+      <div id="family-members"></div>
+    </div>
+
+    <div id="family-invite-section" style="display:none;margin-top:12px" class="card">
+      <h3 style="color:var(--accent2);margin:0 0 8px 0">Invite Family Member</h3>
+      <input type="text" id="invite-name" placeholder="Name..." style="margin-bottom:4px">
+      <input type="text" id="invite-relationship" placeholder="Relationship (child, grandchild...)" style="margin-bottom:4px">
+      <button class="btn small" onclick="sendFamilyInvite()">Send Invitation</button>
+      <div id="invite-result" style="margin-top:8px;color:var(--accent2)"></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h3 style="color:var(--accent2);margin:0 0 8px 0">Family Patterns</h3>
+      <div id="family-patterns" style="color:var(--dim)">Loading...</div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h3 style="color:var(--accent2);margin:0 0 8px 0">Recent Messages</h3>
+      <div id="family-messages" style="color:var(--dim)">Loading...</div>
+    </div>
+
+    <div id="family-escalations-section" style="display:none;margin-top:12px" class="card">
+      <h3 style="color:var(--warn);margin:0 0 8px 0">Escalation Alerts</h3>
+      <div id="family-escalations"></div>
+    </div>
+  </div>
+
+  <button class="btn secondary" onclick="showScreen('screen-gallery')" style="margin-top:16px">Back to Gallery</button>
 </div>
 
 <!-- LEGACY UNLOCK (test mode) -->
@@ -1566,6 +1624,218 @@ async function generatePoster() {
   } catch(e) {
     debugLog('Poster failed: ' + e.message, 'error');
   }
+}
+
+// ─── FAMILY MANAGEMENT ───────────────────────────────
+
+let currentFamilyUnit = null;
+
+async function openFamilyScreen() {
+  showScreen('screen-family');
+  const userId = state.userId || 'test-user';
+
+  try {
+    // Check if user has a family unit
+    const userRow = await fetch(`${API}/api/art/gallery/${userId}?page=1&limit=1`, {
+      headers: { 'x-api-key': API_KEY }
+    });
+
+    // Try to get family unit from user's profile
+    // For now, check localStorage for family_unit_id
+    const storedFamilyId = localStorage.getItem('ascen_family_unit_' + userId);
+
+    if (storedFamilyId) {
+      await loadFamilyUnit(storedFamilyId);
+    } else {
+      document.getElementById('family-no-unit').style.display = '';
+      document.getElementById('family-has-unit').style.display = 'none';
+    }
+  } catch(e) {
+    document.getElementById('family-no-unit').style.display = '';
+    document.getElementById('family-has-unit').style.display = 'none';
+  }
+}
+
+async function createFamilyUnit() {
+  const name = document.getElementById('family-name-input').value.trim();
+  if (!name) return;
+
+  try {
+    const resp = await fetch(`${API}/api/family/unit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+      body: JSON.stringify({ family_name: name })
+    });
+    const data = await resp.json();
+    if (data.error) { debugLog('Family: ' + data.message, 'error'); return; }
+
+    localStorage.setItem('ascen_family_unit_' + (state.userId || 'test-user'), data.familyUnitId);
+    await loadFamilyUnit(data.familyUnitId);
+    debugLog('Family unit created: ' + data.familyUnitId);
+  } catch(e) {
+    debugLog('Create family failed: ' + e.message, 'error');
+  }
+}
+
+async function acceptFamilyInvite() {
+  const code = document.getElementById('join-code-input').value.trim();
+  if (!code) return;
+
+  try {
+    const resp = await fetch(`${API}/api/family/invite/${code}/accept`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY }
+    });
+    const data = await resp.json();
+    if (data.error) { debugLog('Join: ' + data.message, 'error'); return; }
+
+    localStorage.setItem('ascen_family_unit_' + (state.userId || 'test-user'), data.familyUnitId);
+    await loadFamilyUnit(data.familyUnitId);
+    debugLog('Joined family as ' + data.role);
+  } catch(e) {
+    debugLog('Join failed: ' + e.message, 'error');
+  }
+}
+
+async function loadFamilyUnit(familyUnitId) {
+  currentFamilyUnit = familyUnitId;
+  document.getElementById('family-no-unit').style.display = 'none';
+  document.getElementById('family-has-unit').style.display = '';
+
+  try {
+    const resp = await fetch(`${API}/api/family/unit/${familyUnitId}`, {
+      headers: { 'x-api-key': API_KEY }
+    });
+    const data = await resp.json();
+
+    // Info
+    const metrics = data.collective_metrics || {};
+    document.getElementById('family-info').innerHTML =
+      `<h3 style="color:var(--accent2);margin:0">${data.name || 'Family Unit'}</h3>
+       <div class="stat"><span class="stat-label">Total Sessions</span><span class="stat-value">${metrics.total_sessions || 0}</span></div>
+       <div class="stat"><span class="stat-label">Regulated Hours</span><span class="stat-value">${(metrics.collective_regulated_hours || 0).toFixed(1)}</span></div>
+       <div class="stat"><span class="stat-label">Members</span><span class="stat-value">${(data.members || []).length}</span></div>`;
+
+    // Gates
+    const gates = data.gate_state || {};
+    document.getElementById('family-gates').innerHTML =
+      `<div>Gate 1: ${gates.gate_1 ? 'Unlocked' : 'Locked'}</div>
+       <div>Gate 2: ${gates.gate_2 ? 'Unlocked' : 'Locked'}</div>
+       <div>Gate 3: ${gates.gate_3 ? 'Unlocked' : 'Locked'}</div>`;
+
+    // Show invite section if any gate is unlocked
+    const canInvite = gates.gate_1 || gates.gate_2;
+    document.getElementById('family-invite-section').style.display = canInvite ? '' : 'none';
+
+    // Members
+    const membersDiv = document.getElementById('family-members');
+    if (data.members && data.members.length > 0) {
+      membersDiv.innerHTML = data.members.map(m =>
+        `<div style="padding:4px 0;border-bottom:1px solid #1a2a3a">
+          <span style="color:var(--accent2)">${m.firstName || m.userId}</span>
+          <span style="color:var(--dim)"> — ${m.role} — ${m.sessionsCompleted} sessions</span>
+        </div>`
+      ).join('');
+    } else {
+      membersDiv.innerHTML = '<div style="color:var(--dim)">No members yet</div>';
+    }
+
+    // Load patterns
+    loadFamilyPatterns(familyUnitId);
+    loadFamilyMessages();
+    loadFamilyEscalations(familyUnitId);
+
+  } catch(e) {
+    debugLog('Load family failed: ' + e.message, 'error');
+  }
+}
+
+async function sendFamilyInvite() {
+  const name = document.getElementById('invite-name').value.trim();
+  const rel = document.getElementById('invite-relationship').value.trim();
+  if (!name || !rel || !currentFamilyUnit) return;
+
+  try {
+    const resp = await fetch(`${API}/api/family/invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+      body: JSON.stringify({ family_unit_id: currentFamilyUnit, invitee_name: name, relationship: rel, gate_number: 1 })
+    });
+    const data = await resp.json();
+    if (data.error) { debugLog('Invite: ' + data.message, 'error'); return; }
+
+    document.getElementById('invite-result').innerHTML =
+      `Code: <strong>${data.invitationCode}</strong> (expires ${new Date(data.expiresAt).toLocaleDateString()})`;
+    debugLog('Invitation sent: ' + data.invitationCode);
+  } catch(e) {
+    debugLog('Invite failed: ' + e.message, 'error');
+  }
+}
+
+async function loadFamilyPatterns(familyUnitId) {
+  try {
+    const resp = await fetch(`${API}/api/family/patterns/${familyUnitId}`, { headers: { 'x-api-key': API_KEY } });
+    const data = await resp.json();
+    const div = document.getElementById('family-patterns');
+    if (data.patterns && data.patterns.length > 0) {
+      div.innerHTML = data.patterns.map(p =>
+        `<div style="padding:4px 0;border-bottom:1px solid #1a2a3a">
+          <span style="color:var(--accent2)">${p.pattern_type}</span>
+          <span style="color:var(--dim)"> — ${p.observation_count} observations</span>
+        </div>`
+      ).join('');
+    } else {
+      div.innerHTML = '<div style="color:var(--dim)">No actionable patterns yet (need 3+ observations)</div>';
+    }
+  } catch(e) { document.getElementById('family-patterns').textContent = 'Unavailable'; }
+}
+
+async function loadFamilyMessages() {
+  const userId = state.userId || 'test-user';
+  try {
+    const resp = await fetch(`${API}/api/family/messages/${userId}`, { headers: { 'x-api-key': API_KEY } });
+    const data = await resp.json();
+    const div = document.getElementById('family-messages');
+    if (data.messages && data.messages.length > 0) {
+      div.innerHTML = data.messages.slice(0, 5).map(m =>
+        `<div style="padding:4px 0;border-bottom:1px solid #1a2a3a">
+          <span style="color:${m.severity === 'urgent' ? 'var(--warn)' : 'var(--accent2)'}">${m.category}</span>
+          <span style="color:var(--dim)"> — ${m.message_text}</span>
+        </div>`
+      ).join('');
+    } else {
+      div.innerHTML = '<div style="color:var(--dim)">No messages</div>';
+    }
+  } catch(e) { document.getElementById('family-messages').textContent = 'Unavailable'; }
+}
+
+async function loadFamilyEscalations(familyUnitId) {
+  try {
+    const resp = await fetch(`${API}/api/family/escalations/${familyUnitId}`, { headers: { 'x-api-key': API_KEY } });
+    const data = await resp.json();
+    const section = document.getElementById('family-escalations-section');
+    if (data.escalations && data.escalations.length > 0) {
+      section.style.display = '';
+      document.getElementById('family-escalations').innerHTML = data.escalations.map(e =>
+        `<div style="padding:4px 0;border-bottom:1px solid #1a2a3a">
+          <span style="color:var(--warn)">${e.escalation_type}</span>
+          <span style="color:var(--dim)"> — ${e.status}</span>
+          <button class="btn small secondary" onclick="acknowledgeEscalation('${e.id}')" style="margin-left:8px">Ack</button>
+        </div>`
+      ).join('');
+    } else {
+      section.style.display = 'none';
+    }
+  } catch(e) { /* silent */ }
+}
+
+async function acknowledgeEscalation(id) {
+  try {
+    await fetch(`${API}/api/family/escalations/${id}/acknowledge`, {
+      method: 'POST', headers: { 'x-api-key': API_KEY }
+    });
+    if (currentFamilyUnit) loadFamilyEscalations(currentFamilyUnit);
+  } catch(e) { debugLog('Ack failed: ' + e.message, 'error'); }
 }
 
 // ─── CO-CREATION CANVAS ──────────────────────────────

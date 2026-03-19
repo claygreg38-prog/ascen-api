@@ -45,6 +45,9 @@ const {
   authRoutes
 } = require('./src/middleware/auth');
 
+// ── TENANT RESOLVER ─────────────────────────────────────────
+const { tenantResolver } = require('./src/middleware/tenantResolver');
+
 // DB resilience — retry transient connection failures
 if (pool) createResilientPool(pool);
 
@@ -86,6 +89,9 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// ── TENANT RESOLUTION (after auth, before routes) ───────────
+app.use(tenantResolver);
 
 // ═══════════════════════════════════════════════════════════════
 // AUTH ROUTES (public — token generation, verification)
@@ -221,6 +227,18 @@ try {
   console.log('[MERCH] Routes mounted at /api/merch');
 } catch (err) {
   console.warn('[MERCH] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FAMILY ROUTES — Family Units, Intelligence, Invitations
+// ═══════════════════════════════════════════════════════════════
+try {
+  const familyRoutes = require('./src/routes/familyRoutes');
+  app.use('/api/family', authenticateOrApiKey('participant'));
+  app.use('/api/family', familyRoutes);
+  console.log('[FAMILY] Routes mounted at /api/family');
+} catch (err) {
+  console.warn('[FAMILY] Could not mount:', err.message);
 }
 
 // ═══════════════════════════════════════════════════════════════
