@@ -7,7 +7,7 @@
 // through color and pattern — NEVER raw clinical data.
 //
 // Flows through ABI orchestrator. All calls non-blocking.
-// Device provider abstracted (LIFX today, Hue/custom tomorrow).
+// Device provider abstracted (LIFX, Wyze, Hue, custom).
 //
 // Exports:
 //   setCapacityState(userId, state)
@@ -60,6 +60,145 @@ const CELEBRATION_PATTERNS = {
   family_milestone: { effect: 'breathe', color: '#5ffce0', period: 3, cycles: 10, target: 'family' }
 };
 
+// ── NS3 STATE → LIGHT MAPPING ─────────────────────────────────
+
+const NS3_STATE_MAP = {
+  optimal: { color: '#FFF5E0', brightness: 80, description: 'Warm steady glow — safe to engage' },
+  approaching: { color: '#F59E0B', brightness: 70, description: 'Moderate warm — approaching regulation' },
+  below_window: { color: '#93C5FD', brightness: 60, description: 'Calm blue — needs gentle space' },
+  overdrive: { color: '#FCA5A5', brightness: 40, description: 'Soft red — system is calming down' }
+};
+
+const CAPACITY_TO_NS3 = {
+  full: 'optimal',
+  steady: 'approaching',
+  drawing_down: 'approaching',
+  low: 'below_window',
+  depleted: 'overdrive'
+};
+
+// ── TRIGGER TYPES ───────────────────────────────────────────
+
+const TRIGGER_TYPES = {
+  SESSION_COMPLETE: 'session_complete',
+  ARRIVAL_HOME: 'arrival_home',
+  MANUAL_OVERRIDE: 'manual_override',
+  CAPACITY_CHANGE: 'capacity_change',
+  CELEBRATION: 'celebration'
+};
+
+// ── RESET TIMERS ────────────────────────────────────────────
+
+const resetTimers = new Map();
+
+function scheduleReset(familyUnitId, holdMinutes) {
+  if (resetTimers.has(familyUnitId)) clearTimeout(resetTimers.get(familyUnitId));
+
+  const ms = (holdMinutes || 0) * 60 * 1000;
+  if (ms <= 0) {
+    // Immediate reset
+    resetLights(familyUnitId);
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    resetLights(familyUnitId);
+    resetTimers.delete(familyUnitId);
+  }, ms);
+  resetTimers.set(familyUnitId, timer);
+}
+
+async function resetLights(familyUnitId) {
+  try {
+    const devices = await pool.query(
+      "SELECT * FROM lightbridge_devices WHERE family_unit_id = $1 AND is_active = true AND device_subtype IN ('light', 'plug')",
+      [familyUnitId]
+    );
+    for (const d of devices.rows) {
+      await sendCommand(d, { color: '#1a1a1a', brightness: 0.05, power: 'on' }, 'reset');
+    }
+  } catch (err) {
+    console.error('[LightBridge] resetLights failed:', err.message);
+  }
+}
+
+// ── UNIFIED TRIGGER ─────────────────────────────────────────
+
+async function triggerLightBridge({ family_unit_id, user_id, trigger_type }) {
+  try {
+    // Check if enabled
+    const family = await pool.query(
+      'SELECT lightbridge_active, lightbridge_hold_minutes, lightbridge_privacy_mode FROM family_units WHERE family_unit_id = $1',
+      [family_unit_id]
+    );
+    if (!family.rows.length || !family.rows[0].lightbridge_active) return;
+
+    const holdMinutes = family.rows[0].lightbridge_hold_minutes || 30;
+    const privacyMode = family.rows[0].lightbridge_privacy_mode || 'caregiver_controlled';
+
+    // Check member visibility
+    if (privacyMode === 'caregiver_controlled') {
+      const membership = await pool.query(
+        'SELECT lightbridge_visible FROM family_memberships WHERE family_unit_id = $1 AND user_id = (SELECT id FROM users WHERE user_id = $2 OR participant_id = $2 LIMIT 1)',
+        [family_unit_id, user_id]
+      );
+      if (membership.rows.length > 0 && !membership.rows[0].lightbridge_visible) return;
+    }
+
+    // Check personal privacy mode
+    const userRow = await pool.query(
+      'SELECT id, privacy_mode FROM users WHERE user_id = $1 OR participant_id = $1 LIMIT 1',
+      [user_id]
+    );
+    if (userRow.rows[0]?.privacy_mode) return;
+    const userDbId = userRow.rows[0]?.id;
+
+    // Get capacity state → NS3 zone
+    let ns3Zone = 'approaching';
+    try {
+      const capacityCurrency = require('./capacityCurrency');
+      const balance = await capacityCurrency.getBalance(user_id);
+      ns3Zone = CAPACITY_TO_NS3[balance?.state] || 'approaching';
+    } catch {}
+
+    const stateMap = NS3_STATE_MAP[ns3Zone] || NS3_STATE_MAP.approaching;
+
+    // Get devices
+    const devices = await pool.query(
+      'SELECT * FROM lightbridge_devices WHERE family_unit_id = $1 AND is_active = true',
+      [family_unit_id]
+    );
+
+    const lightDevices = devices.rows.filter(d => d.device_subtype === 'light' || d.device_subtype === 'plug' || !d.device_subtype);
+    const speakerDevices = devices.rows.filter(d => d.device_subtype === 'speaker');
+
+    // Send light commands
+    for (const d of lightDevices) {
+      try {
+        await sendCommand(d, { color: stateMap.color, brightness: stateMap.brightness / 100, power: 'on' }, trigger_type);
+        await logEvent(d.id, userDbId, family_unit_id, trigger_type, { ns3Zone }, { color: stateMap.color, brightness: stateMap.brightness }, true, null);
+      } catch (err) {
+        Sentry.captureException(err);
+      }
+    }
+
+    // Play music on speakers
+    const musicService = require('../services/lightBridgeMusicService');
+    const track = await musicService.getMusicTrack(family_unit_id, ns3Zone);
+    for (const d of speakerDevices) {
+      await musicService.playTrack(d, track);
+    }
+
+    // Schedule reset
+    scheduleReset(family_unit_id, holdMinutes);
+
+    console.log(`[LightBridge] Triggered: family=${family_unit_id}, type=${trigger_type}, zone=${ns3Zone}`);
+  } catch (err) {
+    console.error('[LightBridge] triggerLightBridge failed:', err.message);
+    Sentry.captureException(err);
+  }
+}
+
 // ── LIFX PROVIDER ───────────────────────────────────────────
 
 const LIFX_BASE = 'https://api.lifx.com/v1';
@@ -94,6 +233,58 @@ async function lifxPulse(token, selector, { color, period, cycles }) {
   return response.json();
 }
 
+// ── WYZE PROVIDER ────────────────────────────────────────────
+
+const WYZE_API = 'https://api.wyzecam.com/app/v2';
+
+function hexToRgb(hex) {
+  if (!hex || !hex.startsWith('#')) return { r: 255, g: 245, b: 224 };
+  return {
+    r: parseInt(hex.slice(1, 3), 16),
+    g: parseInt(hex.slice(3, 5), 16),
+    b: parseInt(hex.slice(5, 7), 16)
+  };
+}
+
+async function wyzeSetState(token, deviceMac, command) {
+  if (!token || !deviceMac) return;
+
+  // Handle effects by simulating brightness alternation
+  if (command.effect === 'breathe' || command.effect === 'pulse') {
+    const cycles = command.cycles || 3;
+    const halfPeriod = ((command.period || 4) * 500);
+    for (let i = 0; i < cycles; i++) {
+      await wyzeSetColorBrightness(token, deviceMac, command.color, 80);
+      await new Promise(r => setTimeout(r, halfPeriod));
+      await wyzeSetColorBrightness(token, deviceMac, command.color, 20);
+      await new Promise(r => setTimeout(r, halfPeriod));
+    }
+    return;
+  }
+
+  await wyzeSetColorBrightness(token, deviceMac, command.color, Math.round((command.brightness || 0.8) * 100));
+}
+
+async function wyzeSetColorBrightness(token, deviceMac, color, brightness) {
+  const rgb = hexToRgb(color);
+  try {
+    await fetch(`${WYZE_API}/device/set_property_list`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        device_mac: deviceMac,
+        device_model: 'WLPA19',
+        property_list: [
+          { pid: 'P1507', pvalue: `${rgb.r},${rgb.g},${rgb.b}` },
+          { pid: 'P1501', pvalue: String(brightness) }
+        ]
+      })
+    });
+  } catch (err) {
+    throw new Error(`Wyze API error: ${err.message}`);
+  }
+}
+
 // ── COMMAND EXECUTION (with simulation) ─────────────────────
 
 async function sendCommand(device, command, eventType) {
@@ -121,6 +312,8 @@ async function sendCommand(device, command, eventType) {
       } else {
         result = await lifxSetState(device.device_token, device.device_selector || 'all', command);
       }
+    } else if (provider === 'wyze') {
+      result = await wyzeSetState(device.device_token, device.wyze_device_id || device.device_selector, command);
     }
 
     // Update device state
@@ -422,6 +615,7 @@ module.exports = {
   setCapacityState,
   triggerSessionEvent,
   triggerCelebration,
+  triggerLightBridge,
   sendTestPattern,
   registerDevice,
   getDevices,
@@ -429,7 +623,11 @@ module.exports = {
   getDeviceState,
   getEvents,
   manualOverride,
+  scheduleReset,
   CAPACITY_LIGHT_MAP,
+  NS3_STATE_MAP,
+  CAPACITY_TO_NS3,
   SESSION_EVENT_PATTERNS,
-  CELEBRATION_PATTERNS
+  CELEBRATION_PATTERNS,
+  TRIGGER_TYPES
 };

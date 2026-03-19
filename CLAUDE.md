@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 19, 2026 (Session 24)
+Updated: March 19, 2026 (LightBridge Upgrade)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -101,6 +101,14 @@ Updated: March 19, 2026 (Session 24)
 - Device provider abstracted (LIFX today, Hue/custom tomorrow)
 - Rate limit: 1 capacity state change per 30s per device. 3 consecutive failures deactivates device.
 - LightBridge UI in test harness (simulated light, device registration, events)
+- LightBridge Upgrade: Wyze provider added (alongside LIFX), NS3 state mapping, unified triggerLightBridge()
+- lightBridgeMusicService.js: track selection by NS3 state, family preferences
+- Migration 028: lightbridge_music_library, lightbridge_family_music_prefs, device expansion (wyze_device_id, speaker_endpoint, room, device_subtype), family config (hold_minutes, privacy_mode), member visibility
+- 12 default music tracks seeded across 4 NS3 states
+- Three trigger types: session_complete, arrival_home, manual_override
+- Caregiver-controlled visibility per member, personal privacy mode override
+- Configurable hold duration (default 30 min) with scheduled reset
+- "I'm Home" arrival endpoint for geofence/manual trigger
 - Migration 021: users expanded (pin_hash, auth_method, role, participant_id, lockout), refresh_tokens, enrollment_codes, verification_codes, user_wallets, auth_audit_log
 - authService.js: 3 registration methods (facility code, email, phone), 3 login methods, JWT+refresh tokens, password reset, lockout
 - walletService.js: silent ethers.js wallet generation, AES-256-CBC encrypted private key storage

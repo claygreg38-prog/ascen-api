@@ -134,4 +134,134 @@ router.post('/manual/:deviceId', async (req, res) => {
   }
 });
 
+// ── POST /trigger — Unified trigger (session/arrival/manual) ──
+
+router.post('/trigger', async (req, res) => {
+  try {
+    const { family_unit_id, user_id, trigger_type } = req.body;
+    await lightBridgeEngine.triggerLightBridge({
+      family_unit_id,
+      user_id: user_id || req.user?.userId || req.user?.sub,
+      trigger_type: trigger_type || 'manual_override'
+    });
+    res.json({ triggered: true });
+  } catch (err) {
+    Sentry.captureException(err);
+    res.status(500).json({ error: 'Trigger failed' });
+  }
+});
+
+// ── POST /arrival — Arrival-home trigger ─────────────────────
+
+router.post('/arrival', async (req, res) => {
+  try {
+    const { family_unit_id } = req.body;
+    const userId = req.user?.userId || req.user?.sub;
+    await lightBridgeEngine.triggerLightBridge({
+      family_unit_id,
+      user_id: userId,
+      trigger_type: 'arrival_home'
+    });
+    res.json({ triggered: true, trigger_type: 'arrival_home' });
+  } catch (err) {
+    Sentry.captureException(err);
+    res.status(500).json({ error: 'Arrival trigger failed' });
+  }
+});
+
+// ── GET /music — Available music tracks ──────────────────────
+
+router.get('/music', async (req, res) => {
+  try {
+    const musicService = require('../services/lightBridgeMusicService');
+    const tracks = await musicService.getAllTracks();
+    res.json({ tracks });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get music' });
+  }
+});
+
+// ── POST /prefs — Set family music preferences ──────────────
+
+router.post('/prefs', async (req, res) => {
+  try {
+    const musicService = require('../services/lightBridgeMusicService');
+    const { family_unit_id, ns3_state, track_id, custom_file_url } = req.body;
+    if (!family_unit_id || !ns3_state) return res.status(400).json({ error: 'family_unit_id and ns3_state required' });
+
+    const result = await musicService.setFamilyPreference(family_unit_id, ns3_state, track_id, custom_file_url);
+    if (result.error) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save preferences' });
+  }
+});
+
+// ── PUT /visibility — Update member LightBridge visibility ───
+
+router.put('/visibility', async (req, res) => {
+  try {
+    const { Pool } = require('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const { family_unit_id, member_user_id, visible } = req.body;
+    if (!family_unit_id || !member_user_id) return res.status(400).json({ error: 'family_unit_id and member_user_id required' });
+
+    await pool.query(
+      'UPDATE family_memberships SET lightbridge_visible = $1 WHERE family_unit_id = $2 AND user_id = $3',
+      [visible !== false, family_unit_id, member_user_id]
+    );
+    res.json({ updated: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update visibility' });
+  }
+});
+
+// ── POST /reset/:familyUnitId — Force reset lights ───────────
+
+router.post('/reset/:familyUnitId', async (req, res) => {
+  try {
+    lightBridgeEngine.scheduleReset(req.params.familyUnitId, 0);
+    res.json({ reset: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Reset failed' });
+  }
+});
+
+// ── GET /config/:familyUnitId — Get LightBridge config ───────
+
+router.get('/config/:familyUnitId', async (req, res) => {
+  try {
+    const { Pool } = require('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const config = await pool.query(
+      'SELECT lightbridge_active, lightbridge_hold_minutes, lightbridge_privacy_mode FROM family_units WHERE family_unit_id = $1',
+      [req.params.familyUnitId]
+    );
+    res.json(config.rows[0] || {});
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get config' });
+  }
+});
+
+// ── PUT /config/:familyUnitId — Update LightBridge config ────
+
+router.put('/config/:familyUnitId', async (req, res) => {
+  try {
+    const { Pool } = require('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const { lightbridge_enabled, lightbridge_hold_minutes, lightbridge_privacy_mode } = req.body;
+    await pool.query(
+      `UPDATE family_units SET
+        lightbridge_active = COALESCE($1, lightbridge_active),
+        lightbridge_hold_minutes = COALESCE($2, lightbridge_hold_minutes),
+        lightbridge_privacy_mode = COALESCE($3, lightbridge_privacy_mode)
+       WHERE family_unit_id = $4`,
+      [lightbridge_enabled, lightbridge_hold_minutes, lightbridge_privacy_mode, req.params.familyUnitId]
+    );
+    res.json({ updated: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update config' });
+  }
+});
+
 module.exports = router;
