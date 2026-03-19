@@ -63,6 +63,7 @@ const ipfsService = require('../services/ipfsService');
 const artAggregationEngine = require('./artAggregationEngine');
 const familyIntelligence = require('./familyIntelligence');
 const familyUnitEngine = require('./familyUnitEngine');
+const capacityCurrency = require('./capacityCurrency');
 const Sentry = require('../instrument');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -1468,6 +1469,23 @@ function createOrchestrator(callbacks = {}) {
       }
     }
 
+    // ── CAPACITY CURRENCY PROCESSING ───────────────────────
+    let capacityResult = null;
+    try {
+      capacityResult = await capacityCurrency.onSessionComplete(userId, {
+        sessionNumber: rawSession.session_number || 0,
+        ns3Mean: ns3Summary?.ns3?.mean ?? 50,
+        ns3_mean: ns3Summary?.ns3?.mean ?? 50,
+        coherencePeak: rawMetrics.coherence_peak || 0,
+        coherence_peak: rawMetrics.coherence_peak || 0,
+        streakDays: 0, // computed inside deposit
+        somaticResetUsed: !!rawMetrics?.somatic_reset_used
+      });
+    } catch (err) {
+      console.error('[CapacityCurrency] Session deposit failed (non-blocking):', err.message);
+      Sentry.captureException(err);
+    }
+
     // ── TRACK ADVANCEMENT CHECK ─────────────────────────
     let advancementResult = { action: 'none' };
     const sessCount = (user.total_sessions_completed || 0) + 1;
@@ -1728,7 +1746,8 @@ function createOrchestrator(callbacks = {}) {
       coaching_effectiveness: coachingEffectiveness ? coachingEffectiveness.getSummary() : null,
       breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
       aggregation: aggregationResult,
-      family_intelligence: familyIntelResult
+      family_intelligence: familyIntelResult,
+      capacity: capacityResult
     };
 
     onMirrorData(mirrorData);
@@ -1744,7 +1763,8 @@ function createOrchestrator(callbacks = {}) {
       victory_lap: victoryLap,
       breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
       aggregation: aggregationResult,
-      family_intelligence: familyIntelResult
+      family_intelligence: familyIntelResult,
+      capacity: capacityResult
     };
   }
 

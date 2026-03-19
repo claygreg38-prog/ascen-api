@@ -242,10 +242,16 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CAPACITY INTAKE ROUTES
+// CAPACITY CURRENCY ROUTES — Balance, History, Trend, Invest
 // ═══════════════════════════════════════════════════════════════
-// const capacityIntakeRoutes = require('./src/routes/capacityIntake');
-// app.use('/api', capacityIntakeRoutes);
+try {
+  const capacityRoutes = require('./src/routes/capacityRoutes');
+  app.use('/api/capacity', authenticateOrApiKey('participant'));
+  app.use('/api/capacity', capacityRoutes);
+  console.log('[CAPACITY] Routes mounted at /api/capacity');
+} catch (err) {
+  console.warn('[CAPACITY] Could not mount:', err.message);
+}
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -484,4 +490,20 @@ if (process.env.ENABLE_AXIS_CRON === 'true') {
   console.log(`[AXIS CRON] Scheduled: ${cronSchedule} America/New_York`);
 } else {
   console.log('[AXIS CRON] Disabled (set ENABLE_AXIS_CRON=true to activate)');
+}
+
+// ── CAPACITY CURRENCY DAILY SNAPSHOT CRON ─────────────────
+try {
+  const capacitySnapshot = require('./src/jobs/capacitySnapshot');
+  cron.schedule('0 3 * * *', async () => {
+    console.log('[CAPACITY CRON] Running daily capacity snapshots...');
+    const result = await capacitySnapshot.runDailySnapshots();
+    console.log(`[CAPACITY CRON] Done: ${result.count} snapshots, ${result.errors} errors`);
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[CAPACITY CRON] Scheduled: 0 3 * * * UTC');
+} catch (err) {
+  console.warn('[CAPACITY CRON] Could not schedule:', err.message);
 }

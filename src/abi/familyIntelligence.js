@@ -17,6 +17,8 @@
 
 const { Pool } = require('pg');
 const Sentry = require('../instrument');
+let capacityCurrency = null;
+try { capacityCurrency = require('./capacityCurrency'); } catch (e) { /* loaded lazily */ }
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -380,6 +382,22 @@ async function evaluateResponseRules(familyUnitId, userId, sessionData, patterns
       if (await canSendMessage(null, 'cascade', familyUnitId)) {
         const msg = await buildMessage(familyUnitId, null, 'family_unit', 'cascade', 'urgent');
         if (msg) messages.push(msg);
+      }
+    }
+
+    // Overdraft check using real capacity data
+    if (capacityCurrency) {
+      try {
+        const capacity = await capacityCurrency.getBalance(userId);
+        if (capacity.state === 'depleted' || capacity.state === 'low') {
+          if (await canSendMessage(userDbId, 'overdraft')) {
+            const severity = capacity.state === 'depleted' ? 'urgent' : 'moderate';
+            const msg = await buildMessage(familyUnitId, userDbId, 'individual', 'overdraft', severity);
+            if (msg) messages.push(msg);
+          }
+        }
+      } catch (capErr) {
+        // Non-blocking — overdraft check is supplementary
       }
     }
 

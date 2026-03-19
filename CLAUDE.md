@@ -81,6 +81,17 @@ Updated: March 18, 2026
 - Cooldowns enforced per category. Daily cap: 3 messages/individual/24h. Patterns need 3+ observations.
 - tenant_id nullable on users, session_completions, family_units (backward compatible)
 - Family Management UI in test harness (create, invite, join, gates, patterns, messages, escalations)
+- Migration 019: capacity_ledger, capacity_snapshots, capacity_investments, sleep_entries
+- capacityCurrency.js: AXIS output module — composite scoring, ledger, investments, dividends, overdraft
+- capacityRoutes.js at /api/capacity: balance, history, trend, family states, invest, sleep entry
+- capacitySnapshot.js: daily cron at 3AM UTC for snapshot rollup + dividend checks
+- sessionOrchestrator.js updated: capacity currency deposit on every session completion
+- familyIntelligence.js updated: real capacity data for overdraft boundary messaging
+- Family members see STATE only (full/steady/drawing_down/low/depleted) — never raw balances
+- Investment requires balance >= 40. Dividends after 48h if recipient improves 10+ points.
+- Overdraft protection auto-blocks withdrawals at balance <= 19
+- Sleep quality: manual entry for pilot (Terra API PARKED at $400/mo)
+- Capacity UI in test harness (indicator, transactions, savings, family states, sleep entry)
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -127,6 +138,9 @@ Focus only on the task assigned in the session prompt.
 - src/abi/familyUnitEngine.js — family creation, gates, invitations
 - src/abi/familyIntelligence.js — pattern correlation, response rules, escalation
 - src/routes/familyRoutes.js — family API endpoints
+- src/abi/capacityCurrency.js — capacity scoring, ledger, investments, dividends
+- src/routes/capacityRoutes.js — capacity currency API endpoints
+- src/jobs/capacitySnapshot.js — daily snapshot cron job
 - server.js — Express, route mounting, cron
 - public/test.html — throwaway test harness
 

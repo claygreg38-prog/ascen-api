@@ -243,7 +243,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     <div class="stat"><span class="stat-label">Next Session</span><span class="stat-value" id="cmp-next">Tomorrow</span></div>
   </div>
   <p class="subtitle" id="cmp-note">Your progress has been saved.</p>
-  <button class="btn" onclick="showScreen('screen-login')">Done</button>
+  <div class="card" id="capacity-card" style="display:none;margin:12px auto;max-width:320px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div id="capacity-dot" style="width:16px;height:16px;border-radius:50%"></div>
+      <span id="capacity-state-label" style="font-weight:bold"></span>
+    </div>
+    <div id="capacity-deposit-msg" style="color:var(--dim);font-size:.85em;margin-top:4px"></div>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+    <button class="btn small" onclick="showCapacityView()">Capacity Details</button>
+    <button class="btn" onclick="showScreen('screen-login')">Done</button>
+  </div>
 </div>
 
 <!-- BREATH ART REVEAL -->
@@ -493,6 +503,46 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     </div>
     <button class="btn secondary small" onclick="showScreen('screen-gallery')" style="margin-top:8px">Back to Gallery</button>
   </div>
+</div>
+
+<!-- CAPACITY CURRENCY VIEW -->
+<div id="screen-capacity" class="screen">
+  <h2 style="color:var(--accent2)">Your Capacity</h2>
+
+  <div class="card" style="max-width:360px;margin:0 auto">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <div id="cap-dot" style="width:24px;height:24px;border-radius:50%"></div>
+      <div>
+        <div id="cap-state" style="font-weight:bold;font-size:1.1em"></div>
+        <div id="cap-balance" style="color:var(--dim);font-size:.85em"></div>
+      </div>
+    </div>
+    <div id="cap-savings" style="color:var(--dim);font-size:.85em;margin-bottom:8px"
+         title="Consistent small deposits build more than occasional large ones"></div>
+    <div id="cap-overdraft" style="display:none;color:var(--warn);font-size:.85em"
+         title="Your body is telling you it needs space. Honor that.">Overdraft protection active</div>
+  </div>
+
+  <div class="card" style="max-width:360px;margin:12px auto">
+    <h3 style="color:var(--accent2);margin:0 0 8px 0">Recent Activity</h3>
+    <div id="cap-transactions" style="color:var(--dim);font-size:.85em">Loading...</div>
+  </div>
+
+  <div class="card" style="max-width:360px;margin:12px auto">
+    <h3 style="color:var(--accent2);margin:0 0 8px 0">Sleep Quality (manual)</h3>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="range" id="sleep-slider" min="0" max="100" value="60" style="flex:1">
+      <span id="sleep-value" style="min-width:30px">60</span>
+    </div>
+    <button class="btn small" onclick="submitSleepEntry()" style="margin-top:8px">Log Sleep</button>
+  </div>
+
+  <div class="card" id="cap-family-section" style="display:none;max-width:360px;margin:12px auto">
+    <h3 style="color:var(--accent2);margin:0 0 8px 0">Family Capacity</h3>
+    <div id="cap-family-members"></div>
+  </div>
+
+  <button class="btn secondary" onclick="showScreen('screen-complete')" style="margin-top:16px">Back</button>
 </div>
 
 <!-- FAMILY MANAGEMENT -->
@@ -1623,6 +1673,102 @@ async function generatePoster() {
     debugLog('Poster downloaded');
   } catch(e) {
     debugLog('Poster failed: ' + e.message, 'error');
+  }
+}
+
+// ─── CAPACITY CURRENCY ───────────────────────────────
+
+const CAPACITY_COLORS = { full: '#2dd4a8', steady: '#5090c0', drawing_down: '#daa84e', low: '#e86040', depleted: '#d45030' };
+
+async function loadCapacityIndicator() {
+  const userId = state.userId || 'test-user';
+  try {
+    const resp = await fetch(`${API}/api/capacity/balance/${userId}`, { headers: { 'x-api-key': API_KEY } });
+    const data = await resp.json();
+    const card = document.getElementById('capacity-card');
+    card.style.display = '';
+    document.getElementById('capacity-dot').style.background = CAPACITY_COLORS[data.state] || '#888';
+    document.getElementById('capacity-state-label').textContent = data.state.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    if (data.last_transaction) {
+      const amt = parseFloat(data.last_transaction.amount);
+      document.getElementById('capacity-deposit-msg').textContent =
+        amt > 0 ? `Session deposited +${amt} energy` : '';
+    }
+  } catch(e) { /* silent */ }
+}
+
+async function showCapacityView() {
+  showScreen('screen-capacity');
+  const userId = state.userId || 'test-user';
+
+  // Balance
+  try {
+    const resp = await fetch(`${API}/api/capacity/balance/${userId}`, { headers: { 'x-api-key': API_KEY } });
+    const data = await resp.json();
+    document.getElementById('cap-dot').style.background = CAPACITY_COLORS[data.state] || '#888';
+    document.getElementById('cap-state').textContent = data.state.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    document.getElementById('cap-balance').textContent = `Balance: ${data.balance}`;
+    document.getElementById('cap-savings').textContent = `Savings: ${data.savings} (90-day weighted)`;
+    document.getElementById('cap-overdraft').style.display = data.overdraft_active ? '' : 'none';
+  } catch(e) { /* silent */ }
+
+  // Transactions
+  try {
+    const resp = await fetch(`${API}/api/capacity/history/${userId}?limit=10`, { headers: { 'x-api-key': API_KEY } });
+    const data = await resp.json();
+    const div = document.getElementById('cap-transactions');
+    if (data.entries && data.entries.length > 0) {
+      div.innerHTML = data.entries.map(e => {
+        const amt = parseFloat(e.amount);
+        const color = amt > 0 ? 'var(--success)' : 'var(--warn)';
+        const sign = amt > 0 ? '+' : '';
+        const date = new Date(e.created_at).toLocaleDateString();
+        return `<div style="padding:3px 0;border-bottom:1px solid #1a2a3a">
+          <span style="color:${color}">${sign}${amt}</span>
+          <span style="color:var(--dim)"> — ${e.source.replace(/_/g, ' ')} — ${date}</span>
+        </div>`;
+      }).join('');
+    } else {
+      div.textContent = 'No transactions yet';
+    }
+  } catch(e) { document.getElementById('cap-transactions').textContent = 'Unavailable'; }
+
+  // Family capacity (states only)
+  const familyId = localStorage.getItem('ascen_family_unit_' + userId);
+  if (familyId) {
+    try {
+      const resp = await fetch(`${API}/api/capacity/family/${familyId}`, { headers: { 'x-api-key': API_KEY } });
+      const data = await resp.json();
+      const section = document.getElementById('cap-family-section');
+      section.style.display = '';
+      document.getElementById('cap-family-members').innerHTML = data.members.map(m =>
+        `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+          <div style="width:12px;height:12px;border-radius:50%;background:${CAPACITY_COLORS[m.state] || '#888'}"></div>
+          <span>${m.first_name || m.user_id}</span>
+          <span style="color:var(--dim);font-size:.8em">${m.state.replace(/_/g, ' ')}</span>
+        </div>`
+      ).join('');
+    } catch(e) { /* silent */ }
+  }
+
+  // Sleep slider
+  document.getElementById('sleep-slider').oninput = function() {
+    document.getElementById('sleep-value').textContent = this.value;
+  };
+}
+
+async function submitSleepEntry() {
+  const userId = state.userId || 'test-user';
+  const quality = document.getElementById('sleep-slider').value;
+  try {
+    await fetch(`${API}/api/capacity/sleep`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+      body: JSON.stringify({ user_id: userId, quality: parseInt(quality) })
+    });
+    debugLog('Sleep quality logged: ' + quality);
+  } catch(e) {
+    debugLog('Sleep entry failed: ' + e.message, 'error');
   }
 }
 
