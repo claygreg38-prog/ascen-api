@@ -12,7 +12,7 @@ ALTER TABLE family_units ADD COLUMN IF NOT EXISTS premium_tier VARCHAR(20) DEFAU
 -- Facilitated messages (two-way AI-coached messaging)
 CREATE TABLE IF NOT EXISTS facilitated_messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  family_unit_id UUID REFERENCES family_units(id),
+  family_unit_id UUID REFERENCES family_units(family_unit_id),
   tenant_id UUID REFERENCES tenants(id),
   sender_type VARCHAR(10) NOT NULL CHECK (sender_type IN ('parent', 'child', 'partner', 'coparent')),
   sender_id INTEGER REFERENCES users(id),
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS facilitated_messages (
 -- Conflict events
 CREATE TABLE IF NOT EXISTS conflict_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  family_unit_id UUID REFERENCES family_units(id),
+  family_unit_id UUID REFERENCES family_units(family_unit_id),
   tenant_id UUID REFERENCES tenants(id),
   channel_type VARCHAR(20),
   trigger_message_id UUID REFERENCES facilitated_messages(id),
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS conflict_events (
 CREATE TABLE IF NOT EXISTS therapeutic_letters (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   author_id INTEGER REFERENCES users(id),
-  family_unit_id UUID REFERENCES family_units(id),
+  family_unit_id UUID REFERENCES family_units(family_unit_id),
   tenant_id UUID REFERENCES tenants(id),
   recipient_type VARCHAR(10),
   recipient_id INTEGER REFERENCES users(id),
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS therapeutic_letters (
 -- Therapy prep reports
 CREATE TABLE IF NOT EXISTS therapy_reports (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  family_unit_id UUID REFERENCES family_units(id),
+  family_unit_id UUID REFERENCES family_units(family_unit_id),
   tenant_id UUID REFERENCES tenants(id),
   report_period_start DATE NOT NULL,
   report_period_end DATE NOT NULL,
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS therapy_consent_audit (
 CREATE TABLE IF NOT EXISTS clinical_disclosures (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   message_id UUID REFERENCES facilitated_messages(id),
-  family_unit_id UUID REFERENCES family_units(id),
+  family_unit_id UUID REFERENCES family_units(family_unit_id),
   tenant_id UUID REFERENCES tenants(id),
   disclosure_type VARCHAR(30) NOT NULL CHECK (disclosure_type IN ('self_harm', 'abuse_third_party', 'abuse_recipient')),
   original_text TEXT NOT NULL,
@@ -148,7 +148,7 @@ ALTER TABLE legacy_capsules ADD COLUMN IF NOT EXISTS time_lock_occasion VARCHAR(
 CREATE TABLE IF NOT EXISTS story_arcs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   creator_id INTEGER REFERENCES users(id),
-  family_unit_id UUID REFERENCES family_units(id),
+  family_unit_id UUID REFERENCES family_units(family_unit_id),
   tenant_id UUID REFERENCES tenants(id),
   title VARCHAR(200),
   description TEXT,
