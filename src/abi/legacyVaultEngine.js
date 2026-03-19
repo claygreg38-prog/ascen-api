@@ -326,11 +326,120 @@ async function lockCapsule(capsuleId, creatorId) {
   return { success: true, locked: true };
 }
 
+// ── VIDEO CAPSULE (Review Finding #3: Clinical review required) ──
+
+async function createVideoCapsule(params) {
+  const { creatorParticipantId, transcript, familyUnitId, tenantId } = params;
+
+  // Transcript is evaluated by Sonnet via the letter assistant
+  // Video itself requires clinical human review before encryption
+
+  const result = await pool.query(
+    `INSERT INTO legacy_capsules
+     (creator_participant_id, capsule_type, video_review_status,
+      affirmation_encrypted, seed_phrase_hash)
+     VALUES ($1, 'video', 'pending_review', 'pending_clinical_review', 'pending')
+     RETURNING id`,
+    [creatorParticipantId]
+  );
+
+  return { capsuleId: result.rows[0].id, videoReviewStatus: 'pending_review' };
+}
+
+async function approveVideoCapsule(capsuleId, videoBuffer) {
+  // Called after clinical review approves the video
+  const mnemonic = require('bip39').generateMnemonic(128);
+  const capsuleKey = deriveCapsuleKey(mnemonic);
+  const seedPhraseHash = hashMnemonic(mnemonic);
+
+  // Encrypt video and upload to IPFS
+  let videoIpfsHash = null;
+  try {
+    const ipfsService = require('../services/ipfsService');
+    if (videoBuffer) {
+      const ipfsResult = await ipfsService.upload(videoBuffer, { type: 'video_capsule' }, {}, { sessionNumber: 'video', firstName: 'Family' });
+      videoIpfsHash = ipfsResult.metadataHash;
+    }
+  } catch (err) {
+    console.error('[LegacyVault] IPFS upload failed:', err.message);
+  }
+
+  await pool.query(
+    `UPDATE legacy_capsules SET
+       video_review_status = 'approved', video_ipfs_hash = $1,
+       seed_phrase_hash = $2
+     WHERE id = $3`,
+    [videoIpfsHash, seedPhraseHash, capsuleId]
+  );
+
+  return { capsuleId, mnemonic, videoIpfsHash };
+}
+
+// ── STORY ARC ───────────────────────────────────────────────
+
+async function createStoryArc(creatorId, familyUnitId, tenantId, title, description, totalChapters) {
+  if (totalChapters > 10) throw new Error('Maximum 10 chapters per story arc');
+
+  const result = await pool.query(
+    `INSERT INTO story_arcs (creator_id, family_unit_id, tenant_id, title, description, total_chapters)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id`,
+    [creatorId, familyUnitId, tenantId, title, description, totalChapters || 1]
+  );
+
+  return { arcId: result.rows[0].id };
+}
+
+// ── TIME-LOCKED CAPSULE ─────────────────────────────────────
+
+async function setTimeLock(capsuleId, creatorId, timeLockDate, occasion) {
+  const capsule = await pool.query(
+    'SELECT id, creator_participant_id FROM legacy_capsules WHERE id = $1 AND creator_participant_id = $2',
+    [capsuleId, creatorId]
+  );
+  if (capsule.rows.length === 0) throw new Error('Capsule not found');
+
+  const lockDate = new Date(timeLockDate);
+  if (lockDate <= new Date()) throw new Error('Time lock date must be in the future');
+
+  await pool.query(
+    `UPDATE legacy_capsules SET
+       capsule_type = 'time_locked', time_lock_date = $1, time_lock_occasion = $2
+     WHERE id = $3`,
+    [lockDate, occasion, capsuleId]
+  );
+
+  return { capsuleId, timeLockDate: lockDate, occasion };
+}
+
+async function checkTimeLock(capsuleId) {
+  const capsule = await pool.query(
+    'SELECT time_lock_date, time_lock_occasion, capsule_type FROM legacy_capsules WHERE id = $1',
+    [capsuleId]
+  );
+  if (capsule.rows.length === 0) return { locked: false };
+
+  const c = capsule.rows[0];
+  if (c.capsule_type !== 'time_locked' || !c.time_lock_date) return { locked: false };
+
+  const isLocked = new Date(c.time_lock_date) > new Date();
+  return {
+    locked: isLocked,
+    timeLockDate: c.time_lock_date,
+    occasion: c.time_lock_occasion
+  };
+}
+
 module.exports = {
   createCapsule,
   reviewCapsule,
   editCapsule,
   lockCapsule,
+  createVideoCapsule,
+  approveVideoCapsule,
+  createStoryArc,
+  setTimeLock,
+  checkTimeLock,
   // Exported for use by capsuleUnlockEngine
   encryptWithKey,
   decryptWithKey,

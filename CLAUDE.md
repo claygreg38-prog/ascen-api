@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 18, 2026
+Updated: March 19, 2026
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -139,6 +139,21 @@ Updated: March 18, 2026
 - AI defaults to Haiku for unknown tasks. Sonnet for clinical reasoning, crisis, deep dialogue.
 - Cost tracking: per-call, per-tenant, input/output tokens, estimated cents
 
+- Migration 024: facilitated_messages, conflict_events, therapeutic_letters, therapy_reports, therapy_consent_audit, clinical_disclosures, story_arcs, vault extensions, premium_tier on family_units
+- facilitatedMessaging.js: ABI module — two-way AI-coached messaging with CRITICAL disclosure classification
+- Disclosure routing: abuse_recipient NEVER delivered to alleged abuser, routed to clinical team + caregiver
+- conflictResolution.js: ABI module — escalation detection, pause/breathe (FIXED 4:6 at 6 BPM), repair framework
+- REVIEW FINDING #4: Conflict resolution breathing is hardcoded 4:6 at 6 BPM — NEVER uses determineBreathParams
+- letterAssistant.js: ABI module — paragraph-level Sonnet feedback on therapeutic letters
+- therapyReportService.js: weekly/monthly reports with granular per-channel consent + legal disclaimer (Review Finding #5)
+- premiumGate.js: tier enforcement middleware — returns 402 (upgrade required), NEVER 403
+- premiumRoutes.js: 18 premium endpoints + 4 clinical endpoints at /api/premium + /api/clinical
+- clinical_disclosures table: CRITICAL safety — abuse disclosure routing with mandatory reporting flag
+- Legacy vault extended: video capsules (clinical human review required — Review Finding #3), story arcs, time-locked capsules
+- BIP39 standardized on 12 words / 128 bits (Review Finding #6)
+- Premium tiers: base (free), guided_bridge ($14.99/mo), family_compass ($24.99/mo)
+- Base tier quality NEVER reduced to incentivize upgrades. Clinical floor is sacred.
+
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
 - Invisible watermark injection — Session 10+
@@ -202,6 +217,12 @@ Focus only on the task assigned in the session prompt.
 - src/routes/coBreathRoutes.js — co-breath API endpoints
 - src/utils/tenantHelper.js — tenant-scoped query utilities
 - src/services/aiRouter.js — hybrid AI model routing + cost tracking
+- src/abi/facilitatedMessaging.js — two-way AI-coached messaging + disclosure classification
+- src/abi/conflictResolution.js — escalation detection, pause/breathe, repair framework
+- src/abi/letterAssistant.js — therapeutic letter writing with paragraph-level Sonnet feedback
+- src/services/therapyReportService.js — therapy prep reports with consent + legal disclaimer
+- src/middleware/premiumGate.js — tier enforcement (402 not 403)
+- src/routes/premiumRoutes.js — premium + clinical endpoints
 - server.js — Express, route mounting, cron, WebSocket
 - public/test.html — throwaway test harness
 

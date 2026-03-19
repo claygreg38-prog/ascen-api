@@ -358,6 +358,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     <button class="btn small" onclick="openKitchenTable()">Kitchen Table</button>
     <button class="btn small" onclick="openCoBreath()">Co-Breath</button>
     <button class="btn small" onclick="openLightBridge()">LightBridge</button>
+    <button class="btn small" style="background:#e040fb;color:#fff" onclick="openGuidedBridge()">Guided Bridge</button>
     <button class="btn small" style="background:#d4af37;color:#000" onclick="showScreen('screen-legacy-unlock')">Test Unlock</button>
     <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
   </div>
@@ -3085,6 +3086,492 @@ async function startAncestralSession() {
     } catch(e) {}
   }
 })();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- GUIDED BRIDGE PREMIUM (Session 19) -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="screen-guided-bridge" class="screen">
+  <h2 style="color:#e040fb">Guided Bridge</h2>
+  <p class="subtitle">AI-coached family communication</p>
+
+  <!-- Premium gate check -->
+  <div id="gb-locked" style="display:none" class="card">
+    <p style="color:var(--warn)">This feature requires Guided Bridge tier ($14.99/mo)</p>
+    <button class="btn" onclick="upgradeTier()">Upgrade to Guided Bridge</button>
+  </div>
+
+  <div id="gb-unlocked">
+    <!-- Channel tabs -->
+    <div style="display:flex;gap:8px;justify-content:center;margin:12px 0">
+      <button class="btn small" id="tab-parent_child" onclick="switchChannel('parent_child')" style="background:#e040fb">Parent-Child</button>
+      <button class="btn small secondary" id="tab-partner" onclick="switchChannel('partner')">Partner</button>
+      <button class="btn small secondary" id="tab-coparent" onclick="switchChannel('coparent')">Co-Parent</button>
+    </div>
+
+    <!-- Message thread -->
+    <div class="card" id="gb-messages" style="max-height:300px;overflow-y:auto;text-align:left;font-size:.85em">
+      <p style="color:var(--dim)">No messages yet</p>
+    </div>
+
+    <!-- Compose -->
+    <div style="width:100%;max-width:400px;margin-top:8px">
+      <textarea id="gb-compose" placeholder="Write your message..." maxlength="500" style="max-width:400px"></textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+        <span id="gb-char-count" style="color:var(--dim);font-size:.75em">0/500</span>
+        <div style="display:flex;gap:4px">
+          <input type="number" id="gb-recipient-id" placeholder="Recipient ID" style="max-width:100px;padding:8px;font-size:.8em">
+          <button class="btn small" onclick="sendFacilitatedMessage()">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Coaching overlay -->
+    <div id="gb-coaching" style="display:none" class="card" style="border:1px solid #e040fb">
+      <h3 style="color:#e040fb;font-size:.9em">Coaching Suggestion</h3>
+      <p id="gb-coaching-text" style="font-size:.85em;margin:8px 0"></p>
+      <p id="gb-reframe" style="color:var(--accent2);font-size:.85em;font-style:italic;margin:8px 0"></p>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <button class="btn small" onclick="acceptCoaching()">Edit Message</button>
+        <button class="btn small secondary" onclick="sendOriginal()">Send Original</button>
+      </div>
+    </div>
+
+    <!-- Disclosure alert (clinical view) -->
+    <div id="gb-disclosure-alert" style="display:none;background:#3a0a0a;border:1px solid var(--warn);border-radius:12px;padding:16px;margin:12px 0;max-width:400px">
+      <h3 style="color:var(--warn);font-size:.9em">DISCLOSURE DETECTED</h3>
+      <p id="gb-disclosure-type" style="font-size:.85em;margin:4px 0"></p>
+      <p id="gb-disclosure-msg" style="font-size:.85em;color:var(--dim)"></p>
+    </div>
+
+    <!-- Premium actions -->
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">
+      <button class="btn small" onclick="openLetterWriter()">Write a Letter</button>
+      <button class="btn small" onclick="openTherapyReport()">Therapy Report</button>
+      <button class="btn small" onclick="openAdvancedVault()">Advanced Vault</button>
+    </div>
+  </div>
+
+  <button class="btn secondary" onclick="showScreen('screen-gallery')" style="margin-top:16px">Back to Gallery</button>
+</div>
+
+<!-- LETTER WRITING -->
+<div id="screen-letter" class="screen">
+  <h2 style="color:#e040fb">Write a Letter</h2>
+  <p class="subtitle">Sonnet will help you express yourself safely</p>
+  <textarea id="letter-draft" placeholder="Write your letter here..." style="min-height:200px;max-width:400px"></textarea>
+  <div style="display:flex;gap:8px;margin-top:8px">
+    <select id="letter-recipient-type" style="background:var(--card);color:var(--text);border:1px solid #333;padding:8px;border-radius:8px">
+      <option value="child">To Child</option>
+      <option value="partner">To Partner</option>
+      <option value="coparent">To Co-Parent</option>
+    </select>
+    <button class="btn small" onclick="submitLetterDraft()">Get Feedback</button>
+  </div>
+  <div id="letter-feedback" class="card" style="display:none;text-align:left;font-size:.85em;max-width:400px"></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <select id="letter-delivery" style="background:var(--card);color:var(--text);border:1px solid #333;padding:8px;border-radius:8px">
+      <option value="channel">Send via Channel</option>
+      <option value="vault">Store in Vault</option>
+      <option value="print">Print</option>
+      <option value="therapist">Send to Therapist</option>
+    </select>
+    <button class="btn small" id="btn-finalize-letter" style="display:none" onclick="finalizeLetter()">Finalize & Deliver</button>
+  </div>
+  <button class="btn secondary" onclick="showScreen('screen-guided-bridge')" style="margin-top:16px">Back</button>
+</div>
+
+<!-- THERAPY REPORT -->
+<div id="screen-therapy-report" class="screen">
+  <h2 style="color:#e040fb">Therapy Prep Report</h2>
+  <p class="subtitle">Generate a report for your therapist</p>
+  <div class="card" style="text-align:left;max-width:400px">
+    <h3 style="font-size:.9em;margin-bottom:8px">Channel Consent</h3>
+    <label style="display:block;padding:4px 0"><input type="checkbox" id="consent-parent-child" checked> Parent-Child Channel</label>
+    <label style="display:block;padding:4px 0"><input type="checkbox" id="consent-partner" checked> Partner Channel</label>
+    <label style="display:block;padding:4px 0"><input type="checkbox" id="consent-coparent" checked> Co-Parent Channel</label>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:8px">
+    <input type="date" id="report-start" style="background:var(--card);color:var(--text);border:1px solid #333;padding:8px;border-radius:8px">
+    <input type="date" id="report-end" style="background:var(--card);color:var(--text);border:1px solid #333;padding:8px;border-radius:8px">
+  </div>
+  <button class="btn" onclick="generateTherapyReport()" style="margin-top:12px">Generate Report</button>
+  <div id="report-preview" class="card" style="display:none;text-align:left;font-size:.85em;max-width:400px"></div>
+  <div id="report-actions" style="display:none;margin-top:8px">
+    <input type="email" id="therapist-email" placeholder="Therapist email" style="max-width:280px;margin-bottom:8px">
+    <button class="btn small" onclick="sendReportToTherapist()">Send to Therapist</button>
+  </div>
+  <div id="report-disclaimer" style="display:none;color:var(--dim);font-size:.7em;max-width:400px;margin-top:12px;text-align:left"></div>
+  <button class="btn secondary" onclick="showScreen('screen-guided-bridge')" style="margin-top:16px">Back</button>
+</div>
+
+<!-- CONFLICT RESOLUTION OVERLAY -->
+<div id="conflict-overlay" class="coaching-overlay">
+  <div class="coaching-card">
+    <h3 style="color:var(--warn);margin-bottom:12px">Conversation Getting Heated</h3>
+    <p style="font-size:.9em;margin-bottom:16px" id="conflict-msg">It seems like this conversation is getting heated. Would you like to pause and try a 2-minute breathing reset?</p>
+    <div id="conflict-actions">
+      <button class="btn" onclick="respondToConflict('pause')">Pause & Breathe</button>
+      <button class="btn secondary" onclick="respondToConflict('continue')">Continue</button>
+    </div>
+    <div id="conflict-breathing" style="display:none;margin-top:16px">
+      <div class="breath-container">
+        <div class="breath-ring" id="conflict-breath-ring">
+          <span class="breath-label" id="conflict-breath-label">Breathe</span>
+          <span class="breath-ratio">4:6 at 6 BPM</span>
+        </div>
+      </div>
+      <p style="font-size:.85em;color:var(--dim)" id="conflict-timer">2:00</p>
+    </div>
+    <div id="conflict-repair" style="display:none;text-align:left;margin-top:16px">
+      <h3 style="color:var(--accent2);font-size:.9em;margin-bottom:8px">Repair Framework</h3>
+      <ol style="font-size:.85em;padding-left:20px;line-height:1.8" id="repair-steps"></ol>
+      <button class="btn" onclick="closeConflictOverlay()" style="margin-top:12px">Continue Conversation</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── GUIDED BRIDGE LOGIC ────────────────────────────────
+let gbChannel = 'parent_child';
+let gbCurrentMessageId = null;
+let gbCurrentLetterId = null;
+let gbCurrentReportId = null;
+let gbCurrentConflictId = null;
+let gbFamilyUnitId = null;
+
+function openGuidedBridge() {
+  // Check tier first
+  gbFamilyUnitId = localStorage.getItem('ascen_family_unit_id');
+  if (!gbFamilyUnitId) {
+    alert('Join a family first (Family screen)');
+    return;
+  }
+  showScreen('screen-guided-bridge');
+  checkPremiumTier();
+  loadMessages();
+}
+
+async function checkPremiumTier() {
+  try {
+    const r = await apiFetch(`/api/premium/tier/${gbFamilyUnitId}`);
+    const d = await r.json();
+    if (d.currentTier === 'base') {
+      document.getElementById('gb-locked').style.display = 'block';
+      document.getElementById('gb-unlocked').style.display = 'none';
+    } else {
+      document.getElementById('gb-locked').style.display = 'none';
+      document.getElementById('gb-unlocked').style.display = 'block';
+    }
+  } catch(e) {
+    // Default to unlocked for test harness
+    document.getElementById('gb-locked').style.display = 'none';
+    document.getElementById('gb-unlocked').style.display = 'block';
+  }
+}
+
+async function upgradeTier() {
+  try {
+    await apiFetch(`/api/premium/upgrade/${gbFamilyUnitId}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ tier: 'guided_bridge' })
+    });
+    checkPremiumTier();
+    debugLog('Upgraded to guided_bridge', 'api');
+  } catch(e) { debugLog('Upgrade failed: ' + e.message, 'error'); }
+}
+
+function switchChannel(ch) {
+  gbChannel = ch;
+  ['parent_child','partner','coparent'].forEach(c => {
+    document.getElementById('tab-'+c).className = c === ch ? 'btn small' : 'btn small secondary';
+    if (c === ch) document.getElementById('tab-'+c).style.background = '#e040fb';
+    else document.getElementById('tab-'+c).style.background = '';
+  });
+  loadMessages();
+}
+
+async function loadMessages() {
+  if (!gbFamilyUnitId) return;
+  try {
+    const r = await apiFetch(`/api/premium/messages/${gbChannel}?family_unit_id=${gbFamilyUnitId}`);
+    const d = await r.json();
+    const div = document.getElementById('gb-messages');
+    if (d.messages && d.messages.length > 0) {
+      div.innerHTML = d.messages.map(m =>
+        `<div style="padding:8px 0;border-bottom:1px solid #1a1a3a">
+          <strong style="color:var(--accent)">${m.sender_name || m.sender_type}</strong>
+          <span style="color:var(--dim);font-size:.75em"> ${new Date(m.created_at).toLocaleString()}</span>
+          <p style="margin:4px 0">${m.final_text}</p>
+          ${m.recipient_coaching ? '<p style="color:var(--accent2);font-size:.8em;font-style:italic">'+m.recipient_coaching+'</p>' : ''}
+        </div>`
+      ).join('');
+    } else {
+      div.innerHTML = '<p style="color:var(--dim)">No messages yet</p>';
+    }
+  } catch(e) { debugLog('Load messages failed', 'error'); }
+}
+
+document.getElementById('gb-compose').addEventListener('input', function() {
+  document.getElementById('gb-char-count').textContent = this.value.length + '/500';
+});
+
+async function sendFacilitatedMessage() {
+  const text = document.getElementById('gb-compose').value.trim();
+  const recipientId = parseInt(document.getElementById('gb-recipient-id').value);
+  if (!text) return alert('Write a message first');
+  if (!recipientId) return alert('Enter recipient ID');
+
+  try {
+    const r = await apiFetch('/api/premium/message/send', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        recipient_id: recipientId,
+        message_text: text,
+        channel_type: gbChannel,
+        family_unit_id: gbFamilyUnitId
+      })
+    });
+    const d = await r.json();
+    debugLog('Message eval: ' + d.decision, 'api');
+
+    if (d.disclosure === 'abuse_recipient') {
+      document.getElementById('gb-disclosure-alert').style.display = 'block';
+      document.getElementById('gb-disclosure-type').textContent = 'Classification: abuse_recipient';
+      document.getElementById('gb-disclosure-msg').textContent = d.senderMessage;
+      document.getElementById('gb-compose').value = '';
+      return;
+    }
+
+    if (d.decision === 'coach') {
+      gbCurrentMessageId = d.messageId;
+      document.getElementById('gb-coaching').style.display = 'block';
+      document.getElementById('gb-coaching-text').textContent = d.coachingText || '';
+      document.getElementById('gb-reframe').textContent = d.reframeSuggestion ? 'Try: "' + d.reframeSuggestion + '"' : '';
+    } else {
+      document.getElementById('gb-compose').value = '';
+      loadMessages();
+    }
+  } catch(e) { debugLog('Send failed: ' + e.message, 'error'); }
+}
+
+async function acceptCoaching() {
+  document.getElementById('gb-coaching').style.display = 'none';
+  // Let user edit the message
+}
+
+async function sendOriginal() {
+  if (!gbCurrentMessageId) return;
+  try {
+    await apiFetch('/api/premium/message/respond-to-coaching', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message_id: gbCurrentMessageId, accepted: false })
+    });
+    document.getElementById('gb-coaching').style.display = 'none';
+    document.getElementById('gb-compose').value = '';
+    loadMessages();
+  } catch(e) { debugLog('Send original failed', 'error'); }
+}
+
+// ─── LETTER WRITING ────────────────────────────────────
+function openLetterWriter() { showScreen('screen-letter'); }
+
+async function submitLetterDraft() {
+  const draft = document.getElementById('letter-draft').value.trim();
+  if (!draft) return alert('Write something first');
+
+  try {
+    const r = await apiFetch('/api/premium/letter/draft', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        draft_text: draft,
+        recipient_type: document.getElementById('letter-recipient-type').value,
+        family_unit_id: gbFamilyUnitId
+      })
+    });
+    const d = await r.json();
+    gbCurrentLetterId = d.letterId;
+
+    const fb = document.getElementById('letter-feedback');
+    fb.style.display = 'block';
+    if (d.feedback?.paragraphs) {
+      fb.innerHTML = '<h3 style="font-size:.9em;margin-bottom:8px">Paragraph Feedback</h3>' +
+        d.feedback.paragraphs.map(p => {
+          const color = p.status === 'safe' ? 'var(--success)' : p.status === 'caution' ? '#f0ad4e' : 'var(--warn)';
+          return `<div style="padding:6px 0;border-bottom:1px solid #1a1a3a">
+            <span style="color:${color};font-weight:bold">[${p.status.toUpperCase()}]</span> ${p.note}
+          </div>`;
+        }).join('') +
+        (d.feedback.overall ? '<p style="margin-top:8px;color:var(--dim)">' + d.feedback.overall + '</p>' : '');
+    }
+    document.getElementById('btn-finalize-letter').style.display = '';
+    debugLog('Letter feedback received', 'api');
+  } catch(e) { debugLog('Letter draft failed', 'error'); }
+}
+
+async function finalizeLetter() {
+  if (!gbCurrentLetterId) return;
+  try {
+    const r = await apiFetch(`/api/premium/letter/${gbCurrentLetterId}/finalize`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ delivery_method: document.getElementById('letter-delivery').value })
+    });
+    const d = await r.json();
+    alert('Letter finalized! Delivery: ' + d.deliveryMethod);
+    showScreen('screen-guided-bridge');
+  } catch(e) { debugLog('Finalize failed', 'error'); }
+}
+
+// ─── THERAPY REPORT ────────────────────────────────────
+function openTherapyReport() { showScreen('screen-therapy-report'); }
+
+async function generateTherapyReport() {
+  const start = document.getElementById('report-start').value;
+  const end = document.getElementById('report-end').value;
+  if (!start || !end) return alert('Select date range');
+
+  const channels = {
+    parent_child: document.getElementById('consent-parent-child').checked,
+    partner: document.getElementById('consent-partner').checked,
+    coparent: document.getElementById('consent-coparent').checked
+  };
+
+  try {
+    const r = await apiFetch(`/api/premium/therapy-report/${gbFamilyUnitId}?period_start=${start}&period_end=${end}&channels=${encodeURIComponent(JSON.stringify(channels))}`);
+    const d = await r.json();
+    gbCurrentReportId = d.reportId;
+
+    const preview = document.getElementById('report-preview');
+    preview.style.display = 'block';
+    const analysis = d.reportData?.analysis || {};
+    preview.innerHTML = `
+      <h3 style="font-size:.9em;color:var(--accent2)">Report Preview</h3>
+      <p style="margin:8px 0">${analysis.progress_summary || 'No data available'}</p>
+      ${analysis.positive_signals ? '<p style="color:var(--success);font-size:.85em"><strong>Positive:</strong> ' + analysis.positive_signals.join(', ') + '</p>' : ''}
+      ${analysis.areas_of_concern?.length ? '<p style="color:var(--warn);font-size:.85em"><strong>Concerns:</strong> ' + analysis.areas_of_concern.join(', ') + '</p>' : ''}
+      <p style="color:var(--dim);font-size:.75em;margin-top:8px">Hash: ${d.reportHash?.substring(0, 16)}...</p>
+    `;
+
+    document.getElementById('report-actions').style.display = 'block';
+    document.getElementById('report-disclaimer').style.display = 'block';
+    document.getElementById('report-disclaimer').textContent = d.legalDisclaimer;
+    debugLog('Report generated: ' + d.reportId, 'api');
+  } catch(e) { debugLog('Report failed: ' + e.message, 'error'); }
+}
+
+async function sendReportToTherapist() {
+  if (!gbCurrentReportId) return;
+  const email = document.getElementById('therapist-email').value;
+  if (!email) return alert('Enter therapist email');
+
+  try {
+    // Preview first
+    await apiFetch(`/api/premium/therapy-report/${gbCurrentReportId}/preview?family_unit_id=${gbFamilyUnitId}`);
+    // Consent
+    await apiFetch(`/api/premium/therapy-report/${gbCurrentReportId}/consent`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ channels: { parent_child: true, partner: true, coparent: true } })
+    });
+    // Send
+    const r = await apiFetch(`/api/premium/therapy-report/${gbCurrentReportId}/send`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ therapist_email: email })
+    });
+    const d = await r.json();
+    alert('Report sent to ' + d.sentTo);
+    debugLog('Report sent to therapist', 'api');
+  } catch(e) { debugLog('Send report failed', 'error'); }
+}
+
+// ─── ADVANCED VAULT ────────────────────────────────────
+function openAdvancedVault() {
+  alert('Advanced Vault: Video capsules (clinical review required), Story Arcs (multi-chapter), Time-Locked Capsules. Coming to mobile app.');
+}
+
+// ─── CONFLICT RESOLUTION ────────────────────────────────
+function showConflictOverlay(eventId, message) {
+  gbCurrentConflictId = eventId;
+  document.getElementById('conflict-msg').textContent = message;
+  document.getElementById('conflict-overlay').classList.add('active');
+  document.getElementById('conflict-actions').style.display = 'block';
+  document.getElementById('conflict-breathing').style.display = 'none';
+  document.getElementById('conflict-repair').style.display = 'none';
+}
+
+async function respondToConflict(response) {
+  if (!gbCurrentConflictId) return;
+  try {
+    const r = await apiFetch(`/api/premium/conflict/${gbCurrentConflictId}/respond`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ response })
+    });
+    const d = await r.json();
+
+    if (d.bothPaused) {
+      document.getElementById('conflict-actions').style.display = 'none';
+      document.getElementById('conflict-breathing').style.display = 'block';
+      startConflictBreathing();
+    } else if (!d.waiting) {
+      closeConflictOverlay();
+    }
+  } catch(e) { debugLog('Conflict response failed', 'error'); }
+}
+
+function startConflictBreathing() {
+  let remaining = 120;
+  const timer = document.getElementById('conflict-timer');
+  const label = document.getElementById('conflict-breath-label');
+  const ring = document.getElementById('conflict-breath-ring');
+
+  const interval = setInterval(() => {
+    remaining--;
+    const min = Math.floor(remaining / 60);
+    const sec = remaining % 60;
+    timer.textContent = min + ':' + (sec < 10 ? '0' : '') + sec;
+
+    // 4:6 cycle (10 seconds total)
+    const cyclePos = remaining % 10;
+    if (cyclePos >= 6) {
+      label.textContent = 'Inhale';
+      ring.style.transform = 'scale(1.1)';
+      ring.style.borderColor = 'var(--accent2)';
+    } else {
+      label.textContent = 'Exhale';
+      ring.style.transform = 'scale(1)';
+      ring.style.borderColor = 'var(--accent)';
+    }
+
+    if (remaining <= 0) {
+      clearInterval(interval);
+      completeConflictBreathing();
+    }
+  }, 1000);
+}
+
+async function completeConflictBreathing() {
+  document.getElementById('conflict-breathing').style.display = 'none';
+  try {
+    const r = await apiFetch(`/api/premium/conflict/${gbCurrentConflictId}/complete-breathing`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}
+    });
+    const d = await r.json();
+    document.getElementById('conflict-repair').style.display = 'block';
+    const steps = document.getElementById('repair-steps');
+    steps.innerHTML = (d.repairFramework || []).map(s => '<li>' + s + '</li>').join('');
+  } catch(e) { debugLog('Complete breathing failed', 'error'); }
+}
+
+function closeConflictOverlay() {
+  document.getElementById('conflict-overlay').classList.remove('active');
+}
 </script>
 </body>
 </html>

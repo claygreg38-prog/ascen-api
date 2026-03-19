@@ -309,6 +309,22 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// PREMIUM ROUTES — Guided Bridge (Session 19)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const premiumRoutes = require('./src/routes/premiumRoutes');
+  // Premium routes — participant auth required
+  app.use('/api/premium', authenticateOrApiKey('participant'));
+  app.use('/api/premium', premiumRoutes);
+  // Clinical disclosure & video review routes — clinician auth
+  app.use('/api/clinical', authenticateOrApiKey('clinician'));
+  app.use('/api/clinical', premiumRoutes);
+  console.log('[PREMIUM] Routes mounted at /api/premium + /api/clinical');
+} catch (err) {
+  console.warn('[PREMIUM] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EXISTING ROUTES
 // ═══════════════════════════════════════════════════════════════
 
@@ -505,7 +521,7 @@ Sentry.setupExpressErrorHandler(app);
 
 const server = app.listen(PORT, () => {
   console.log('Server running on port', PORT);
-  console.log('ABI: 15/15 systems wired | AXIS: active | Auth: JWT + API key');
+  console.log('ABI: 18/18 systems wired | AXIS: active | Auth: JWT + API key | Premium: Guided Bridge');
   console.log('Hardening: rate_limit + validation + audit + cfr_guard');
 });
 
