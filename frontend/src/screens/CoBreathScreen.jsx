@@ -41,6 +41,18 @@ export default function CoBreathScreen() {
     const ws = new WebSocket(`${proto}//${host}/ws/cobreath?room=${code}&token=${token}`);
     wsRef.current = ws;
 
+    ws.onclose = () => {
+      if (phase !== PHASES.COMPLETE) {
+        setPartnerConnected(false);
+        // Reconnect after brief pause
+        setTimeout(() => { if (wsRef.current?.readyState !== WebSocket.OPEN) connectWebSocket(code); }, 3000);
+      }
+    };
+
+    ws.onerror = () => {
+      // Handled by onclose — no crash
+    };
+
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
@@ -199,6 +211,9 @@ export default function CoBreathScreen() {
         <p style={S.dim}>{partnerName}</p>
         <div style={S.partnerCircle(partnerScale)} />
 
+        {!partnerConnected && phase === PHASES.BREATHING && (
+          <p style={{ color: '#f0b860', fontSize: '13px', marginTop: '8px' }}>Connection paused — reconnecting...</p>
+        )}
         <p style={S.cycleText}>{cycles} / {totalCycles} breaths</p>
       </div>
     );
@@ -216,7 +231,12 @@ export default function CoBreathScreen() {
         </div>
       )}
 
-      {result?.warmth_message && <p style={S.warmth}>{result.warmth_message}</p>}
+      <p style={S.warmth}>{
+        result?.warmth_message ||
+        (result?.connection_score >= 80 ? 'Your connection was strong today.' :
+         result?.connection_score >= 60 ? 'You found your rhythm together.' :
+         'Every shared breath builds connection.')
+      }</p>
 
       {coArt && (
         <div style={{ marginTop: '24px' }}>
