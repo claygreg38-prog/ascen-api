@@ -415,7 +415,7 @@ router.post('/vault/story-arc/:id/chapter', requireTier('guided_bridge'), async 
 router.get('/tier/:familyUnitId', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, premium_tier FROM family_units WHERE id = $1',
+      'SELECT id, premium_tier FROM family_units WHERE family_unit_id = $1',
       [req.params.familyUnitId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Family unit not found' });
@@ -435,6 +435,7 @@ router.get('/tier/:familyUnitId', async (req, res) => {
 });
 
 // Upgrade tier (pilot: manual, production: Stripe)
+// Family Compass requires Guided Bridge — no tier skipping
 router.post('/upgrade/:familyUnitId', async (req, res) => {
   try {
     const { tier } = req.body;
@@ -443,9 +444,21 @@ router.post('/upgrade/:familyUnitId', async (req, res) => {
       return res.status(400).json({ error: 'Invalid tier' });
     }
 
-    // For pilot: direct upgrade. For production: Stripe integration
+    // Check current tier for upgrade validation
+    const current = await pool.query(
+      'SELECT premium_tier FROM family_units WHERE family_unit_id = $1',
+      [req.params.familyUnitId]
+    );
+    if (current.rows.length === 0) return res.status(404).json({ error: 'Family unit not found' });
+
+    const { validateUpgrade } = require('../middleware/premiumGate');
+    const validation = validateUpgrade(current.rows[0].premium_tier || 'base', tier);
+    if (!validation.valid) {
+      return res.status(402).json({ error: 'upgrade_invalid', message: validation.message });
+    }
+
     await pool.query(
-      'UPDATE family_units SET premium_tier = $1 WHERE id = $2',
+      'UPDATE family_units SET premium_tier = $1 WHERE family_unit_id = $2',
       [tier, req.params.familyUnitId]
     );
 

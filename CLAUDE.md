@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 19, 2026
+Updated: March 19, 2026 (Session 20)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -151,8 +151,20 @@ Updated: March 19, 2026
 - clinical_disclosures table: CRITICAL safety — abuse disclosure routing with mandatory reporting flag
 - Legacy vault extended: video capsules (clinical human review required — Review Finding #3), story arcs, time-locked capsules
 - BIP39 standardized on 12 words / 128 bits (Review Finding #6)
-- Premium tiers: base (free), guided_bridge ($14.99/mo), family_compass ($24.99/mo)
+- Premium tiers: base (free), guided_bridge ($14.99/mo), family_compass ($29.99/mo)
 - Base tier quality NEVER reduced to incentivize upgrades. Clinical floor is sacred.
+- Migration 025: family_curricula, curriculum_assignments, relationship_predictions, family_healing_maps
+- familyCurriculum.js: ABI module — Sonnet-generated 12-week adaptive curriculum, reassessment at weeks 6/12
+- predictiveRelationship.js: ABI module — weekly predictions with TWO-TIER output (Review Finding #2)
+  - Family-visible: BEHAVIORAL SIGNALS ONLY (message frequency, practice completion, conflict outcomes)
+  - Clinician-only: NS3, HRV, biometric data (sonnet_full_analysis — NEVER returned by family endpoints)
+  - 42 CFR Part 2 enforced at code level: SELECT deliberately excludes sonnet_full_analysis
+- healingMap.js: ABI module — multi-generational pattern visualization, optional genealogy input
+- compassRoutes.js: 10 endpoints at /api/compass with family_compass tier gating
+- weeklyPredictions.js: cron Monday 6 AM UTC for all Family Compass families
+- premiumGate.js updated: family_unit_id PK fix, validateUpgrade prevents tier skipping
+- premiumRoutes.js updated: family_unit_id PK fix, upgrade validation
+- Family Compass requires Guided Bridge — no tier skipping
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -221,8 +233,13 @@ Focus only on the task assigned in the session prompt.
 - src/abi/conflictResolution.js — escalation detection, pause/breathe, repair framework
 - src/abi/letterAssistant.js — therapeutic letter writing with paragraph-level Sonnet feedback
 - src/services/therapyReportService.js — therapy prep reports with consent + legal disclaimer
-- src/middleware/premiumGate.js — tier enforcement (402 not 403)
+- src/middleware/premiumGate.js — tier enforcement (402 not 403), validateUpgrade
 - src/routes/premiumRoutes.js — premium + clinical endpoints
+- src/abi/familyCurriculum.js — 12-week adaptive curriculum, Sonnet assessments
+- src/abi/predictiveRelationship.js — two-tier predictions (behavioral + clinician-only)
+- src/abi/healingMap.js — multi-generational pattern map
+- src/routes/compassRoutes.js — Family Compass endpoints
+- src/jobs/weeklyPredictions.js — Monday 6 AM prediction cron
 - server.js — Express, route mounting, cron, WebSocket
 - public/test.html — throwaway test harness
 

@@ -5,6 +5,7 @@
 // Returns 402 (Payment Required), NEVER 403.
 // Never hide features — show them grayed out with upgrade prompt.
 // The clinical floor is sacred — base tier quality never reduced.
+// Family Compass requires Guided Bridge — no tier skipping.
 // ============================================================
 
 const { Pool } = require('pg');
@@ -23,7 +24,7 @@ function requireTier(minimumTier) {
 
     try {
       const family = await pool.query(
-        'SELECT premium_tier FROM family_units WHERE id = $1',
+        'SELECT premium_tier FROM family_units WHERE family_unit_id = $1',
         [familyUnitId]
       );
 
@@ -51,4 +52,15 @@ function requireTier(minimumTier) {
   };
 }
 
-module.exports = { requireTier, TIER_HIERARCHY };
+// Validate tier upgrade — Family Compass requires Guided Bridge
+function validateUpgrade(currentTier, requestedTier) {
+  if (requestedTier === 'family_compass' && currentTier !== 'guided_bridge' && currentTier !== 'family_compass') {
+    return { valid: false, message: 'Family Compass requires Guided Bridge. Please upgrade to Guided Bridge first.' };
+  }
+  if ((TIER_HIERARCHY[requestedTier] || 0) <= (TIER_HIERARCHY[currentTier] || 0)) {
+    return { valid: false, message: 'Already at this tier or higher.' };
+  }
+  return { valid: true };
+}
+
+module.exports = { requireTier, validateUpgrade, TIER_HIERARCHY };

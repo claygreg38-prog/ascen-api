@@ -359,6 +359,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     <button class="btn small" onclick="openCoBreath()">Co-Breath</button>
     <button class="btn small" onclick="openLightBridge()">LightBridge</button>
     <button class="btn small" style="background:#e040fb;color:#fff" onclick="openGuidedBridge()">Guided Bridge</button>
+    <button class="btn small" style="background:#00bfa5;color:#fff" onclick="openFamilyCompass()">Family Compass</button>
     <button class="btn small" style="background:#d4af37;color:#000" onclick="showScreen('screen-legacy-unlock')">Test Unlock</button>
     <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
   </div>
@@ -3572,6 +3573,182 @@ async function completeConflictBreathing() {
 function closeConflictOverlay() {
   document.getElementById('conflict-overlay').classList.remove('active');
 }
+
+// ─── FAMILY COMPASS ─────────────────────────────────────
+function openFamilyCompass() {
+  gbFamilyUnitId = localStorage.getItem('ascen_family_unit_id');
+  if (!gbFamilyUnitId) { alert('Join a family first'); return; }
+  showScreen('screen-compass');
+  loadCurriculum();
+  loadPrediction();
+}
+
+async function loadCurriculum() {
+  try {
+    const r = await apiFetch(`/api/compass/curriculum/${gbFamilyUnitId}`);
+    if (r.status === 402) {
+      document.getElementById('compass-locked').style.display = 'block';
+      document.getElementById('compass-content').style.display = 'none';
+      return;
+    }
+    document.getElementById('compass-locked').style.display = 'none';
+    document.getElementById('compass-content').style.display = 'block';
+    const d = await r.json();
+    const div = document.getElementById('compass-curriculum');
+    if (!d.active && d.active === false) {
+      div.innerHTML = '<p style="color:var(--dim)">No curriculum yet.</p><button class="btn small" onclick="generateCurriculum()">Generate 12-Week Curriculum</button>';
+      return;
+    }
+    const progress = ((d.currentWeek - 1) / d.totalWeeks * 100).toFixed(0);
+    div.innerHTML = '<h3 style="font-size:.9em;color:var(--accent2)">Week ' + d.currentWeek + ' of ' + d.totalWeeks + ': ' + (d.theme || '') + '</h3>' +
+      '<div class="progress-bar"><div class="progress-fill" style="width:' + progress + '%"></div></div>' +
+      (d.milestone ? '<p style="color:#d4af37;font-size:.85em">Milestone Week!</p>' : '') +
+      (d.assignments || []).map(function(a) {
+        return '<div style="padding:8px;margin:4px 0;background:#1a1a3a;border-radius:8px;text-align:left">' +
+          '<span style="color:var(--accent);font-size:.75em;text-transform:uppercase">' + a.assignment_type + '</span>' +
+          '<p style="font-size:.85em;margin:4px 0">' + a.assignment_text + '</p>' +
+          (a.completed ? '<span style="color:var(--success);font-size:.75em">Completed</span>' +
+            (a.sonnet_assessment ? '<p style="color:var(--accent2);font-size:.8em;font-style:italic;margin-top:4px">' + a.sonnet_assessment + '</p>' : '')
+            : '<button class="btn small" onclick="completeAssignment(\'' + a.id + '\')">Complete</button>') +
+          '</div>';
+      }).join('');
+  } catch(e) { debugLog('Load curriculum failed', 'error'); }
+}
+
+async function generateCurriculum() {
+  try {
+    const r = await apiFetch('/api/compass/curriculum/generate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ family_unit_id: gbFamilyUnitId })
+    });
+    const d = await r.json();
+    debugLog('Curriculum generated: ' + d.curriculumId, 'api');
+    loadCurriculum();
+  } catch(e) { debugLog('Generate failed', 'error'); }
+}
+
+async function completeAssignment(id) {
+  var feedback = prompt('Share your reflection on this assignment:');
+  if (feedback === null) return;
+  try {
+    const r = await apiFetch('/api/compass/curriculum/assignment/' + id + '/complete', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ feedback: feedback })
+    });
+    const d = await r.json();
+    if (d.sonnetAssessment) alert(d.sonnetAssessment);
+    if (d.weekComplete) alert('Week complete! Advancing to next week.');
+    loadCurriculum();
+  } catch(e) { debugLog('Complete failed', 'error'); }
+}
+
+async function loadPrediction() {
+  try {
+    const r = await apiFetch('/api/compass/prediction/' + gbFamilyUnitId);
+    if (r.status === 402) return;
+    const d = await r.json();
+    const div = document.getElementById('compass-prediction');
+    if (d.message && !d.risk_score) {
+      div.innerHTML = '<p style="color:var(--dim)">' + d.message + '</p>';
+      return;
+    }
+    var riskColor = d.risk_score < 0.3 ? 'var(--success)' : d.risk_score < 0.6 ? '#f0ad4e' : 'var(--warn)';
+    var arrow = d.risk_direction === 'improving' ? ' &uarr;' : d.risk_direction === 'declining' ? ' &darr;' : ' &rarr;';
+    div.innerHTML = '<div style="display:flex;align-items:center;gap:12px;margin:8px 0">' +
+      '<div style="width:60px;height:60px;border-radius:50%;border:3px solid ' + riskColor + ';display:flex;align-items:center;justify-content:center;font-size:1.2em;font-weight:bold;color:' + riskColor + '">' + (d.risk_score * 100).toFixed(0) + '</div>' +
+      '<div><span style="color:' + riskColor + '">' + d.risk_direction + arrow + '</span><br><span style="color:var(--dim);font-size:.75em">FR Readiness: ' + ((d.fr_readiness_score || 0) * 100).toFixed(0) + '%</span></div></div>' +
+      (d.early_warnings && d.early_warnings.length ? '<div style="margin:8px 0"><strong style="font-size:.8em;color:var(--warn)">Early Warnings:</strong>' + d.early_warnings.map(function(w) { return '<p style="font-size:.8em;color:var(--dim)">- ' + w + '</p>'; }).join('') + '</div>' : '') +
+      (d.positive_signals && d.positive_signals.length ? '<div style="margin:8px 0"><strong style="font-size:.8em;color:var(--success)">Positive Signals:</strong>' + d.positive_signals.map(function(s) { return '<p style="font-size:.8em;color:var(--dim)">- ' + s + '</p>'; }).join('') + '</div>' : '') +
+      (d.recommendations && d.recommendations.length ? '<div style="margin:8px 0"><strong style="font-size:.8em;color:var(--accent2)">Recommendations:</strong>' + d.recommendations.map(function(r) { return '<p style="font-size:.8em;color:var(--dim)">- ' + r + '</p>'; }).join('') + '</div>' : '');
+  } catch(e) { /* silent */ }
+}
+
+async function loadHealingMap() {
+  try {
+    const r = await apiFetch('/api/compass/healing-map/' + gbFamilyUnitId);
+    if (r.status === 402) return;
+    const d = await r.json();
+    const div = document.getElementById('compass-map');
+    if (!d.generations || d.exists === false) {
+      div.innerHTML = '<p style="color:var(--dim)">No healing map yet.</p><button class="btn small" onclick="generateHealingMap()">Generate Healing Map</button>';
+      return;
+    }
+    var gens = Array.isArray(d.generations) ? d.generations : [];
+    var threads = Array.isArray(d.pattern_threads) ? d.pattern_threads : [];
+    div.innerHTML = '<h3 style="font-size:.9em;color:var(--accent2);margin-bottom:8px">Family Healing Map</h3>' +
+      gens.map(function(g) {
+        var indicators = (g.healing_indicators || []).join(', ');
+        return '<div style="padding:10px;margin:6px 0;background:#1a1a3a;border-radius:8px;border-left:3px solid var(--accent2)">' +
+          '<strong>' + (g.name || 'Generation ' + g.generation_level) + '</strong>' +
+          (g.patterns_identified && g.patterns_identified.length ? '<p style="font-size:.8em;color:var(--dim)">Patterns: ' + g.patterns_identified.join(', ') + '</p>' : '') +
+          (indicators ? '<p style="font-size:.8em;color:var(--success)">Healing: ' + indicators + '</p>' : '') +
+          '</div>';
+      }).join('') +
+      (threads.length ? '<h4 style="font-size:.85em;margin-top:12px">Pattern Threads</h4>' +
+        threads.map(function(t) {
+          var color = t.status === 'active' ? 'var(--warn)' : t.status === 'breaking' ? '#f0ad4e' : 'var(--success)';
+          return '<div style="padding:6px;font-size:.8em"><span style="color:' + color + '">[' + t.status.toUpperCase() + ']</span> ' + t.pattern_name + (t.evidence ? ' — ' + t.evidence : '') + '</div>';
+        }).join('') : '');
+  } catch(e) { debugLog('Load map failed', 'error'); }
+}
+
+async function generateHealingMap() {
+  try {
+    await apiFetch('/api/compass/healing-map/generate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ family_unit_id: gbFamilyUnitId })
+    });
+    loadHealingMap();
+  } catch(e) { debugLog('Generate map failed', 'error'); }
+}
+
+async function upgradeToCompass() {
+  try {
+    await apiFetch('/api/premium/upgrade/' + gbFamilyUnitId, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ tier: 'family_compass' })
+    });
+    openFamilyCompass();
+  } catch(e) { debugLog('Upgrade failed', 'error'); }
+}
 </script>
+
+<!-- FAMILY COMPASS SCREEN -->
+<div id="screen-compass" class="screen">
+  <h2 style="color:#00bfa5">Family Compass</h2>
+  <p class="subtitle">Predictive family healing intelligence</p>
+
+  <div id="compass-locked" style="display:none" class="card">
+    <p style="color:var(--warn)">Family Compass requires Guided Bridge + Family Compass tier ($29.99/mo)</p>
+    <button class="btn" onclick="upgradeToCompass()">Upgrade to Family Compass</button>
+  </div>
+
+  <div id="compass-content">
+    <!-- Tab navigation -->
+    <div style="display:flex;gap:8px;justify-content:center;margin:12px 0">
+      <button class="btn small" style="background:#00bfa5" onclick="document.getElementById('cv-curriculum').style.display='block';document.getElementById('cv-prediction').style.display='none';document.getElementById('cv-map').style.display='none';loadCurriculum()">Curriculum</button>
+      <button class="btn small secondary" onclick="document.getElementById('cv-curriculum').style.display='none';document.getElementById('cv-prediction').style.display='block';document.getElementById('cv-map').style.display='none';loadPrediction()">Predictions</button>
+      <button class="btn small secondary" onclick="document.getElementById('cv-curriculum').style.display='none';document.getElementById('cv-prediction').style.display='none';document.getElementById('cv-map').style.display='block';loadHealingMap()">Healing Map</button>
+    </div>
+
+    <!-- Curriculum view -->
+    <div id="cv-curriculum" class="card" style="text-align:left;max-width:400px">
+      <div id="compass-curriculum"><p style="color:var(--dim)">Loading...</p></div>
+    </div>
+
+    <!-- Prediction view -->
+    <div id="cv-prediction" class="card" style="display:none;max-width:400px">
+      <div id="compass-prediction"><p style="color:var(--dim)">Loading...</p></div>
+    </div>
+
+    <!-- Healing Map view -->
+    <div id="cv-map" class="card" style="display:none;text-align:left;max-width:400px">
+      <div id="compass-map"><p style="color:var(--dim)">Loading...</p></div>
+    </div>
+  </div>
+
+  <button class="btn secondary" onclick="showScreen('screen-gallery')" style="margin-top:16px">Back to Gallery</button>
+</div>
+
 </body>
 </html>

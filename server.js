@@ -325,6 +325,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// COMPASS ROUTES — Family Compass Intelligence (Session 20)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const compassRoutes = require('./src/routes/compassRoutes');
+  app.use('/api/compass', authenticateOrApiKey('participant'));
+  app.use('/api/compass', compassRoutes);
+  console.log('[COMPASS] Routes mounted at /api/compass');
+} catch (err) {
+  console.warn('[COMPASS] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EXISTING ROUTES
 // ═══════════════════════════════════════════════════════════════
 
@@ -521,7 +533,7 @@ Sentry.setupExpressErrorHandler(app);
 
 const server = app.listen(PORT, () => {
   console.log('Server running on port', PORT);
-  console.log('ABI: 18/18 systems wired | AXIS: active | Auth: JWT + API key | Premium: Guided Bridge');
+  console.log('ABI: 21/21 systems wired | AXIS: active | Auth: JWT + API key | Premium: Guided Bridge + Family Compass');
   console.log('Hardening: rate_limit + validation + audit + cfr_guard');
 });
 
@@ -596,4 +608,20 @@ try {
   console.log('[CAPACITY CRON] Scheduled: 0 3 * * * UTC');
 } catch (err) {
   console.warn('[CAPACITY CRON] Could not schedule:', err.message);
+}
+
+// ── WEEKLY PREDICTIONS CRON (Family Compass) ─────────────────
+try {
+  const weeklyPredictions = require('./src/jobs/weeklyPredictions');
+  cron.schedule('0 6 * * 1', async () => {
+    console.log('[PREDICTIONS CRON] Running weekly relationship predictions...');
+    const result = await weeklyPredictions.runAll();
+    console.log(`[PREDICTIONS CRON] Done: ${result.processed} processed, ${result.errors} errors`);
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[PREDICTIONS CRON] Scheduled: 0 6 * * 1 UTC (Monday 6 AM)');
+} catch (err) {
+  console.warn('[PREDICTIONS CRON] Could not schedule:', err.message);
 }
