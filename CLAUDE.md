@@ -60,6 +60,16 @@ Updated: March 18, 2026
 - RECOVERY_ENCRYPTION_KEY env var (separate from ART_ENCRYPTION_KEY)
 - Dependencies: bip39
 - Legacy Vault UI in test harness (create capsule + unlock flows)
+- Migration 017: art_aggregations, family_constellations, encryption_key_audit tables
+- artAggregationEngine.js: mandala generation, milestone checks, family constellations
+- Milestone checks wired into onSessionComplete() (after art, before advancement)
+- breathArtEngine.js decode() updated for multi-version encryption keys (getDecryptionKey)
+- merchandiseRoutes.js at /api/merch: export, poster, crest (stub), verify endpoints
+- scripts/rotateArtEncryption.js: standalone key rotation script (batch 100, audit logged)
+- Aggregation art rendered at 1200x1200 (vs session art 800x800)
+- Capstone seed = SHA-256 of ALL packetHashes chronologically — irreproducible
+- Merchandise verify returns signed JWT (24h) — print partners never see raw wallets
+- Gallery + poster UI in test harness (export button, poster generation, aggregation badges)
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -99,6 +109,9 @@ Focus only on the task assigned in the session prompt.
 - src/abi/familyBreathWeave.js — composite family breathing patterns
 - src/routes/legacyRoutes.js — legacy vault API endpoints
 - src/routes/axisRoutes.js — AXIS endpoints
+- src/abi/artAggregationEngine.js — mandala + constellation generation
+- src/routes/merchandiseRoutes.js — export, poster, verify endpoints
+- scripts/rotateArtEncryption.js — key rotation script
 - server.js — Express, route mounting, cron
 - public/test.html — throwaway test harness
 

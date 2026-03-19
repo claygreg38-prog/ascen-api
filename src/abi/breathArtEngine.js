@@ -539,18 +539,40 @@ async function renderToPNG(svgString) {
     .toBuffer();
 }
 
+// ── MULTI-VERSION KEY RESOLUTION ──────────────────────────────
+
+/**
+ * Get the correct decryption key based on art_encoding_version.
+ * Supports key rotation: old pieces decrypt with old keys,
+ * new pieces decrypt with new keys.
+ *
+ * @param {number} version - art_encoding_version from session_completions
+ * @returns {string} hex key
+ */
+function getDecryptionKey(version) {
+  if (version === 1) return process.env.ART_ENCRYPTION_KEY_V1 || process.env.ART_ENCRYPTION_KEY;
+  if (version === 2) return process.env.ART_ENCRYPTION_KEY_V2 || process.env.ART_ENCRYPTION_KEY;
+  // Future versions follow the same pattern
+  const versionKey = process.env[`ART_ENCRYPTION_KEY_V${version}`];
+  if (versionKey) return versionKey;
+  return process.env.ART_ENCRYPTION_KEY;
+}
+
 // ── DECODE ────────────────────────────────────────────────────
 
 /**
  * Decode a session's encrypted clinical payload.
+ * Supports multi-version keys for post-rotation decryption.
  *
  * @param {string} encryptedPayload - iv:ciphertext from IPFS metadata
- * @param {string} clinicalKey - AES-256 hex key
+ * @param {string} clinicalKey - AES-256 hex key (override) or null to auto-resolve
+ * @param {number} encodingVersion - art_encoding_version (default 1)
  * @returns {{ clinicalReadout: Object }}
  */
-function decode(encryptedPayload, clinicalKey) {
+function decode(encryptedPayload, clinicalKey, encodingVersion = 1) {
   const { decryptClinicalPayload } = require('../services/ipfsService');
-  const clinicalReadout = decryptClinicalPayload(encryptedPayload, clinicalKey);
+  const key = clinicalKey || getDecryptionKey(encodingVersion);
+  const clinicalReadout = decryptClinicalPayload(encryptedPayload, key);
   return { clinicalReadout };
 }
 
@@ -583,6 +605,7 @@ module.exports = {
   generate,
   renderToPNG,
   decode,
+  getDecryptionKey,
   loadCrown,
   VALID_CROWNS,
   // Exported for testing

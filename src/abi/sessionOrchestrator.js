@@ -60,6 +60,7 @@ const { VictoryLapEngine } = require('./victoryLapEngine');
 const { onBiometricWindowReceived: ns3BiometricTick, onSessionComplete: ns3Complete, initializeNS3Session } = require('../services/ns3AxisBridge');
 const breathArtEngine = require('./breathArtEngine');
 const ipfsService = require('../services/ipfsService');
+const artAggregationEngine = require('./artAggregationEngine');
 const Sentry = require('../instrument');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -1396,6 +1397,29 @@ function createOrchestrator(callbacks = {}) {
       Sentry.captureException(err);
     }
 
+    // ── ART AGGREGATION MILESTONE CHECK ────────────────────
+    let aggregationResult = null;
+    try {
+      const sessCountForMilestone = (user.total_sessions_completed || 0) + 1;
+      const milestone = await artAggregationEngine.checkMilestone(userId, sessCountForMilestone);
+      if (milestone) {
+        aggregationResult = await artAggregationEngine.generateMandala(userId, milestone);
+        console.log(`[ArtAggregation] Milestone ${milestone} triggered for ${userId}`);
+      }
+
+      // Check family constellation milestone (if family unit active)
+      if (user.family_unit_id) {
+        const familyMilestone = await artAggregationEngine.checkFamilyMilestone(user.family_unit_id);
+        if (familyMilestone) {
+          await artAggregationEngine.generateConstellation(user.family_unit_id, familyMilestone);
+          console.log(`[ArtAggregation] Family constellation ${familyMilestone} for ${user.family_unit_id}`);
+        }
+      }
+    } catch (err) {
+      console.error('[ArtAggregation] Milestone check failed (non-blocking):', err.message);
+      Sentry.captureException(err);
+    }
+
     // ── TRACK ADVANCEMENT CHECK ─────────────────────────
     let advancementResult = { action: 'none' };
     const sessCount = (user.total_sessions_completed || 0) + 1;
@@ -1654,7 +1678,8 @@ function createOrchestrator(callbacks = {}) {
       zone_time_profile: zoneProfile,
       coherence_momentum: coherenceMomentum ? coherenceMomentum.getSummary() : null,
       coaching_effectiveness: coachingEffectiveness ? coachingEffectiveness.getSummary() : null,
-      breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null
+      breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
+      aggregation: aggregationResult
     };
 
     onMirrorData(mirrorData);
@@ -1668,7 +1693,8 @@ function createOrchestrator(callbacks = {}) {
       personalized_close: lunoPersonalizedClose,
       mirror: mirrorData,
       victory_lap: victoryLap,
-      breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null
+      breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
+      aggregation: aggregationResult
     };
   }
 

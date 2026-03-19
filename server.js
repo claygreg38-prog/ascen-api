@@ -212,6 +212,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// MERCHANDISE ROUTES — Export, Poster, Verify
+// ═══════════════════════════════════════════════════════════════
+try {
+  const merchandiseRoutes = require('./src/routes/merchandiseRoutes');
+  app.use('/api/merch', authenticateOrApiKey('participant'));
+  app.use('/api/merch', merchandiseRoutes);
+  console.log('[MERCH] Routes mounted at /api/merch');
+} catch (err) {
+  console.warn('[MERCH] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // CAPACITY INTAKE ROUTES
 // ═══════════════════════════════════════════════════════════════
 // const capacityIntakeRoutes = require('./src/routes/capacityIntake');

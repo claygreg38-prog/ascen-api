@@ -101,6 +101,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
 .gallery-piece .badge{position:absolute;top:6px;right:6px;font-size:.6em;padding:2px 6px;border-radius:8px;background:rgba(0,0,0,.7)}
 .gallery-piece .badge.milestone{color:#ffd700;border:1px solid #ffd700}
 .gallery-piece .badge.victory{color:#5ffce0;border:1px solid #5ffce0}
+.gallery-piece .badge.mandala{color:#ff69b4;border:1px solid #ff69b4}
+.gallery-piece .badge.capstone{color:#ff4500;border:1px solid #ff4500;font-weight:bold}
+.gallery-piece .badge.constellation{color:#9370db;border:1px solid #9370db}
 .gallery-label{font-size:.75em;color:var(--dim);padding:4px 8px;text-align:center}
 .gallery-expanded{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:300;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px}
 .gallery-expanded.active{display:flex}
@@ -278,6 +281,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <div class="gallery-grid" id="gallery-grid"></div>
   <div id="gallery-pagination" style="margin:16px;text-align:center"></div>
   <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+    <button class="btn small" onclick="generatePoster()">Generate Poster</button>
     <button class="btn small" onclick="openShowcase()">Breath Art Showcase</button>
     <button class="btn small" style="background:#d4af37;color:#000" onclick="showScreen('screen-legacy-unlock')">Test Unlock</button>
     <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
@@ -294,6 +298,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <div class="meta" id="expanded-meta"></div>
   <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
     <button class="btn small" onclick="downloadArt()">Share</button>
+    <button class="btn small" onclick="exportForPrint()">Export for Print</button>
     <button class="btn small" onclick="openCanvas()">Edit</button>
     <button class="btn small secondary" id="btn-decode" style="display:none" onclick="decodeArt()">Decode</button>
     <button class="btn small" id="btn-legacy-capsule" style="display:none;background:#d4af37;color:#000" onclick="startLegacyCapsule()">Create Legacy Capsule</button>
@@ -1385,6 +1390,11 @@ function renderGallery(data) {
 
     if (piece.is_milestone) div.innerHTML += `<span class="badge milestone">&#9733;</span>`;
     if (piece.is_victory_lap) div.innerHTML += `<span class="badge victory">&#10022;</span>`;
+    if (piece.aggregation_type === 'capstone') div.innerHTML += `<span class="badge capstone">Capstone</span>`;
+    else if (piece.aggregation_type && piece.aggregation_type.startsWith('mandala')) div.innerHTML += `<span class="badge mandala">Mandala</span>`;
+    else if (piece.aggregation_type === 'arc_completion') div.innerHTML += `<span class="badge mandala">Arc</span>`;
+    else if (piece.aggregation_type === 'annual_ring') div.innerHTML += `<span class="badge mandala">Annual</span>`;
+    if (piece.is_constellation) div.innerHTML += `<span class="badge constellation">Family</span>`;
     div.innerHTML += `<div class="gallery-label">Breath #${piece.session_number}<br>${piece.date || ''}</div>`;
     grid.appendChild(div);
   });
@@ -1448,8 +1458,10 @@ function expandPiece(piece) {
     }).catch(() => {});
   }
 
-  document.getElementById('expanded-meta').textContent =
-    `Breath #${piece.session_number} — ${piece.date || ''} — ${piece.arc_name || ''}`;
+  let metaText = `Breath #${piece.session_number} — ${piece.date || ''} — ${piece.arc_name || ''}`;
+  if (piece.aggregation_type) metaText += ` — ${piece.aggregation_type.replace(/_/g, ' ').toUpperCase()}`;
+  if (piece.session_range) metaText += ` (Sessions ${piece.session_range})`;
+  document.getElementById('expanded-meta').textContent = metaText;
 
   document.getElementById('btn-decode').style.display = piece.art_token_id ? '' : 'none';
 
@@ -1506,6 +1518,53 @@ async function downloadArt() {
     URL.revokeObjectURL(url);
   } catch(e) {
     debugLog('Download failed: ' + e.message, 'error');
+  }
+}
+
+// ─── MERCHANDISE EXPORT ──────────────────────────────
+
+async function exportForPrint() {
+  if (!expandedPiece) return;
+  const tokenId = expandedPiece.art_token_id || expandedPiece.art_ipfs_hash;
+  if (!tokenId) { debugLog('No token ID for export', 'error'); return; }
+
+  debugLog('Exporting high-res PNG...');
+  try {
+    const resp = await fetch(`${API}/api/merch/export/${encodeURIComponent(tokenId)}?size=2400&dpi=300`, {
+      headers: { 'x-api-key': API_KEY }
+    });
+    if (!resp.ok) { const err = await resp.json(); debugLog('Export failed: ' + err.error, 'error'); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `breath-art-${expandedPiece.session_number}-2400px.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+    debugLog('High-res export downloaded');
+  } catch(e) {
+    debugLog('Export failed: ' + e.message, 'error');
+  }
+}
+
+async function generatePoster() {
+  const userId = state.userId || 'test-user';
+  debugLog('Generating gallery poster...');
+  try {
+    const resp = await fetch(`${API}/api/merch/poster/${userId}?sessions=last50&size=2400`, {
+      headers: { 'x-api-key': API_KEY }
+    });
+    if (!resp.ok) { const err = await resp.json(); debugLog('Poster failed: ' + err.error, 'error'); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `breath-poster-${userId}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+    debugLog('Poster downloaded');
+  } catch(e) {
+    debugLog('Poster failed: ' + e.message, 'error');
   }
 }
 
