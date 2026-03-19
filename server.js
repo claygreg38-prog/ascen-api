@@ -346,6 +346,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// CRISIS ROUTES — Crisis Lifecycle, Steward, Domestic Safety (Session 22)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const crisisRoutes = require('./src/routes/crisisRoutes');
+  app.use('/api/crisis', authenticateOrApiKey('participant'));
+  app.use('/api/crisis', crisisRoutes);
+  console.log('[CRISIS] Routes mounted at /api/crisis');
+} catch (err) {
+  console.warn('[CRISIS] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // SUBSCRIPTION ROUTES — Billing & Tier Management (Session 21)
 // ═══════════════════════════════════════════════════════════════
 try {
@@ -662,4 +674,21 @@ try {
   console.log('[BILLING CRON] Scheduled: 0 8 * * * UTC (daily 8 AM)');
 } catch (err) {
   console.warn('[BILLING CRON] Could not schedule:', err.message);
+}
+
+// ── CRISIS CHECK-IN + STEWARD EXPIRY CRON ────────────────────
+try {
+  const crisisEngine = require('./src/abi/crisisEngine');
+  cron.schedule('0 9 * * *', async () => {
+    console.log('[CRISIS CRON] Processing check-ins + steward expiry...');
+    const checkins = await crisisEngine.processPeriodicCheckins();
+    const stewards = await crisisEngine.processExpiredStewards();
+    console.log(`[CRISIS CRON] Done: ${checkins.sent} check-ins sent, ${stewards.expired} stewards expired`);
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[CRISIS CRON] Scheduled: 0 9 * * * UTC (daily 9 AM)');
+} catch (err) {
+  console.warn('[CRISIS CRON] Could not schedule:', err.message);
 }

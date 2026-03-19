@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 19, 2026 (Session 21)
+Updated: March 19, 2026 (Session 22)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -175,6 +175,22 @@ Updated: March 19, 2026 (Session 21)
 - Pilot mode: works without STRIPE_SECRET_KEY (manual tier management)
 - Billing cron: daily 8 AM UTC processes expired trials + past_due grace periods
 - STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_GUIDED_BRIDGE_PRICE_ID, STRIPE_FAMILY_COMPASS_PRICE_ID env vars (optional for pilot)
+- Migration 027: crisis_events, crisis_checkins, steward_actions, crisis_message_templates + privacy_mode on users
+- crisisEngine.js: ABI module — crisis lifecycle (7 phases), steward system, domestic safety
+  - Pre-crisis: 3+ compound signals required, no single indicator triggers
+  - Active crisis: capacity frozen, messaging paused, 72h check-in templates
+  - Recovery message: "You're here. That's enough." — NOT "Welcome back!"
+  - Re-baseline reads fresh data, NEVER compares to pre-crisis
+  - Solo period 7-14 days, reintegration at 3+ steady days, resolution at 14+ steady days
+  - Steward: age 16-17, 30+ sessions, 60+ days, positive savings, adult backup EXISTS
+  - Steward cannot see biometrics (sanitizeFamilyData strips all clinical fields)
+  - Steward: preset messages only, max 2/day, 30-day auto-expiry, escalation to adult only
+  - Privacy mode: hides state from family, NO notification to family, facilitator IS notified
+  - Exit family: any member, any time, no approval, neutral message, data preserved
+  - sanitizeFamilyData strips: hrv, heart_rate, rr_intervals, ns3_peak/mean/floor from family-facing data
+- crisisRoutes.js: participant + facilitator endpoints at /api/crisis
+- 16 crisis message templates seeded across 4 phases
+- Crisis cron: daily 9 AM UTC for check-ins + steward expiry
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -253,6 +269,8 @@ Focus only on the task assigned in the session prompt.
 - src/services/subscriptionService.js — Stripe + pilot mode billing, trial, lifecycle
 - src/routes/subscriptionRoutes.js — billing endpoints
 - src/routes/webhookRoutes.js — Stripe webhook (raw body)
+- src/abi/crisisEngine.js — crisis lifecycle, steward system, domestic safety, sanitizeFamilyData
+- src/routes/crisisRoutes.js — crisis participant + facilitator endpoints
 - server.js — Express, route mounting, cron, WebSocket
 - public/test.html — throwaway test harness
 
