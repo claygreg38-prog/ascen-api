@@ -129,6 +129,15 @@ Updated: March 18, 2026
 - LightBridge: co_breath_active fires on initiation
 - WebSocket room expires after 15 min inactivity
 - Dependencies: ws
+- Migration 023: tenant_id on 13 more tables, backfill all existing data to ASCEN tenant, ai_usage_log table, 10 tenant indexes
+- tenantHelper.js: tenantWhere() + tenantInsert() query utilities for tenant-scoped queries
+- aiRouter.js: hybrid Haiku/Sonnet task routing, fallback chain (Sonnet→Haiku→null), cost tracking
+- lunoIntelligence.js updated: uses aiRouter for personalized dialogue with task-based model selection
+- coBreathEngine.js updated: co-created art generation from combined packetHashes, stored in co_art_ipfs_hash
+- AI usage dashboard at GET /api/admin/ai-usage (admin only)
+- ANTHROPIC_MODEL_HAIKU + ANTHROPIC_MODEL_SONNET env vars for configurable model selection
+- AI defaults to Haiku for unknown tasks. Sonnet for clinical reasoning, crisis, deep dialogue.
+- Cost tracking: per-call, per-tenant, input/output tokens, estimated cents
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -191,6 +200,8 @@ Focus only on the task assigned in the session prompt.
 - src/services/coBreathWebSocket.js — WebSocket real-time breath sync
 - src/routes/kitchenTableRoutes.js — kitchen table API endpoints
 - src/routes/coBreathRoutes.js — co-breath API endpoints
+- src/utils/tenantHelper.js — tenant-scoped query utilities
+- src/services/aiRouter.js — hybrid AI model routing + cost tracking
 - server.js — Express, route mounting, cron, WebSocket
 - public/test.html — throwaway test harness
 

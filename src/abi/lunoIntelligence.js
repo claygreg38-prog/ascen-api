@@ -62,10 +62,28 @@ class LunoIntelligence {
       return { ...cached.value, cached: true };
     }
 
-    // If API available and context exists, try personalized dialogue
+    // If API available and context exists, try personalized dialogue via aiRouter
     if (this.online && this.context && process.env.ANTHROPIC_API_KEY) {
       try {
-        const personalized = await this._callAPI(phase);
+        let aiRouter;
+        try { aiRouter = require('../services/aiRouter'); } catch (e) { /* fallback to _callAPI */ }
+
+        let personalized = null;
+        if (aiRouter) {
+          const taskType = phase === 'mirror' ? 'luno_mirror' : phase === 'arrival' ? 'luno_arrival' : 'luno_coaching';
+          const prompt = this._buildPrompt(phase);
+          const tier = VOICE_TIERS[phase] || VOICE_TIERS.arrival;
+          const routeResult = await aiRouter.route(taskType, prompt, {
+            maxTokens: tier.max_tokens,
+            temperature: tier.temperature,
+            tenantId: this.context?.tenant_id,
+            userId: this.userId
+          });
+          if (routeResult) personalized = routeResult.content;
+        } else {
+          personalized = await this._callAPI(phase);
+        }
+
         if (personalized) {
           const result = { text: personalized, type: phase, personalized: true };
           promptCache.set(cacheKey, { value: result, ts: Date.now() });
@@ -106,6 +124,29 @@ class LunoIntelligence {
       return { text: "Look at what you just did. Your body is learning.", type: 'mirror', outcome: 'moderate_coherence' };
     }
     return { text: "You showed up. That is the practice.", type: 'mirror', outcome: 'building' };
+  }
+
+  _buildPrompt(phase) {
+    let toneAdjustment = '';
+    if (this.context?.trend_flags?.length > 0) {
+      toneAdjustment = 'Tone adjustment: User may be in a fragile state. Keep dialogue especially gentle and grounding.';
+    }
+    let coachingBias = '';
+    if (this.context?.coaching_bias && this.context.coaching_bias !== 'neutral') {
+      coachingBias = `Coaching direction: ${this.context.coaching_bias}.`;
+    }
+    let breathContext = '';
+    if (phase === 'arrival' && this.context?.breath_ratio) {
+      breathContext = 'The breathing rhythm has been set. Do not mention the specific ratio.';
+    }
+    let outcomeContext = '';
+    if (phase === 'mirror' && this.sessionOutcome) {
+      const o = this.sessionOutcome;
+      if (o.panic_event) outcomeContext = 'User experienced activation but completed the session. Acknowledge courage.';
+      else if (o.coherence_end > 0.6) outcomeContext = 'Session went well. Acknowledge without being excessive.';
+      else outcomeContext = 'Session was a building session. Acknowledge showing up.';
+    }
+    return `Generate a brief, warm ${phase} dialogue for a breathwork session. 2-3 sentences max. Speak as Luno — warm, grounded, never clinical. ${toneAdjustment} ${coachingBias} ${breathContext} ${outcomeContext}`.trim();
   }
 
   async _callAPI(phase) {

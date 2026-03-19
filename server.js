@@ -482,6 +482,18 @@ app.post('/api/blockchain/verify-session', authenticateOrApiKey('participant'), 
 });
 
 
+// ── AI USAGE DASHBOARD (admin) ─────────────────────────────
+app.get('/api/admin/ai-usage', authenticateOrApiKey('admin'), async (req, res) => {
+  try {
+    const aiRouter = require('./src/services/aiRouter');
+    const period = parseInt(req.query.period) || 7;
+    const stats = await aiRouter.getUsageStats(req.tenantId, period);
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get AI usage stats' });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // SENTRY ERROR HANDLER — after all routes, before error middleware
 // ═══════════════════════════════════════════════════════════════

@@ -264,6 +264,50 @@ async function completeSession(sessionId, metrics) {
       [sessionId]
     );
 
+    // Generate co-created Breath Art from combined participant data
+    let coArtHash = null;
+    try {
+      const breathArtEngine = require('./breathArtEngine');
+      const ipfsService = require('../services/ipfsService');
+
+      // Get most recent packet hashes for both participants
+      const iHash = await pool.query(
+        `SELECT packet_hash FROM session_completions sc JOIN users u ON sc.user_id = u.participant_id WHERE u.id = $1 AND packet_hash IS NOT NULL ORDER BY sc.completed_at DESC LIMIT 1`,
+        [s.initiator_id]
+      );
+      const pHash = await pool.query(
+        `SELECT packet_hash FROM session_completions sc JOIN users u ON sc.user_id = u.participant_id WHERE u.id = $1 AND packet_hash IS NOT NULL ORDER BY sc.completed_at DESC LIMIT 1`,
+        [s.partner_id]
+      );
+
+      if (iHash.rows.length > 0 && pHash.rows.length > 0) {
+        const combinedSeed = crypto.createHash('sha256')
+          .update(iHash.rows[0].packet_hash + pHash.rows[0].packet_hash)
+          .digest('hex');
+
+        const combinedSummary = {
+          ns3: { mean: 55, peak: 65, floor: 45 },
+          clinical: { regulatoryTrajectory: 'stable', sustainedOptimal: mutualSuccess },
+          verificationPayload: { peakCoherence: connectionScore / 100 }
+        };
+
+        const { svgString, metadataJSON } = breathArtEngine.generate(combinedSummary, combinedSeed, {
+          session_count: 1, family_unit_active: true, lightbridge_active: true
+        });
+
+        metadataJSON.name = 'Co-Breath Art';
+        metadataJSON.description = 'You just breathed together.';
+
+        const pngBuffer = await breathArtEngine.renderToPNG(svgString);
+        const ipfsResult = await ipfsService.upload(pngBuffer, metadataJSON, {}, { sessionNumber: 'cobreath', firstName: 'Family' });
+
+        coArtHash = ipfsResult.metadataHash;
+        await pool.query('UPDATE cobreath_sessions SET co_art_ipfs_hash = $1 WHERE id = $2', [coArtHash, sessionId]);
+      }
+    } catch (artErr) {
+      console.error('[CoBreath] Co-art generation failed (non-blocking):', artErr.message);
+    }
+
     // Feed to Family Intelligence dyadic pattern
     if (s.family_unit_id) {
       try {
@@ -295,7 +339,7 @@ async function completeSession(sessionId, metrics) {
 
     console.log(`[CoBreath] Session ${sessionId} completed: score=${connectionScore}`);
 
-    return { connectionScore, warmthMessage, completed: true };
+    return { connectionScore, warmthMessage, completed: true, coArtHash };
   } catch (err) {
     console.error('[CoBreath] Complete failed:', err.message);
     Sentry.captureException(err);
