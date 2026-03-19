@@ -133,6 +133,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
 .like-btn:hover{background:rgba(255,255,255,.05)}
 .showcase-tabs{display:flex;gap:8px;justify-content:center;margin:12px 0}
 .showcase-tabs .btn.active{background:var(--accent2);color:#000}
+/* Legacy Vault */
+.legacy-step{width:28px;height:28px;border-radius:50%;background:#1a1a3a;border:1px solid #333;display:flex;align-items:center;justify-content:center;font-size:.7em;color:var(--dim)}
+.legacy-step.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.legacy-step.done{background:#d4af37;color:#000;border-color:#d4af37}
+.legacy-panel{text-align:center}
 </style>
 </head>
 <body>
@@ -272,8 +277,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <div class="streak-bar" id="gallery-streak"></div>
   <div class="gallery-grid" id="gallery-grid"></div>
   <div id="gallery-pagination" style="margin:16px;text-align:center"></div>
-  <div style="display:flex;gap:8px;justify-content:center">
+  <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
     <button class="btn small" onclick="openShowcase()">Breath Art Showcase</button>
+    <button class="btn small" style="background:#d4af37;color:#000" onclick="showScreen('screen-legacy-unlock')">Test Unlock</button>
     <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
   </div>
 </div>
@@ -286,10 +292,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     <div class="clinical-art" id="expanded-clinical-layer"></div>
   </div>
   <div class="meta" id="expanded-meta"></div>
-  <div style="margin-top:12px;display:flex;gap:8px">
+  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
     <button class="btn small" onclick="downloadArt()">Share</button>
     <button class="btn small" onclick="openCanvas()">Edit</button>
     <button class="btn small secondary" id="btn-decode" style="display:none" onclick="decodeArt()">Decode</button>
+    <button class="btn small" id="btn-legacy-capsule" style="display:none;background:#d4af37;color:#000" onclick="startLegacyCapsule()">Create Legacy Capsule</button>
   </div>
   <div id="expanded-clinical" style="display:none;margin-top:12px;text-align:left;max-width:320px"></div>
 </div>
@@ -349,6 +356,160 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
   <div class="showcase-feed" id="showcase-feed"></div>
   <div id="showcase-pagination" style="margin:16px;text-align:center"></div>
   <button class="btn secondary" onclick="showScreen('screen-gallery')">Back to Gallery</button>
+</div>
+
+<!-- LEGACY CAPSULE CREATE -->
+<div id="screen-legacy-create" class="screen">
+  <h2 style="color:#d4af37">Create Legacy Capsule</h2>
+  <p class="subtitle">Seal your breath, your art, and your words for someone you love.</p>
+
+  <!-- Step indicators -->
+  <div style="display:flex;gap:4px;margin:12px 0" id="legacy-steps">
+    <div class="legacy-step active" data-step="1">1</div>
+    <div class="legacy-step" data-step="2">2</div>
+    <div class="legacy-step" data-step="3">3</div>
+    <div class="legacy-step" data-step="4">4</div>
+    <div class="legacy-step" data-step="5">5</div>
+    <div class="legacy-step" data-step="6">6</div>
+    <div class="legacy-step" data-step="7">7</div>
+  </div>
+
+  <!-- Step 1: Art Selection -->
+  <div class="card legacy-panel" id="legacy-step-1">
+    <h2 style="font-size:1em;color:var(--accent2);margin-bottom:12px">Step 1: Your Art</h2>
+    <div id="legacy-art-preview" style="width:200px;height:200px;margin:0 auto;border-radius:12px;overflow:hidden;background:#061a2a"></div>
+    <p style="color:var(--dim);font-size:.8em;margin-top:8px">This is the art your child will see.</p>
+    <button class="btn" onclick="legacyNextStep(2)">Next</button>
+  </div>
+
+  <!-- Step 2: Affirmation -->
+  <div class="card legacy-panel" id="legacy-step-2" style="display:none">
+    <h2 style="font-size:1em;color:var(--accent2);margin-bottom:12px">Step 2: Your Words</h2>
+    <p style="color:var(--dim);font-size:.85em;margin-bottom:8px">Write one or two sentences for your child. What do you want them to know?</p>
+    <div style="color:#555;font-size:.75em;margin-bottom:12px;text-align:left;line-height:1.6">
+      Examples:<br>
+      "I learned I can calm my own storm."<br>
+      "Every breath was for you."<br>
+      "I'm healing so I can be who you need."
+    </div>
+    <textarea id="legacy-affirmation" placeholder="Your words..." maxlength="280" style="min-height:100px"></textarea>
+    <p style="color:var(--dim);font-size:.7em;text-align:right"><span id="legacy-char-count">0</span>/280</p>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <button class="btn secondary" onclick="legacyNextStep(1)">Back</button>
+      <button class="btn" onclick="legacyNextStep(3)">Next</button>
+    </div>
+  </div>
+
+  <!-- Step 3: Release Schedule -->
+  <div class="card legacy-panel" id="legacy-step-3" style="display:none">
+    <h2 style="font-size:1em;color:var(--accent2);margin-bottom:12px">Step 3: When Should They Receive This?</h2>
+    <div style="text-align:left" id="legacy-release-options">
+      <label style="display:block;padding:10px;cursor:pointer;border:1px solid #333;border-radius:8px;margin:6px 0">
+        <input type="radio" name="legacy-release" value="immediate" checked> Release when they connect
+      </label>
+      <label style="display:block;padding:10px;cursor:pointer;border:1px solid #333;border-radius:8px;margin:6px 0">
+        <input type="radio" name="legacy-release" value="drip"> Release one per week
+      </label>
+      <label style="display:block;padding:10px;cursor:pointer;border:1px solid #333;border-radius:8px;margin:6px 0">
+        <input type="radio" name="legacy-release" value="date_locked"> Lock until a specific date
+      </label>
+      <label style="display:block;padding:10px;cursor:pointer;border:1px solid #333;border-radius:8px;margin:6px 0">
+        <input type="radio" name="legacy-release" value="on_request"> Release only if they request it
+      </label>
+    </div>
+    <div id="legacy-date-picker" style="display:none;margin:8px 0">
+      <input type="date" id="legacy-unlock-date" style="background:var(--card);border:1px solid #333;color:var(--text);padding:8px;border-radius:8px">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      <button class="btn secondary" onclick="legacyNextStep(2)">Back</button>
+      <button class="btn" onclick="legacyNextStep(4)">Next</button>
+    </div>
+  </div>
+
+  <!-- Step 4: Designee -->
+  <div class="card legacy-panel" id="legacy-step-4" style="display:none">
+    <h2 style="font-size:1em;color:var(--accent2);margin-bottom:12px">Step 4: Who Is This For?</h2>
+    <input type="text" id="legacy-designee-name" placeholder="Their name" style="margin-bottom:8px">
+    <select id="legacy-designee-relationship" style="background:var(--card);border:1px solid #333;color:var(--text);padding:12px;border-radius:12px;width:100%;max-width:320px">
+      <option value="child">My child</option>
+      <option value="grandchild">My grandchild</option>
+      <option value="sibling">My sibling</option>
+      <option value="partner">My partner</option>
+      <option value="other">Other</option>
+    </select>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      <button class="btn secondary" onclick="legacyNextStep(3)">Back</button>
+      <button class="btn" onclick="legacyNextStep(5)">Next</button>
+    </div>
+  </div>
+
+  <!-- Step 5: Recovery -->
+  <div class="card legacy-panel" id="legacy-step-5" style="display:none">
+    <h2 style="font-size:1em;color:var(--accent2);margin-bottom:12px">Step 5: Backup Key</h2>
+    <p style="color:var(--dim);font-size:.85em;margin-bottom:12px">Would you like Mettle Works to hold a backup key? If you ever lose your seed phrase, your clinician can help you recover it.</p>
+    <div style="display:flex;gap:12px;justify-content:center">
+      <label style="cursor:pointer;padding:12px 24px;border:1px solid #333;border-radius:8px">
+        <input type="radio" name="legacy-recovery" value="yes" checked> Yes, hold a backup
+      </label>
+      <label style="cursor:pointer;padding:12px 24px;border:1px solid #333;border-radius:8px">
+        <input type="radio" name="legacy-recovery" value="no"> No thanks
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      <button class="btn secondary" onclick="legacyNextStep(4)">Back</button>
+      <button class="btn" onclick="createLegacyCapsule()">Create Capsule</button>
+    </div>
+  </div>
+
+  <!-- Step 6: Seed Phrase -->
+  <div class="card legacy-panel" id="legacy-step-6" style="display:none">
+    <h2 style="font-size:1em;color:#d4af37;margin-bottom:12px">Step 6: Your Key</h2>
+    <p style="color:var(--warn);font-size:.85em;margin-bottom:12px;font-weight:600">Write these words down. They are the key to your child's inheritance.</p>
+    <div id="legacy-seed-display" style="background:#1a1a0a;border:2px solid #d4af37;border-radius:12px;padding:16px;margin:12px 0;font-size:1.1em;letter-spacing:.5px;line-height:2;text-align:center;color:#d4af37"></div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:12px 0;font-size:.85em">
+      <input type="checkbox" id="legacy-written-check"> I have written down my seed phrase
+    </label>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <button class="btn" id="legacy-continue-btn" disabled onclick="legacyNextStep(7)">Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 7: Preview + Lock -->
+  <div class="card legacy-panel" id="legacy-step-7" style="display:none">
+    <h2 style="font-size:1em;color:var(--accent2);margin-bottom:12px">Step 7: Preview</h2>
+    <p style="color:var(--dim);font-size:.8em;margin-bottom:12px">This is exactly what they will see:</p>
+    <div id="legacy-preview-art" style="width:180px;height:180px;margin:0 auto;border-radius:12px;overflow:hidden;background:#061a2a"></div>
+    <div id="legacy-preview-affirmation" style="color:#d4af37;font-style:italic;margin:12px 0;font-size:1em;line-height:1.5"></div>
+    <button class="btn small" id="legacy-breathe-preview" style="background:var(--accent2);color:#000;margin-bottom:16px">Breathe with <span id="legacy-preview-name"></span></button>
+    <div style="border-top:1px solid #333;padding-top:16px;margin-top:8px">
+      <button class="btn" style="background:#d4af37;color:#000" onclick="lockLegacyCapsule()">Seal This Capsule</button>
+      <p style="color:var(--warn);font-size:.7em;margin-top:8px">Once sealed, this capsule cannot be changed.</p>
+    </div>
+    <button class="btn secondary small" onclick="showScreen('screen-gallery')" style="margin-top:8px">Back to Gallery</button>
+  </div>
+</div>
+
+<!-- LEGACY UNLOCK (test mode) -->
+<div id="screen-legacy-unlock" class="screen">
+  <h2 style="color:#d4af37">Unlock Legacy Capsule</h2>
+  <p class="subtitle">Enter the seed phrase to open your inheritance.</p>
+
+  <div class="card" id="unlock-input-section">
+    <textarea id="unlock-seed-input" placeholder="Enter 12-word seed phrase..." style="min-height:80px;font-size:1em"></textarea>
+    <input type="text" id="unlock-designee-id" placeholder="Designee ID (from test)" style="margin-top:8px">
+    <input type="text" id="unlock-capsule-id" placeholder="Capsule ID (from test)" style="margin-top:8px">
+    <button class="btn" onclick="unlockLegacyCapsule()" style="margin-top:12px">Unlock</button>
+  </div>
+
+  <div id="unlock-result" style="display:none">
+    <div id="unlock-art-display" style="width:240px;height:240px;margin:12px auto;border-radius:12px;overflow:hidden;background:#061a2a"></div>
+    <div id="unlock-affirmation" style="color:#d4af37;font-style:italic;font-size:1.1em;margin:16px 0;line-height:1.5"></div>
+    <div id="unlock-creator" style="color:var(--dim);font-size:.9em;margin-bottom:16px"></div>
+    <button class="btn" style="background:var(--accent2);color:#000" id="unlock-breathe-btn" onclick="startAncestralSession()">Breathe with <span id="unlock-ancestor-name"></span></button>
+    <div id="unlock-cadence" style="color:var(--dim);font-size:.8em;margin-top:12px"></div>
+  </div>
+
+  <button class="btn secondary small" onclick="showScreen('screen-gallery')" style="margin-top:16px">Back to Gallery</button>
 </div>
 
 <!-- DEBUG -->
@@ -1291,6 +1452,11 @@ function expandPiece(piece) {
     `Breath #${piece.session_number} — ${piece.date || ''} — ${piece.arc_name || ''}`;
 
   document.getElementById('btn-decode').style.display = piece.art_token_id ? '' : 'none';
+
+  // Show legacy capsule button on milestone pieces or session >= 30
+  const isMilestone = [10, 30, 50, 75, 100, 150].includes(piece.session_number);
+  const isEligible = isMilestone || (piece.session_number >= 30);
+  document.getElementById('btn-legacy-capsule').style.display = isEligible ? '' : 'none';
 }
 
 function closeGalleryExpanded() {
@@ -1584,6 +1750,229 @@ async function reportPost(postId) {
   } catch (e) {
     debugLog('Report failed: ' + e.message, 'error');
   }
+}
+
+// ─── LEGACY VAULT ─────────────────────────────────────
+let legacyCapsuleData = { piece: null, capsuleId: null, mnemonic: null };
+
+function startLegacyCapsule() {
+  if (!expandedPiece) return;
+  legacyCapsuleData.piece = expandedPiece;
+  closeGalleryExpanded();
+  showScreen('screen-legacy-create');
+
+  // Show art preview
+  const preview = document.getElementById('legacy-art-preview');
+  if (expandedPiece.ipfs_image_url) {
+    preview.innerHTML = `<img src="${expandedPiece.ipfs_image_url}" style="width:100%;height:100%;object-fit:cover">`;
+  } else {
+    preview.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--dim)">Your art</div>';
+  }
+
+  // Reset steps
+  legacyNextStep(1);
+  document.getElementById('legacy-affirmation').value = '';
+  document.getElementById('legacy-char-count').textContent = '0';
+  document.getElementById('legacy-designee-name').value = '';
+  document.getElementById('legacy-written-check').checked = false;
+  document.getElementById('legacy-continue-btn').disabled = true;
+}
+
+function legacyNextStep(step) {
+  for (let i = 1; i <= 7; i++) {
+    const panel = document.getElementById('legacy-step-' + i);
+    if (panel) panel.style.display = i === step ? '' : 'none';
+  }
+  document.querySelectorAll('.legacy-step').forEach(el => {
+    const s = parseInt(el.dataset.step);
+    el.classList.remove('active', 'done');
+    if (s === step) el.classList.add('active');
+    else if (s < step) el.classList.add('done');
+  });
+  if (step === 7) showLegacyPreview();
+}
+
+// Char counter for affirmation
+document.addEventListener('DOMContentLoaded', () => {
+  const ta = document.getElementById('legacy-affirmation');
+  if (ta) ta.addEventListener('input', () => {
+    document.getElementById('legacy-char-count').textContent = ta.value.length;
+  });
+
+  // Release type date picker toggle
+  document.querySelectorAll('input[name="legacy-release"]').forEach(r => {
+    r.addEventListener('change', () => {
+      document.getElementById('legacy-date-picker').style.display =
+        r.value === 'date_locked' && r.checked ? '' : 'none';
+    });
+  });
+
+  // Written check enables continue
+  const chk = document.getElementById('legacy-written-check');
+  if (chk) chk.addEventListener('change', () => {
+    document.getElementById('legacy-continue-btn').disabled = !chk.checked;
+  });
+});
+
+async function createLegacyCapsule() {
+  const piece = legacyCapsuleData.piece;
+  if (!piece) return;
+
+  const affirmation = document.getElementById('legacy-affirmation').value.trim();
+  if (!affirmation) { alert('Please write something for your child.'); return; }
+
+  const designeeName = document.getElementById('legacy-designee-name').value.trim();
+  if (!designeeName) { alert('Please enter a name.'); return; }
+
+  const releaseType = document.querySelector('input[name="legacy-release"]:checked').value;
+  let releaseSchedule = null;
+  if (releaseType === 'drip') releaseSchedule = { frequency: 'weekly', max_per_week: 1 };
+  else if (releaseType === 'date_locked') {
+    const dateVal = document.getElementById('legacy-unlock-date').value;
+    if (!dateVal) { alert('Please select an unlock date.'); return; }
+    releaseSchedule = { unlock_date: dateVal };
+  }
+
+  const relationship = document.getElementById('legacy-designee-relationship').value;
+  const recoveryOptIn = document.querySelector('input[name="legacy-recovery"]:checked').value === 'yes';
+
+  debugLog('Creating legacy capsule...', 'api');
+
+  const result = await api('/api/legacy/capsule', {
+    creator_participant_id: state.userId || 'test-user',
+    session_completion_id: piece.session_completion_id || piece.id,
+    personalized_art_id: piece.personalized_art_id || null,
+    affirmation,
+    release_type: releaseType,
+    release_schedule: releaseSchedule,
+    designees: [{ name: designeeName, relationship }],
+    recovery_opt_in: recoveryOptIn
+  });
+
+  if (result.error) {
+    debugLog('Capsule creation failed: ' + result.error, 'error');
+    alert('Could not create capsule: ' + result.error);
+    return;
+  }
+
+  legacyCapsuleData.capsuleId = result.capsuleId;
+  legacyCapsuleData.mnemonic = result.mnemonic;
+
+  // Show seed phrase (Step 6)
+  const words = result.mnemonic.split(' ');
+  document.getElementById('legacy-seed-display').innerHTML =
+    words.map((w, i) => `<span style="display:inline-block;margin:2px 4px"><span style="color:#888;font-size:.7em">${i + 1}.</span> ${w}</span>`).join(' ');
+
+  legacyNextStep(6);
+  debugLog('Capsule created: ' + result.capsuleId, 'api');
+}
+
+function showLegacyPreview() {
+  const piece = legacyCapsuleData.piece;
+  const preview = document.getElementById('legacy-preview-art');
+  if (piece && piece.ipfs_image_url) {
+    preview.innerHTML = `<img src="${piece.ipfs_image_url}" style="width:100%;height:100%;object-fit:cover">`;
+  }
+  document.getElementById('legacy-preview-affirmation').textContent =
+    '"' + document.getElementById('legacy-affirmation').value.trim() + '"';
+  document.getElementById('legacy-preview-name').textContent = state.name || 'You';
+}
+
+async function lockLegacyCapsule() {
+  if (!legacyCapsuleData.capsuleId) return;
+  if (!confirm('Once sealed, this capsule can never be changed. Are you sure?')) return;
+
+  const result = await api(`/api/legacy/capsule/${legacyCapsuleData.capsuleId}/lock`, {
+    creator_id: state.userId || 'test-user'
+  });
+
+  if (result.error) {
+    debugLog('Lock failed: ' + result.error, 'error');
+    alert('Could not seal capsule: ' + result.error);
+    return;
+  }
+
+  debugLog('Capsule sealed forever: ' + legacyCapsuleData.capsuleId, 'api');
+  alert('Capsule sealed. Your legacy is protected.');
+  showScreen('screen-gallery');
+}
+
+async function unlockLegacyCapsule() {
+  const seedPhrase = document.getElementById('unlock-seed-input').value.trim();
+  const capsuleId = document.getElementById('unlock-capsule-id').value.trim();
+  const designeeId = document.getElementById('unlock-designee-id').value.trim();
+
+  if (!seedPhrase || !capsuleId || !designeeId) {
+    alert('All fields required for unlock test.');
+    return;
+  }
+
+  debugLog('Unlocking capsule...', 'api');
+  const result = await api(`/api/legacy/unlock/${capsuleId}`, {
+    designee_id: designeeId,
+    seed_phrase: seedPhrase
+  });
+
+  if (result.error) {
+    debugLog('Unlock failed: ' + result.error, 'error');
+    alert('Unlock failed: ' + result.error);
+    return;
+  }
+
+  // Show result
+  document.getElementById('unlock-input-section').style.display = 'none';
+  document.getElementById('unlock-result').style.display = '';
+
+  if (result.artUrl) {
+    document.getElementById('unlock-art-display').innerHTML =
+      `<img src="${result.artUrl}" style="width:100%;height:100%;object-fit:cover">`;
+  }
+
+  document.getElementById('unlock-affirmation').textContent = '"' + result.affirmation + '"';
+  document.getElementById('unlock-creator').textContent = 'From ' + (result.creatorName || 'your family');
+  document.getElementById('unlock-ancestor-name').textContent = result.creatorName || 'them';
+
+  // Store for ancestral session
+  legacyCapsuleData.unlockResult = result;
+  legacyCapsuleData.unlockDesigneeId = designeeId;
+  legacyCapsuleData.unlockCapsuleId = capsuleId;
+
+  if (result.breathCadence) {
+    const c = typeof result.breathCadence === 'string' ? JSON.parse(result.breathCadence) : result.breathCadence;
+    document.getElementById('unlock-cadence').textContent =
+      `Their breath: ${c.ratio || c.inhale_seconds + ':' + c.exhale_seconds} | ${c.duration_seconds || 480}s | Coherence peak: ${c.coherence_peak || '?'}`;
+  }
+
+  debugLog('Capsule unlocked successfully', 'api');
+}
+
+async function startAncestralSession() {
+  if (!legacyCapsuleData.unlockCapsuleId || !legacyCapsuleData.unlockDesigneeId) return;
+
+  debugLog('Starting ancestral breath session...', 'api');
+  const result = await api(`/api/legacy/ancestral-session/${legacyCapsuleData.unlockCapsuleId}`, {
+    designee_id: legacyCapsuleData.unlockDesigneeId
+  });
+
+  if (result.error) {
+    debugLog('Ancestral session failed: ' + result.error, 'error');
+    alert('Could not start ancestral session: ' + result.error);
+    return;
+  }
+
+  debugLog('Ancestral session params: ' + JSON.stringify(result.breath_params), 'api');
+
+  // Use parent's breath params for the session
+  state.breathing.inhale = result.breath_params.inhale_seconds || 4;
+  state.breathing.exhale = result.breath_params.exhale_seconds || 6;
+
+  // Show breathing screen with ancestor info
+  showScreen('screen-breathing');
+  document.getElementById('breathing-zone').textContent = 'BREATHING WITH ' + (result.ancestor_name || '').toUpperCase();
+  document.getElementById('breath-ratio-display').textContent =
+    `${state.breathing.inhale}s : ${state.breathing.exhale}s (${result.ancestor_name}'s rhythm)`;
+
+  startBreathing();
 }
 
 // ─── INIT ─────────────────────────────────────────────

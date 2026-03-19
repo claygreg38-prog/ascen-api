@@ -51,6 +51,15 @@ Updated: March 18, 2026
 - socialRoutes.js at /api/showcase: social gallery feed, like, report, milestones, family
 - contentFilter.js: caption moderation keyword blocklist
 - Canvas UI + Showcase UI in test harness
+- Migration 016: legacy_capsules, capsule_designees, capsule_unlock_log, family_breath_weaves
+- legacyVaultEngine.js: capsule creation, review, edit, lock (BIP39 encryption)
+- capsuleUnlockEngine.js: unlock, recovery (two-person rule), available capsules
+- ancestralBreathEngine.js: ancestral breath sessions from capsule data
+- familyBreathWeave.js: composite family breathing patterns (2:3 floor enforced)
+- legacyRoutes.js at /api/legacy: all legacy vault API endpoints
+- RECOVERY_ENCRYPTION_KEY env var (separate from ART_ENCRYPTION_KEY)
+- Dependencies: bip39
+- Legacy Vault UI in test harness (create capsule + unlock flows)
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -84,6 +93,11 @@ Focus only on the task assigned in the session prompt.
 - src/routes/canvasRoutes.js — co-creation canvas save/load/update
 - src/routes/socialRoutes.js — showcase feed/like/report
 - src/services/contentFilter.js — caption moderation
+- src/abi/legacyVaultEngine.js — capsule creation, review, edit, lock
+- src/abi/capsuleUnlockEngine.js — unlock, recovery, available capsules
+- src/abi/ancestralBreathEngine.js — ancestral breath sessions
+- src/abi/familyBreathWeave.js — composite family breathing patterns
+- src/routes/legacyRoutes.js — legacy vault API endpoints
 - src/routes/axisRoutes.js — AXIS endpoints
 - server.js — Express, route mounting, cron
 - public/test.html — throwaway test harness

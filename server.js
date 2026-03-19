@@ -200,6 +200,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// LEGACY VAULT ROUTES — Capsules, Unlock, Ancestral Sessions
+// ═══════════════════════════════════════════════════════════════
+try {
+  const legacyRoutes = require('./src/routes/legacyRoutes');
+  app.use('/api/legacy', authenticateOrApiKey('participant'));
+  app.use('/api/legacy', legacyRoutes);
+  console.log('[LEGACY] Routes mounted at /api/legacy');
+} catch (err) {
+  console.warn('[LEGACY] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // CAPACITY INTAKE ROUTES
 // ═══════════════════════════════════════════════════════════════
 // const capacityIntakeRoutes = require('./src/routes/capacityIntake');
