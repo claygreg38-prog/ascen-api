@@ -11,6 +11,7 @@ const express = require('express');
 const router = express.Router();
 const { Pool } = require('pg');
 const capacityCurrency = require('../abi/capacityCurrency');
+const { tenantWhere } = require('../utils/tenantHelper');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -60,16 +61,18 @@ router.get('/history/:userId', async (req, res) => {
     const userRow = await pool.query('SELECT id FROM users WHERE user_id = $1', [userId]);
     if (userRow.rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
+    const t = tenantWhere(req.tenantId, 1);
     const total = await pool.query(
-      'SELECT COUNT(*) as c FROM capacity_ledger WHERE user_id = $1',
-      [userRow.rows[0].id]
+      `SELECT COUNT(*) as c FROM capacity_ledger WHERE user_id = $1${t.clause}`,
+      [userRow.rows[0].id, ...t.params]
     );
 
+    const t2 = tenantWhere(req.tenantId, 3);
     const entries = await pool.query(
       `SELECT transaction_type, amount, source, balance_after, savings_after, metadata, created_at
-       FROM capacity_ledger WHERE user_id = $1
+       FROM capacity_ledger WHERE user_id = $1${t2.clause}
        ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
-      [userRow.rows[0].id, limit, offset]
+      [userRow.rows[0].id, limit, offset, ...t2.params]
     );
 
     res.json({
@@ -95,12 +98,13 @@ router.get('/trend/:userId', async (req, res) => {
     const userRow = await pool.query('SELECT id FROM users WHERE user_id = $1', [userId]);
     if (userRow.rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
+    const t = tenantWhere(req.tenantId, 2);
     const snapshots = await pool.query(
       `SELECT snapshot_date, capacity_score, capacity_state, active_balance, savings_balance
        FROM capacity_snapshots
-       WHERE user_id = $1 AND snapshot_date > CURRENT_DATE - $2 * INTERVAL '1 day'
+       WHERE user_id = $1 AND snapshot_date > CURRENT_DATE - $2 * INTERVAL '1 day'${t.clause}
        ORDER BY snapshot_date ASC`,
-      [userRow.rows[0].id, days]
+      [userRow.rows[0].id, days, ...t.params]
     );
 
     res.json({ snapshots: snapshots.rows, days });
@@ -117,13 +121,14 @@ router.get('/family/:familyUnitId', async (req, res) => {
   try {
     const { familyUnitId } = req.params;
 
+    const t = tenantWhere(req.tenantId, 1, 'fm');
     const members = await pool.query(
       `SELECT u.user_id, u.first_name, fm.role
        FROM family_memberships fm
        JOIN users u ON fm.user_id = u.id
-       WHERE fm.family_unit_id = $1
+       WHERE fm.family_unit_id = $1${t.clause}
        ORDER BY fm.generation_level ASC`,
-      [familyUnitId]
+      [familyUnitId, ...t.params]
     );
 
     // Get state ONLY for each member — no balances, no savings, no transactions

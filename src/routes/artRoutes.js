@@ -12,6 +12,7 @@ const { Pool } = require('pg');
 const { decryptClinicalPayload } = require('../services/ipfsService');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const { tenantWhere } = require('../utils/tenantHelper');
 
 const VALID_CROWNS = ['flower_of_life', 'metatrons_cube', 'sri_yantra', 'seed_of_life', 'vesica_piscis'];
 const PINATA_GATEWAY = 'https://gateway.pinata.cloud/ipfs';
@@ -40,13 +41,14 @@ function enrichPiece(row) {
 router.get('/session/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const t = tenantWhere(req.tenantId, 1);
     const result = await pool.query(
       `SELECT session_id, session_number, completed_at, art_ipfs_hash, art_token_id,
               art_encoding_version, crown_id, photo_palette, intention_hash,
               sustained_optimal, arc_id
-       FROM session_completions WHERE session_id = $1
+       FROM session_completions WHERE session_id = $1${t.clause}
        ORDER BY completed_at DESC LIMIT 1`,
-      [id]
+      [id, ...t.params]
     );
 
     if (result.rows.length === 0) {
@@ -69,22 +71,24 @@ router.get('/gallery/:participantId', async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
     const offset = (page - 1) * limit;
 
+    const t = tenantWhere(req.tenantId, 1);
     const countResult = await pool.query(
       `SELECT COUNT(*) as total FROM session_completions
-       WHERE user_id = $1 AND art_ipfs_hash IS NOT NULL`,
-      [participantId]
+       WHERE user_id = $1 AND art_ipfs_hash IS NOT NULL${t.clause}`,
+      [participantId, ...t.params]
     );
     const total = parseInt(countResult.rows[0].total);
 
+    const t2 = tenantWhere(req.tenantId, 3);
     const result = await pool.query(
       `SELECT session_id, session_number, completed_at, art_ipfs_hash, art_token_id,
               art_encoding_version, crown_id, photo_palette, intention_hash,
               sustained_optimal, arc_id
        FROM session_completions
-       WHERE user_id = $1 AND art_ipfs_hash IS NOT NULL
+       WHERE user_id = $1 AND art_ipfs_hash IS NOT NULL${t2.clause}
        ORDER BY completed_at DESC
        LIMIT $2 OFFSET $3`,
-      [participantId, limit, offset]
+      [participantId, limit, offset, ...t2.params]
     );
 
     res.json({
@@ -111,14 +115,15 @@ router.get('/decode/:tokenId', async (req, res) => {
 
     const { tokenId } = req.params;
 
+    const t = tenantWhere(req.tenantId, 1);
     const result = await pool.query(
       `SELECT art_token_id, art_encoding_version, art_ipfs_hash,
               ns3_peak, ns3_floor, ns3_mean, coherence_score as coherence_peak,
               optimal_zone_pct, regulatory_trajectory, sustained_optimal,
               zone_time_profile
-       FROM session_completions WHERE art_token_id = $1
+       FROM session_completions WHERE art_token_id = $1${t.clause}
        ORDER BY completed_at DESC LIMIT 1`,
-      [tokenId]
+      [tokenId, ...t.params]
     );
 
     if (result.rows.length === 0) {

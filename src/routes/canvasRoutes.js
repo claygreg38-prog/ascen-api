@@ -12,6 +12,7 @@ const router = express.Router();
 const { Pool } = require('pg');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const { tenantWhere } = require('../utils/tenantHelper');
 
 const PINATA_BASE = 'https://api.pinata.cloud';
 

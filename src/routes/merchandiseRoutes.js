@@ -13,6 +13,7 @@ const jwt = require('jsonwebtoken');
 const breathArtEngine = require('../abi/breathArtEngine');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const { tenantWhere } = require('../utils/tenantHelper');
 const PINATA_GATEWAY = 'https://gateway.pinata.cloud/ipfs';
 
 // ── GET /export/:tokenId — High-res PNG export for print ─────

@@ -12,6 +12,7 @@ const { Pool } = require('pg');
 const familyUnitEngine = require('../abi/familyUnitEngine');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const { tenantWhere } = require('../utils/tenantHelper');
 
 // ── POST /unit — Create family unit ─────────────────────────
 
@@ -58,9 +59,10 @@ router.get('/unit/:id', async (req, res) => {
 
 router.get('/unit/:id/gates', async (req, res) => {
   try {
+    const t = tenantWhere(req.tenantId, 1);
     const family = await pool.query(
-      'SELECT gate_state FROM family_units WHERE family_unit_id = $1',
-      [req.params.id]
+      `SELECT gate_state FROM family_units WHERE family_unit_id = $1${t.clause}`,
+      [req.params.id, ...t.params]
     );
     if (family.rows.length === 0) return res.status(404).json({ error: 'Family unit not found' });
 
@@ -130,14 +132,15 @@ router.post('/invite/:code/accept', async (req, res) => {
 
 router.get('/members/:familyUnitId', async (req, res) => {
   try {
+    const t = tenantWhere(req.tenantId, 1, 'fm');
     const members = await pool.query(
       `SELECT fm.role, fm.generation_level, fm.joined_at, fm.individual_progress,
               u.user_id, u.first_name, u.total_sessions_completed
        FROM family_memberships fm
        JOIN users u ON fm.user_id = u.id
-       WHERE fm.family_unit_id = $1
+       WHERE fm.family_unit_id = $1${t.clause}
        ORDER BY fm.generation_level ASC, fm.joined_at ASC`,
-      [req.params.familyUnitId]
+      [req.params.familyUnitId, ...t.params]
     );
 
     res.json({
@@ -162,12 +165,13 @@ router.get('/members/:familyUnitId', async (req, res) => {
 
 router.get('/patterns/:familyUnitId', async (req, res) => {
   try {
+    const t = tenantWhere(req.tenantId, 1);
     const patterns = await pool.query(
       `SELECT pattern_type, pattern_key, pattern_data, observation_count, last_observed
        FROM family_patterns
-       WHERE family_unit_id = $1 AND observation_count >= 3
+       WHERE family_unit_id = $1 AND observation_count >= 3${t.clause}
        ORDER BY last_observed DESC`,
-      [req.params.familyUnitId]
+      [req.params.familyUnitId, ...t.params]
     );
 
     res.json({ patterns: patterns.rows });

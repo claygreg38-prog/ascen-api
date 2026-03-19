@@ -13,6 +13,7 @@ const { Pool } = require('pg');
 const { filterCaption } = require('../services/contentFilter');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const { tenantWhere } = require('../utils/tenantHelper');
 
 const PINATA_GATEWAY = 'https://gateway.pinata.cloud/ipfs';
 
@@ -24,11 +25,14 @@ router.get('/', async (req, res) => {
     const offset = (page - 1) * limit;
     const requesterId = req.user?.userId || null;
 
+    const tc = tenantWhere(req.tenantId, 0);
     const countResult = await pool.query(
-      `SELECT COUNT(*) as total FROM showcase_posts WHERE is_active = true`
+      `SELECT COUNT(*) as total FROM showcase_posts WHERE is_active = true${tc.clause}`,
+      [...tc.params]
     );
     const total = parseInt(countResult.rows[0].total);
 
+    const t = tenantWhere(req.tenantId, 3, 'sp');
     const result = await pool.query(
       `SELECT sp.id, u.first_name as participant_first_name,
               pa.personalized_ipfs_hash,
@@ -38,10 +42,10 @@ router.get('/', async (req, res) => {
        FROM showcase_posts sp
        JOIN personalized_art pa ON sp.personalized_art_id = pa.id
        JOIN users u ON sp.participant_id = u.id
-       WHERE sp.is_active = true
+       WHERE sp.is_active = true${t.clause}
        ORDER BY sp.created_at DESC
        LIMIT $2 OFFSET $3`,
-      [requesterId, limit, offset]
+      [requesterId, limit, offset, ...t.params]
     );
 
     res.json({

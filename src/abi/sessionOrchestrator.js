@@ -105,6 +105,7 @@ function createOrchestrator(callbacks = {}) {
   // ── INTERNAL STATE ──────────────────────────────────────
   let userId = null;
   let sessionId = null;
+  let tenantId = null;
   let rawSession = null;
   let adaptedSession = null;
   let user = null;
@@ -156,6 +157,7 @@ function createOrchestrator(callbacks = {}) {
   async function onSessionStart(_userId, _sessionId, options = {}) {
     userId = _userId;
     sessionId = _sessionId;
+    tenantId = options.tenant_id || null;
     sessionPhase = 'pre_session';
     stressorFlag = options.stressor_flag || null;
 
