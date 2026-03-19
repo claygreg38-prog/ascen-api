@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 19, 2026 (Session 22)
+Updated: March 19, 2026 (Session 23)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -191,6 +191,22 @@ Updated: March 19, 2026 (Session 22)
 - crisisRoutes.js: participant + facilitator endpoints at /api/crisis
 - 16 crisis message templates seeded across 4 phases
 - Crisis cron: daily 9 AM UTC for check-ins + steward expiry
+- frontend/ — Production PWA (Vite + React), served at /app
+  - LoginScreen: PIN pad (6-digit, auto-submit), participant ID
+  - RegisterScreen: enrollment code + name + PIN creation
+  - OnboardingScreen: 3-step consent flow
+  - HomeScreen: capacity state, next session, recent art, crisis mode
+  - SessionScreen: arrival → breathing → mirror → art reveal → complete (full immersion, no nav)
+  - GalleryScreen: art grid, expanded view, milestone badges
+  - FamilyScreen: members, capacity dots, gates, join via invite
+  - ProfileScreen: self-report crisis, privacy mode, subscription, logout
+  - BreathPacer: requestAnimationFrame-driven, precise inhale/exhale timing
+  - CapacityDot: colored state indicator (full/steady/drawing_down/low/depleted/private)
+  - BottomNav: 4 tabs (Home/Gallery/Family/Profile), hidden during session
+  - BLE service: Web Bluetooth for Polar H10 + Kyto2935
+  - API service: axios with JWT interceptor + auto-refresh
+  - PWA manifest + dark theme (#061a2a)
+- adminRoutes.js at /api/admin: table-check, migration-count, system-health (admin only)
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -271,6 +287,8 @@ Focus only on the task assigned in the session prompt.
 - src/routes/webhookRoutes.js — Stripe webhook (raw body)
 - src/abi/crisisEngine.js — crisis lifecycle, steward system, domestic safety, sanitizeFamilyData
 - src/routes/crisisRoutes.js — crisis participant + facilitator endpoints
+- src/routes/adminRoutes.js — system audit endpoints (table check, migration count, health)
+- frontend/ — production PWA app (Vite + React, built to frontend/dist, served at /app)
 - server.js — Express, route mounting, cron, WebSocket
 - public/test.html — throwaway test harness
 

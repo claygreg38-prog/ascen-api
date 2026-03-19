@@ -28,6 +28,10 @@ app.get('/test/config', (req, res) => {
 // ── CROWN SVGs — static assets ──────────────────────────────
 app.use('/assets/crowns', express.static(path.join(__dirname, 'src/assets/crowns')));
 
+// ── PRODUCTION FRONTEND PWA (Session 23) ────────────────────
+app.use('/app', express.static(path.join(__dirname, 'frontend/dist')));
+app.get('/app/*', (req, res) => res.sendFile(path.join(__dirname, 'frontend/dist/index.html')));
+
 // ── DATABASE ────────────────────────────────────────────────
 // Declared FIRST so all middleware and routes can reference it
 const pool = process.env.DATABASE_URL ? new Pool({
@@ -542,6 +546,16 @@ app.post('/api/blockchain/verify-session', authenticateOrApiKey('participant'), 
   }
 });
 
+
+// ── ADMIN ROUTES — System Audit (Session 23) ─────────────────
+try {
+  const adminRoutes = require('./src/routes/adminRoutes');
+  app.use('/api/admin', authenticateOrApiKey('admin'));
+  app.use('/api/admin', adminRoutes);
+  console.log('[ADMIN] Audit routes mounted at /api/admin');
+} catch (err) {
+  console.warn('[ADMIN] Could not mount:', err.message);
+}
 
 // ── AI USAGE DASHBOARD (admin) ─────────────────────────────
 app.get('/api/admin/ai-usage', authenticateOrApiKey('admin'), async (req, res) => {

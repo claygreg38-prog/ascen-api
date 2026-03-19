@@ -1,0 +1,13 @@
+{
+  "name": "ASCEN BreathWorx",
+  "short_name": "ASCEN",
+  "description": "Your breath. Your healing. Your art.",
+  "start_url": "/app/",
+  "display": "standalone",
+  "background_color": "#061a2a",
+  "theme_color": "#1a7a6d",
+  "icons": [
+    { "src": "/app/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/app/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
