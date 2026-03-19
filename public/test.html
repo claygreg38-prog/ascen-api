@@ -360,6 +360,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     <button class="btn small" onclick="openLightBridge()">LightBridge</button>
     <button class="btn small" style="background:#e040fb;color:#fff" onclick="openGuidedBridge()">Guided Bridge</button>
     <button class="btn small" style="background:#00bfa5;color:#fff" onclick="openFamilyCompass()">Family Compass</button>
+    <button class="btn small" style="background:#ff9800;color:#fff" onclick="openSubscription()">Subscription</button>
     <button class="btn small" style="background:#d4af37;color:#000" onclick="showScreen('screen-legacy-unlock')">Test Unlock</button>
     <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
   </div>
@@ -3750,5 +3751,156 @@ async function upgradeToCompass() {
   <button class="btn secondary" onclick="showScreen('screen-gallery')" style="margin-top:16px">Back to Gallery</button>
 </div>
 
+<!-- SUBSCRIPTION MANAGEMENT -->
+<div id="screen-subscription" class="screen">
+  <h2 style="color:#ff9800">Subscription</h2>
+  <p class="subtitle" id="sub-pilot-badge"></p>
+
+  <div id="sub-current" class="card" style="max-width:400px">
+    <p style="color:var(--dim)">Loading...</p>
+  </div>
+
+  <div id="sub-tiers" style="max-width:400px;margin-top:12px"></div>
+
+  <div id="sub-actions" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px"></div>
+
+  <div id="sub-history" class="card" style="display:none;text-align:left;max-width:400px;margin-top:12px;font-size:.8em;max-height:200px;overflow-y:auto"></div>
+
+  <button class="btn secondary" onclick="showScreen('screen-gallery')" style="margin-top:16px">Back to Gallery</button>
+</div>
+
+<script>
+// ─── SUBSCRIPTION MANAGEMENT ─────────────────────────
+function openSubscription() {
+  gbFamilyUnitId = localStorage.getItem('ascen_family_unit_id');
+  if (!gbFamilyUnitId) { alert('Join a family first'); return; }
+  showScreen('screen-subscription');
+  loadSubscription();
+}
+
+async function loadSubscription() {
+  try {
+    var [currentRes, tiersRes] = await Promise.all([
+      apiFetch('/api/subscription/current/' + gbFamilyUnitId),
+      apiFetch('/api/subscription/tiers')
+    ]);
+    var current = await currentRes.json();
+    var tiers = await tiersRes.json();
+
+    document.getElementById('sub-pilot-badge').textContent = tiers.pilot_mode ? 'Pilot Mode — Manual Billing' : '';
+
+    var cd = document.getElementById('sub-current');
+    var tierName = { base: 'Base LightBridge', guided_bridge: 'Guided Bridge', family_compass: 'Family Compass' };
+    var tierColor = { base: 'var(--dim)', guided_bridge: '#e040fb', family_compass: '#00bfa5' };
+
+    cd.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+      '<div style="width:12px;height:12px;border-radius:50%;background:' + (tierColor[current.tier] || 'var(--dim)') + '"></div>' +
+      '<strong style="color:' + (tierColor[current.tier] || 'var(--dim)') + '">' + (tierName[current.tier] || 'Base') + '</strong>' +
+      '<span style="color:var(--dim);font-size:.8em">(' + (current.status || 'none') + ')</span></div>' +
+      (current.isTrial ? '<p style="color:#ff9800;font-size:.85em">Trial: ' + (current.trialDaysRemaining || 0) + ' days remaining</p>' : '') +
+      (current.status === 'past_due' ? '<p style="color:var(--warn);font-size:.85em">Payment past due — please update payment method</p>' : '');
+
+    var td = document.getElementById('sub-tiers');
+    td.innerHTML = (tiers.tiers || []).map(function(t) {
+      var isCurrent = t.id === current.tier;
+      return '<div style="padding:10px;margin:6px 0;background:' + (isCurrent ? '#1a2a1a' : '#1a1a3a') + ';border-radius:8px;border-left:3px solid ' + (isCurrent ? 'var(--success)' : '#333') + '">' +
+        '<div style="display:flex;justify-content:space-between"><strong>' + t.name + '</strong><span style="color:var(--accent2)">' + t.price + '</span></div>' +
+        (t.trial_days && !isCurrent ? '<span style="color:#ff9800;font-size:.75em">' + t.trial_days + '-day free trial</span>' : '') +
+        '<div style="font-size:.8em;color:var(--dim);margin-top:4px">' + (t.features || []).join(' · ') + '</div></div>';
+    }).join('');
+
+    var ad = document.getElementById('sub-actions');
+    ad.innerHTML = '';
+    if (current.tier === 'base' && current.status !== 'trial') {
+      ad.innerHTML += '<button class="btn small" style="background:#ff9800" onclick="startTrial()">Start Free Trial</button>';
+      ad.innerHTML += '<button class="btn small" onclick="subscribeTier(\'guided_bridge\')">Subscribe Guided Bridge</button>';
+    }
+    if (current.tier === 'guided_bridge') {
+      ad.innerHTML += '<button class="btn small" style="background:#00bfa5" onclick="subscribeTier(\'family_compass\')">Add Family Compass</button>';
+      if (!current.isTrial) ad.innerHTML += '<button class="btn small secondary" onclick="cancelSub()">Cancel</button>';
+    }
+    if (current.tier === 'family_compass') {
+      ad.innerHTML += '<button class="btn small secondary" onclick="downgradeSub()">Downgrade</button>';
+      ad.innerHTML += '<button class="btn small secondary" onclick="cancelSub()">Cancel</button>';
+    }
+    if (current.status === 'cancelled' || current.status === 'expired') {
+      ad.innerHTML += '<button class="btn small" onclick="reactivateSub()">Reactivate</button>';
+    }
+    ad.innerHTML += '<button class="btn small secondary" onclick="loadSubHistory()">History</button>';
+  } catch(e) { debugLog('Load subscription failed: ' + e.message, 'error'); }
+}
+
+async function startTrial() {
+  try {
+    var r = await apiFetch('/api/subscription/trial/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ family_unit_id: gbFamilyUnitId })
+    });
+    var d = await r.json();
+    if (d.error) { alert(d.message); return; }
+    alert('Trial started! ' + d.trialDays + ' days of full Guided Bridge access.');
+    loadSubscription();
+  } catch(e) { debugLog('Trial failed', 'error'); }
+}
+
+async function subscribeTier(tier) {
+  try {
+    var r = await apiFetch('/api/subscription/create', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ family_unit_id: gbFamilyUnitId, tier: tier })
+    });
+    var d = await r.json();
+    if (d.error) { alert(d.message); return; }
+    alert('Subscribed to ' + tier.replace(/_/g, ' ') + '!');
+    loadSubscription();
+  } catch(e) { debugLog('Subscribe failed', 'error'); }
+}
+
+async function cancelSub() {
+  if (!confirm('Cancel your subscription? Your data will be preserved.')) return;
+  try {
+    await apiFetch('/api/subscription/cancel', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ family_unit_id: gbFamilyUnitId, reason: 'user_cancelled' })
+    });
+    loadSubscription();
+  } catch(e) { debugLog('Cancel failed', 'error'); }
+}
+
+async function downgradeSub() {
+  if (!confirm('Downgrade to Guided Bridge? Your Family Compass data will be preserved read-only.')) return;
+  try {
+    await apiFetch('/api/subscription/downgrade', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ family_unit_id: gbFamilyUnitId, tier: 'guided_bridge' })
+    });
+    loadSubscription();
+  } catch(e) { debugLog('Downgrade failed', 'error'); }
+}
+
+async function reactivateSub() {
+  try {
+    await apiFetch('/api/subscription/reactivate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ family_unit_id: gbFamilyUnitId })
+    });
+    loadSubscription();
+  } catch(e) { debugLog('Reactivate failed', 'error'); }
+}
+
+async function loadSubHistory() {
+  try {
+    var r = await apiFetch('/api/subscription/history/' + gbFamilyUnitId);
+    var d = await r.json();
+    var hd = document.getElementById('sub-history');
+    hd.style.display = 'block';
+    hd.innerHTML = '<h3 style="font-size:.9em;margin-bottom:8px">Subscription Events</h3>' +
+      (d.events || []).map(function(e) {
+        return '<div style="padding:4px 0;border-bottom:1px solid #1a1a3a"><span style="color:var(--accent)">' + e.event_type + '</span> <span style="color:var(--dim);font-size:.75em">' + new Date(e.created_at).toLocaleString() + '</span>' +
+          (e.previous_tier ? ' <span style="color:var(--dim)">' + e.previous_tier + ' → ' + e.new_tier + '</span>' : '') + '</div>';
+      }).join('') || '<p style="color:var(--dim)">No events</p>';
+  } catch(e) { /* silent */ }
+}
+</script>
 </body>
 </html>

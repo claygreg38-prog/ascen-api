@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 19, 2026 (Session 20)
+Updated: March 19, 2026 (Session 21)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -165,6 +165,16 @@ Updated: March 19, 2026 (Session 20)
 - premiumGate.js updated: family_unit_id PK fix, validateUpgrade prevents tier skipping
 - premiumRoutes.js updated: family_unit_id PK fix, upgrade validation
 - Family Compass requires Guided Bridge — no tier skipping
+- Migration 026: subscriptions, payment_history, subscription_events tables
+- subscriptionService.js: Stripe integration, trial management (14-day Guided Bridge), upgrade/downgrade, pilot mode
+- webhookRoutes.js: Stripe webhook handler (raw body, signature verification) — mounted BEFORE express.json()
+- subscriptionRoutes.js: 10 endpoints at /api/subscription for billing lifecycle
+- premiumGate.js updated: checks subscriptions table, trial expiry, past_due grace period (7 days)
+- Trial: 14-day Guided Bridge, no credit card required, one per tier per family
+- Downgrade preserves ALL data read-only — no data hostage, ever
+- Pilot mode: works without STRIPE_SECRET_KEY (manual tier management)
+- Billing cron: daily 8 AM UTC processes expired trials + past_due grace periods
+- STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_GUIDED_BRIDGE_PRICE_ID, STRIPE_FAMILY_COMPASS_PRICE_ID env vars (optional for pilot)
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -240,6 +250,9 @@ Focus only on the task assigned in the session prompt.
 - src/abi/healingMap.js — multi-generational pattern map
 - src/routes/compassRoutes.js — Family Compass endpoints
 - src/jobs/weeklyPredictions.js — Monday 6 AM prediction cron
+- src/services/subscriptionService.js — Stripe + pilot mode billing, trial, lifecycle
+- src/routes/subscriptionRoutes.js — billing endpoints
+- src/routes/webhookRoutes.js — Stripe webhook (raw body)
 - server.js — Express, route mounting, cron, WebSocket
 - public/test.html — throwaway test harness
 

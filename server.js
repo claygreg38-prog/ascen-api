@@ -6,6 +6,15 @@ const cron = require('node-cron');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ── STRIPE WEBHOOK (must be before express.json() for raw body) ──
+try {
+  const webhookRoutes = require('./src/routes/webhookRoutes');
+  app.use('/api/webhooks', webhookRoutes);
+  console.log('[WEBHOOKS] Stripe webhook mounted at /api/webhooks/stripe');
+} catch (err) {
+  console.warn('[WEBHOOKS] Could not mount:', err.message);
+}
+
 app.use(express.json());
 
 // ── CLINICAL TEST HARNESS (temporary — delete after 5-day test) ──
@@ -337,6 +346,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// SUBSCRIPTION ROUTES — Billing & Tier Management (Session 21)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const subscriptionRoutes = require('./src/routes/subscriptionRoutes');
+  app.use('/api/subscription', authenticateOrApiKey('participant'));
+  app.use('/api/subscription', subscriptionRoutes);
+  console.log('[SUBSCRIPTION] Routes mounted at /api/subscription');
+} catch (err) {
+  console.warn('[SUBSCRIPTION] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EXISTING ROUTES
 // ═══════════════════════════════════════════════════════════════
 
@@ -624,4 +645,21 @@ try {
   console.log('[PREDICTIONS CRON] Scheduled: 0 6 * * 1 UTC (Monday 6 AM)');
 } catch (err) {
   console.warn('[PREDICTIONS CRON] Could not schedule:', err.message);
+}
+
+// ── SUBSCRIPTION TRIAL EXPIRY + PAST DUE CRON ───────────────
+try {
+  const subscriptionService = require('./src/services/subscriptionService');
+  cron.schedule('0 8 * * *', async () => {
+    console.log('[BILLING CRON] Processing expired trials + past due...');
+    const trials = await subscriptionService.processExpiredTrials();
+    const pastDue = await subscriptionService.processPastDue();
+    console.log(`[BILLING CRON] Done: ${trials.processed} trials expired, ${pastDue.processed} past due downgraded`);
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[BILLING CRON] Scheduled: 0 8 * * * UTC (daily 8 AM)');
+} catch (err) {
+  console.warn('[BILLING CRON] Could not schedule:', err.message);
 }
