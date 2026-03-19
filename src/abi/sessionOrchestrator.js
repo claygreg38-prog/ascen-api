@@ -64,6 +64,7 @@ const artAggregationEngine = require('./artAggregationEngine');
 const familyIntelligence = require('./familyIntelligence');
 const familyUnitEngine = require('./familyUnitEngine');
 const capacityCurrency = require('./capacityCurrency');
+const lightBridgeEngine = require('./lightBridgeEngine');
 const Sentry = require('../instrument');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -1484,6 +1485,16 @@ function createOrchestrator(callbacks = {}) {
     } catch (err) {
       console.error('[CapacityCurrency] Session deposit failed (non-blocking):', err.message);
       Sentry.captureException(err);
+    }
+
+    // ── LIGHTBRIDGE: SESSION EVENT ─────────────────────────
+    if (familyUnitId) {
+      try {
+        await lightBridgeEngine.triggerSessionEvent(userId, familyUnitId, 'session_complete');
+      } catch (err) {
+        // Non-blocking — device failure never blocks session completion
+        console.error('[LightBridge] Session event failed (non-blocking):', err.message);
+      }
     }
 
     // ── TRACK ADVANCEMENT CHECK ─────────────────────────

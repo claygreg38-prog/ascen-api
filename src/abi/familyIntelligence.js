@@ -74,7 +74,16 @@ async function onFamilyMemberSessionComplete(userId, sessionData, familyUnitId) 
 
     // 7. Family milestone check (for constellation triggers)
     const milestone = await checkFamilyMilestoneMessage(familyUnitId);
-    if (milestone) result.milestones.push(milestone);
+    if (milestone) {
+      result.milestones.push(milestone);
+      // LightBridge: family milestone celebration
+      try {
+        const lightBridgeEngine = require('./lightBridgeEngine');
+        await lightBridgeEngine.triggerCelebration(familyUnitId, 'family_milestone');
+      } catch (lbErr) {
+        // Non-blocking
+      }
+    }
 
   } catch (err) {
     console.error('[FamilyIntel] Processing failed:', err.message);

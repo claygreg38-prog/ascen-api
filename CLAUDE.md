@@ -92,6 +92,15 @@ Updated: March 18, 2026
 - Overdraft protection auto-blocks withdrawals at balance <= 19
 - Sleep quality: manual entry for pilot (Terra API PARKED at $400/mo)
 - Capacity UI in test harness (indicator, transactions, savings, family states, sleep entry)
+- Migration 020: lightbridge_devices, lightbridge_events tables + 4 indexes
+- lightBridgeEngine.js: ABI module — LIFX provider, capacity state mapping, session events, celebrations, simulation mode
+- lightBridgeRoutes.js at /api/lightbridge: register, devices, test, state, events, manual override
+- Wired into sessionOrchestrator (session_complete event), capacityCurrency (state change light), familyIntelligence (milestone celebrations)
+- All LightBridge calls non-blocking — device failure never blocks core flows
+- LIGHTBRIDGE_SIMULATE=true env var for testing without hardware
+- Device provider abstracted (LIFX today, Hue/custom tomorrow)
+- Rate limit: 1 capacity state change per 30s per device. 3 consecutive failures deactivates device.
+- LightBridge UI in test harness (simulated light, device registration, events)
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -141,6 +150,8 @@ Focus only on the task assigned in the session prompt.
 - src/abi/capacityCurrency.js — capacity scoring, ledger, investments, dividends
 - src/routes/capacityRoutes.js — capacity currency API endpoints
 - src/jobs/capacitySnapshot.js — daily snapshot cron job
+- src/abi/lightBridgeEngine.js — IoT light control, LIFX provider, simulation mode
+- src/routes/lightBridgeRoutes.js — LightBridge API endpoints
 - server.js — Express, route mounting, cron
 - public/test.html — throwaway test harness
 

@@ -330,7 +330,23 @@ async function processTransaction(userDbId, transactionType, amount, source, met
 
     overdraftActive = newBalance <= 19;
 
-    return { newBalance, newSavings: currentSavings, state: scoreToState(newBalance), overdraftActive };
+    // LightBridge: update capacity state light if state changed
+    const newState = scoreToState(newBalance);
+    const previousState = scoreToState(currentBalance);
+    if (newState !== previousState) {
+      try {
+        const userRow = await pool.query('SELECT user_id FROM users WHERE id = $1', [userDbId]);
+        if (userRow.rows.length > 0) {
+          const lightBridgeEngine = require('./lightBridgeEngine');
+          await lightBridgeEngine.setCapacityState(userRow.rows[0].user_id, newState);
+        }
+      } catch (lbErr) {
+        // Non-blocking — device failure never blocks transaction
+        console.error('[LightBridge] State update failed (non-blocking):', lbErr.message);
+      }
+    }
+
+    return { newBalance, newSavings: currentSavings, state: newState, overdraftActive };
   } catch (err) {
     console.error('[CapacityCurrency] Transaction failed:', err.message);
     Sentry.captureException(err);

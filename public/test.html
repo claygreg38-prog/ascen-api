@@ -294,6 +294,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     <button class="btn small" onclick="generatePoster()">Generate Poster</button>
     <button class="btn small" onclick="openShowcase()">Breath Art Showcase</button>
     <button class="btn small" onclick="openFamilyScreen()">Family</button>
+    <button class="btn small" onclick="openLightBridge()">LightBridge</button>
     <button class="btn small" style="background:#d4af37;color:#000" onclick="showScreen('screen-legacy-unlock')">Test Unlock</button>
     <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
   </div>
@@ -503,6 +504,44 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     </div>
     <button class="btn secondary small" onclick="showScreen('screen-gallery')" style="margin-top:8px">Back to Gallery</button>
   </div>
+</div>
+
+<!-- LIGHTBRIDGE -->
+<div id="screen-lightbridge" class="screen">
+  <h2 style="color:var(--accent2)">LightBridge</h2>
+
+  <div class="card" style="max-width:360px;margin:0 auto">
+    <h3 style="color:var(--accent2);margin:0 0 8px 0">Simulated Light</h3>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div id="lb-sim-light" style="width:60px;height:60px;border-radius:50%;background:#333;transition:all 1s;box-shadow:0 0 20px rgba(0,0,0,0.5)"></div>
+      <div>
+        <div id="lb-sim-state" style="font-weight:bold"></div>
+        <div id="lb-sim-detail" style="color:var(--dim);font-size:.8em"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="max-width:360px;margin:12px auto">
+    <h3 style="color:var(--accent2);margin:0 0 8px 0">Register Device</h3>
+    <select id="lb-provider" style="margin-bottom:4px"><option value="lifx">LIFX</option></select>
+    <input type="text" id="lb-token" placeholder="Device token / API key" style="margin-bottom:4px">
+    <input type="text" id="lb-selector" placeholder="Device selector (e.g. all)" value="all" style="margin-bottom:4px">
+    <input type="text" id="lb-name" placeholder="Device name (e.g. Living Room)" style="margin-bottom:4px">
+    <button class="btn small" onclick="registerLBDevice()">Register & Test</button>
+    <div id="lb-register-result" style="margin-top:8px;color:var(--accent2)"></div>
+  </div>
+
+  <div class="card" style="max-width:360px;margin:12px auto">
+    <h3 style="color:var(--accent2);margin:0 0 8px 0">My Devices</h3>
+    <div id="lb-devices" style="color:var(--dim)">Loading...</div>
+  </div>
+
+  <div class="card" style="max-width:360px;margin:12px auto">
+    <h3 style="color:var(--accent2);margin:0 0 8px 0">Recent Events</h3>
+    <div id="lb-events" style="color:var(--dim)">Loading...</div>
+  </div>
+
+  <button class="btn secondary" onclick="showScreen('screen-gallery')" style="margin-top:16px">Back</button>
 </div>
 
 <!-- CAPACITY CURRENCY VIEW -->
@@ -1674,6 +1713,106 @@ async function generatePoster() {
   } catch(e) {
     debugLog('Poster failed: ' + e.message, 'error');
   }
+}
+
+// ─── LIGHTBRIDGE ─────────────────────────────────────
+
+const LB_STATE_COLORS = {
+  full: '#d4a44a', steady: '#c9963a', drawing_down: '#a07830',
+  low: '#705020', depleted: '#402810'
+};
+
+async function openLightBridge() {
+  showScreen('screen-lightbridge');
+  const userId = state.userId || 'test-user';
+
+  // Load simulated state
+  try {
+    const resp = await fetch(`${API}/api/lightbridge/state/${userId}`, { headers: { 'x-api-key': API_KEY } });
+    const data = await resp.json();
+    if (data.device && data.device.current_state) {
+      const cs = data.device.current_state;
+      const light = document.getElementById('lb-sim-light');
+      const brightness = cs.brightness || 0.5;
+      light.style.background = cs.color || '#c9963a';
+      light.style.opacity = brightness;
+      light.style.boxShadow = `0 0 ${brightness * 30}px ${cs.color || '#c9963a'}`;
+      document.getElementById('lb-sim-state').textContent = cs.simulated ? 'Simulated' : 'Live';
+      document.getElementById('lb-sim-detail').textContent = JSON.stringify(cs).slice(0, 80);
+    }
+  } catch(e) { /* silent */ }
+
+  // Load devices
+  try {
+    const resp = await fetch(`${API}/api/lightbridge/devices/${userId}`, { headers: { 'x-api-key': API_KEY } });
+    const data = await resp.json();
+    const div = document.getElementById('lb-devices');
+    if (data.devices && data.devices.length > 0) {
+      div.innerHTML = data.devices.map(d =>
+        `<div style="padding:4px 0;border-bottom:1px solid #1a2a3a">
+          <span style="color:var(--accent2)">${d.device_name || d.id.slice(0,8)}</span>
+          <span style="color:var(--dim)"> — ${d.device_provider} — ${d.is_active ? 'Active' : 'Offline'}</span>
+          <button class="btn small secondary" onclick="testLBDevice('${d.id}')" style="margin-left:4px;padding:2px 6px;font-size:.7em">Test</button>
+        </div>`
+      ).join('');
+    } else {
+      div.textContent = 'No devices registered';
+    }
+  } catch(e) { document.getElementById('lb-devices').textContent = 'Unavailable'; }
+
+  // Load events
+  const familyId = localStorage.getItem('ascen_family_unit_' + userId);
+  if (familyId) {
+    try {
+      const resp = await fetch(`${API}/api/lightbridge/events/${familyId}?limit=10`, { headers: { 'x-api-key': API_KEY } });
+      const data = await resp.json();
+      const div = document.getElementById('lb-events');
+      if (data.events && data.events.length > 0) {
+        div.innerHTML = data.events.map(e =>
+          `<div style="padding:3px 0;border-bottom:1px solid #1a2a3a">
+            <span style="color:${e.success ? 'var(--accent2)' : 'var(--warn)'}">${e.event_type}</span>
+            <span style="color:var(--dim)"> — ${e.device_name || '?'} — ${new Date(e.created_at).toLocaleTimeString()}</span>
+          </div>`
+        ).join('');
+      } else {
+        div.textContent = 'No events yet';
+      }
+    } catch(e) { document.getElementById('lb-events').textContent = 'Unavailable'; }
+  }
+}
+
+async function registerLBDevice() {
+  const userId = state.userId || 'test-user';
+  const familyId = localStorage.getItem('ascen_family_unit_' + userId);
+  try {
+    const resp = await fetch(`${API}/api/lightbridge/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+      body: JSON.stringify({
+        user_id: userId,
+        family_unit_id: familyId,
+        device_provider: document.getElementById('lb-provider').value,
+        device_token: document.getElementById('lb-token').value || 'sim_token',
+        device_selector: document.getElementById('lb-selector').value || 'all',
+        device_name: document.getElementById('lb-name').value || 'Test Light'
+      })
+    });
+    const data = await resp.json();
+    document.getElementById('lb-register-result').textContent =
+      data.error ? data.message || data.error : `Registered: ${data.deviceId?.slice(0,8)} (${data.testResult})`;
+    openLightBridge(); // refresh
+  } catch(e) {
+    document.getElementById('lb-register-result').textContent = 'Failed: ' + e.message;
+  }
+}
+
+async function testLBDevice(deviceId) {
+  try {
+    await fetch(`${API}/api/lightbridge/test/${deviceId}`, {
+      method: 'POST', headers: { 'x-api-key': API_KEY }
+    });
+    debugLog('Test pattern sent');
+  } catch(e) { debugLog('Test failed: ' + e.message, 'error'); }
 }
 
 // ─── CAPACITY CURRENCY ───────────────────────────────

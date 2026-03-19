@@ -253,6 +253,17 @@ try {
   console.warn('[CAPACITY] Could not mount:', err.message);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// LIGHTBRIDGE ROUTES — IoT Device Control
+// ═══════════════════════════════════════════════════════════════
+try {
+  const lightBridgeRoutes = require('./src/routes/lightBridgeRoutes');
+  app.use('/api/lightbridge', authenticateOrApiKey('participant'));
+  app.use('/api/lightbridge', lightBridgeRoutes);
+  console.log('[LIGHTBRIDGE] Routes mounted at /api/lightbridge');
+} catch (err) {
+  console.warn('[LIGHTBRIDGE] Could not mount:', err.message);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // EXISTING ROUTES
