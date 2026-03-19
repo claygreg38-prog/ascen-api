@@ -355,6 +355,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     <button class="btn small" onclick="generatePoster()">Generate Poster</button>
     <button class="btn small" onclick="openShowcase()">Breath Art Showcase</button>
     <button class="btn small" onclick="openFamilyScreen()">Family</button>
+    <button class="btn small" onclick="openKitchenTable()">Kitchen Table</button>
+    <button class="btn small" onclick="openCoBreath()">Co-Breath</button>
     <button class="btn small" onclick="openLightBridge()">LightBridge</button>
     <button class="btn small" style="background:#d4af37;color:#000" onclick="showScreen('screen-legacy-unlock')">Test Unlock</button>
     <button class="btn secondary" onclick="showScreen('screen-complete')">Back</button>
@@ -565,6 +567,67 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
     </div>
     <button class="btn secondary small" onclick="showScreen('screen-gallery')" style="margin-top:8px">Back to Gallery</button>
   </div>
+</div>
+
+<!-- KITCHEN TABLE -->
+<div id="screen-kitchen-table" class="screen">
+  <h2 style="color:var(--accent2)">Kitchen Table</h2>
+  <div id="kt-topic-card" class="card" style="max-width:360px;margin:0 auto;display:none">
+    <div id="kt-category" style="color:var(--dim);font-size:.75em;text-transform:uppercase;letter-spacing:1px"></div>
+    <h3 id="kt-title" style="color:var(--accent2);margin:4px 0"></h3>
+    <p id="kt-prompt" style="line-height:1.5"></p>
+    <div id="kt-journal-section" style="margin-top:12px;display:none">
+      <textarea id="kt-journal" placeholder="Journal your thoughts (optional)..." style="min-height:60px"></textarea>
+    </div>
+    <div id="kt-timer" style="color:var(--dim);font-size:.8em;margin-top:8px"></div>
+    <div id="kt-dysreg" style="display:none;color:var(--warn);margin-top:8px;padding:8px;background:rgba(232,96,64,.1);border-radius:8px">
+      Your body is signaling. Would you like to move to your breathing session?
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn" onclick="completeKT()">Proceed to Breathing</button>
+      <button class="btn secondary small" onclick="skipKT('user_choice')">Skip</button>
+    </div>
+  </div>
+  <div id="kt-skip-msg" style="display:none;color:var(--dim);text-align:center;padding:40px">
+    <p>Kitchen Table skipped — proceeding to breathing.</p>
+    <button class="btn" onclick="showScreen('screen-arrival')">Continue</button>
+  </div>
+  <div id="kt-loading" style="color:var(--dim);text-align:center;padding:40px">Loading topic...</div>
+</div>
+
+<!-- CO-BREATH -->
+<div id="screen-cobreath" class="screen">
+  <h2 style="color:var(--accent2)">Breathe Together</h2>
+  <div id="cb-setup" class="card" style="max-width:360px;margin:0 auto">
+    <div id="cb-members" style="margin-bottom:12px"></div>
+    <select id="cb-mode" style="margin-bottom:8px">
+      <option value="sync">Sync — same rhythm</option>
+      <option value="adaptive">Adaptive — individual rhythms, start together</option>
+      <option value="silent">Silent — breathe independently, track connection</option>
+    </select>
+    <button class="btn" onclick="initCoBreath()">Start Co-Breath</button>
+  </div>
+  <div id="cb-waiting" style="display:none;text-align:center;padding:40px">
+    <p>Room code: <strong id="cb-room-code" style="font-family:monospace;font-size:1.3em;color:var(--accent2)"></strong></p>
+    <p style="color:var(--dim)">Share this code with your partner</p>
+    <input type="text" id="cb-join-code" placeholder="Or enter room code" style="margin:8px 0">
+    <button class="btn small" onclick="joinCoBreathRoom()">Join Room</button>
+    <div id="cb-status" style="color:var(--dim);margin-top:8px"></div>
+  </div>
+  <div id="cb-breathing" style="display:none;text-align:center">
+    <div style="display:flex;justify-content:center;gap:24px;margin:24px 0">
+      <div><div class="breath-ring" id="cb-ring-1" style="width:100px;height:100px;border-radius:50%;border:3px solid var(--accent2)"></div><div style="color:var(--dim);font-size:.8em;margin-top:4px">You</div></div>
+      <div><div class="breath-ring" id="cb-ring-2" style="width:100px;height:100px;border-radius:50%;border:3px solid #daa84e"></div><div style="color:var(--dim);font-size:.8em;margin-top:4px" id="cb-partner-name">Partner</div></div>
+    </div>
+    <div id="cb-phase" style="font-size:1.2em;color:var(--accent2)">Inhale</div>
+    <div id="cb-elapsed" style="color:var(--dim);font-size:.85em;margin-top:8px"></div>
+  </div>
+  <div id="cb-complete" style="display:none;text-align:center;padding:20px">
+    <div id="cb-score" style="font-size:2em;color:var(--accent2)"></div>
+    <div id="cb-warmth" style="margin-top:8px;font-style:italic"></div>
+    <button class="btn" onclick="showScreen('screen-gallery')" style="margin-top:16px">Done</button>
+  </div>
+  <button class="btn secondary" onclick="showScreen('screen-gallery')" style="margin-top:16px">Back</button>
 </div>
 
 <!-- LIGHTBRIDGE -->
@@ -1927,6 +1990,193 @@ async function generatePoster() {
   } catch(e) {
     debugLog('Poster failed: ' + e.message, 'error');
   }
+}
+
+// ─── KITCHEN TABLE ───────────────────────────────────
+
+let ktSessionId = null;
+let ktTimerInterval = null;
+
+async function openKitchenTable() {
+  showScreen('screen-kitchen-table');
+  document.getElementById('kt-topic-card').style.display = 'none';
+  document.getElementById('kt-skip-msg').style.display = 'none';
+  document.getElementById('kt-loading').style.display = '';
+
+  const userId = state.userId || 'test-user';
+  const familyId = localStorage.getItem('ascen_family_unit_' + userId);
+
+  try {
+    const resp = await fetch(`${API}/api/kitchen-table/topic?family_unit_id=${familyId || ''}`, {
+      headers: setAuthHeaders({ 'x-api-key': API_KEY })
+    });
+    const data = await resp.json();
+    document.getElementById('kt-loading').style.display = 'none';
+
+    if (data.skip) {
+      document.getElementById('kt-skip-msg').style.display = '';
+      return;
+    }
+
+    document.getElementById('kt-topic-card').style.display = '';
+    document.getElementById('kt-category').textContent = data.topic.category;
+    document.getElementById('kt-title').textContent = data.topic.title;
+    document.getElementById('kt-prompt').textContent = data.topic.promptText;
+    if (data.topic.journalPrompt) {
+      document.getElementById('kt-journal-section').style.display = '';
+      document.getElementById('kt-journal').placeholder = data.topic.journalPrompt;
+    }
+
+    // Start session
+    const startResp = await fetch(`${API}/api/kitchen-table/start`, {
+      method: 'POST',
+      headers: setAuthHeaders({ 'Content-Type': 'application/json', 'x-api-key': API_KEY }),
+      body: JSON.stringify({ topic_id: data.topic.id, family_unit_id: familyId })
+    });
+    const startData = await startResp.json();
+    ktSessionId = startData.sessionId;
+
+    // Timer
+    let elapsed = 0;
+    ktTimerInterval = setInterval(() => {
+      elapsed++;
+      document.getElementById('kt-timer').textContent = Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0');
+    }, 1000);
+  } catch(e) {
+    document.getElementById('kt-loading').textContent = 'Failed to load topic';
+  }
+}
+
+async function completeKT() {
+  if (ktTimerInterval) clearInterval(ktTimerInterval);
+  const journal = document.getElementById('kt-journal')?.value || '';
+  if (ktSessionId) {
+    try {
+      await fetch(`${API}/api/kitchen-table/complete`, {
+        method: 'POST',
+        headers: setAuthHeaders({ 'Content-Type': 'application/json', 'x-api-key': API_KEY }),
+        body: JSON.stringify({ session_id: ktSessionId, journal_entry: journal })
+      });
+    } catch(e) { /* proceed anyway */ }
+  }
+  showScreen('screen-arrival');
+}
+
+async function skipKT(reason) {
+  if (ktTimerInterval) clearInterval(ktTimerInterval);
+  const userId = state.userId || 'test-user';
+  const familyId = localStorage.getItem('ascen_family_unit_' + userId);
+  try {
+    await fetch(`${API}/api/kitchen-table/skip`, {
+      method: 'POST',
+      headers: setAuthHeaders({ 'Content-Type': 'application/json', 'x-api-key': API_KEY }),
+      body: JSON.stringify({ family_unit_id: familyId, reason })
+    });
+  } catch(e) { /* proceed */ }
+  showScreen('screen-arrival');
+}
+
+// ─── CO-BREATH ───────────────────────────────────────
+
+let cbSessionId = null;
+let cbRoomCode = null;
+
+async function openCoBreath() {
+  showScreen('screen-cobreath');
+  document.getElementById('cb-setup').style.display = '';
+  document.getElementById('cb-waiting').style.display = 'none';
+  document.getElementById('cb-breathing').style.display = 'none';
+  document.getElementById('cb-complete').style.display = 'none';
+
+  // Load family members for selection
+  const userId = state.userId || 'test-user';
+  const familyId = localStorage.getItem('ascen_family_unit_' + userId);
+  if (familyId) {
+    try {
+      const resp = await fetch(`${API}/api/family/members/${familyId}`, { headers: setAuthHeaders({ 'x-api-key': API_KEY }) });
+      const data = await resp.json();
+      const div = document.getElementById('cb-members');
+      div.innerHTML = (data.members || [])
+        .filter(m => m.userId !== userId)
+        .map(m => `<label style="display:block;padding:4px 0"><input type="radio" name="cb-partner" value="${m.userId}"> ${m.firstName || m.userId} (${m.role})</label>`)
+        .join('') || '<div style="color:var(--dim)">No family members available</div>';
+    } catch(e) { /* silent */ }
+  }
+}
+
+async function initCoBreath() {
+  const userId = state.userId || 'test-user';
+  const familyId = localStorage.getItem('ascen_family_unit_' + userId);
+  const partner = document.querySelector('input[name="cb-partner"]:checked')?.value;
+  if (!partner) { debugLog('Select a partner', 'error'); return; }
+
+  try {
+    const resp = await fetch(`${API}/api/cobreath/initiate`, {
+      method: 'POST',
+      headers: setAuthHeaders({ 'Content-Type': 'application/json', 'x-api-key': API_KEY }),
+      body: JSON.stringify({ initiator_id: userId, partner_id: partner, family_unit_id: familyId, mode: document.getElementById('cb-mode').value })
+    });
+    const data = await resp.json();
+    if (data.error) { debugLog('Co-breath: ' + data.message, 'error'); return; }
+
+    cbSessionId = data.sessionId;
+    cbRoomCode = data.roomCode;
+    document.getElementById('cb-setup').style.display = 'none';
+    document.getElementById('cb-waiting').style.display = '';
+    document.getElementById('cb-room-code').textContent = data.roomCode;
+    document.getElementById('cb-status').textContent = 'Waiting for partner...';
+  } catch(e) { debugLog('Co-breath failed: ' + e.message, 'error'); }
+}
+
+async function joinCoBreathRoom() {
+  const code = document.getElementById('cb-join-code').value.trim() || cbRoomCode;
+  if (!code) return;
+  const userId = state.userId || 'test-user';
+
+  try {
+    const resp = await fetch(`${API}/api/cobreath/join/${code}`, {
+      method: 'POST',
+      headers: setAuthHeaders({ 'Content-Type': 'application/json', 'x-api-key': API_KEY })
+    });
+    const data = await resp.json();
+    if (data.error) { document.getElementById('cb-status').textContent = data.message; return; }
+
+    if (data.bothConnected) {
+      document.getElementById('cb-waiting').style.display = 'none';
+      document.getElementById('cb-breathing').style.display = '';
+      // Simulate 2-minute breathing session
+      let elapsed = 0;
+      const dur = 120;
+      const breathInterval = setInterval(() => {
+        elapsed++;
+        const phase = Math.floor(elapsed / 5) % 2 === 0 ? 'Inhale' : 'Exhale';
+        document.getElementById('cb-phase').textContent = phase;
+        document.getElementById('cb-elapsed').textContent = elapsed + 's / ' + dur + 's';
+        if (elapsed >= dur) {
+          clearInterval(breathInterval);
+          completeCoBreath();
+        }
+      }, 1000);
+    } else {
+      document.getElementById('cb-status').textContent = 'Connected. Waiting for partner...';
+    }
+  } catch(e) { document.getElementById('cb-status').textContent = 'Join failed'; }
+}
+
+async function completeCoBreath() {
+  if (!cbSessionId) return;
+  try {
+    const resp = await fetch(`${API}/api/cobreath/complete/${cbSessionId}`, {
+      method: 'POST',
+      headers: setAuthHeaders({ 'Content-Type': 'application/json', 'x-api-key': API_KEY }),
+      body: JSON.stringify({ synchronization_pct: 70, hrv_correlation: 0.6, mutual_regulation: true })
+    });
+    const data = await resp.json();
+    document.getElementById('cb-breathing').style.display = 'none';
+    document.getElementById('cb-complete').style.display = '';
+    document.getElementById('cb-score').textContent = (data.connectionScore || 0).toFixed(0);
+    document.getElementById('cb-warmth').textContent = data.warmthMessage || 'You breathed together.';
+  } catch(e) { debugLog('Complete failed: ' + e.message, 'error'); }
 }
 
 // ─── LIGHTBRIDGE ─────────────────────────────────────

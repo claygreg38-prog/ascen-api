@@ -116,6 +116,19 @@ Updated: March 18, 2026
 - TEST_HARNESS_API_KEY remains functional alongside JWT (backward compatible)
 - Auth UI in test harness (facility login, email login/register, enrollment, code management)
 - Dependencies: bcryptjs
+- Migration 022: kitchen_table_topics, kitchen_table_sessions, cobreath_sessions, cobreath_rooms + 8 indexes
+- 30 kitchen table topics seeded across 6 categories (family_history, communication, boundaries, accountability, trust, hope)
+- kitchenTableEngine.js: ABI module — capacity-aware topic selection, biometric monitoring, dysregulation detection, journal encryption
+- coBreathEngine.js: ABI module — 3 modes (sync/adaptive/silent), lower-of-two baselines, 2:3 floor, connection scoring, investment integration
+- coBreathWebSocket.js: WebSocket server at /ws/cobreath — real-time breath sync, regulation state only (never raw HRV)
+- kitchenTableRoutes.js at /api/kitchen-table: topic, start, tick, complete, skip, history
+- coBreathRoutes.js at /api/cobreath: initiate, join, room, complete, history, recommend
+- Kitchen table feeds topic_response patterns to Family Intelligence
+- Co-breath feeds dyadic patterns to Family Intelligence
+- Capacity Currency: +2 for KT completion, -3 for KT dysregulation, co-breath deposits for both participants
+- LightBridge: co_breath_active fires on initiation
+- WebSocket room expires after 15 min inactivity
+- Dependencies: ws
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -173,7 +186,12 @@ Focus only on the task assigned in the session prompt.
 - src/abi/onboardingEngine.js — onboarding state machine
 - src/routes/authRoutes.js — production auth endpoints
 - src/routes/onboardingRoutes.js — onboarding endpoints
-- server.js — Express, route mounting, cron
+- src/abi/kitchenTableEngine.js — topic selection, biometric monitoring, journal encryption
+- src/abi/coBreathEngine.js — co-breath sessions, 3 modes, connection scoring
+- src/services/coBreathWebSocket.js — WebSocket real-time breath sync
+- src/routes/kitchenTableRoutes.js — kitchen table API endpoints
+- src/routes/coBreathRoutes.js — co-breath API endpoints
+- server.js — Express, route mounting, cron, WebSocket
 - public/test.html — throwaway test harness
 
 ## BLE Devices

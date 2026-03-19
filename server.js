@@ -285,6 +285,30 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// KITCHEN TABLE ROUTES — Topic Discussion
+// ═══════════════════════════════════════════════════════════════
+try {
+  const kitchenTableRoutes = require('./src/routes/kitchenTableRoutes');
+  app.use('/api/kitchen-table', authenticateOrApiKey('participant'));
+  app.use('/api/kitchen-table', kitchenTableRoutes);
+  console.log('[KITCHEN TABLE] Routes mounted at /api/kitchen-table');
+} catch (err) {
+  console.warn('[KITCHEN TABLE] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CO-BREATH ROUTES — Synchronized Family Breathing
+// ═══════════════════════════════════════════════════════════════
+try {
+  const coBreathRoutes = require('./src/routes/coBreathRoutes');
+  app.use('/api/cobreath', authenticateOrApiKey('participant'));
+  app.use('/api/cobreath', coBreathRoutes);
+  console.log('[COBREATH] Routes mounted at /api/cobreath');
+} catch (err) {
+  console.warn('[COBREATH] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EXISTING ROUTES
 // ═══════════════════════════════════════════════════════════════
 
@@ -467,11 +491,19 @@ Sentry.setupExpressErrorHandler(app);
 // SERVER START + CRON
 // ═══════════════════════════════════════════════════════════════
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log('Server running on port', PORT);
-  console.log('ABI: 14/14 systems wired | AXIS: active | Auth: JWT + API key');
+  console.log('ABI: 15/15 systems wired | AXIS: active | Auth: JWT + API key');
   console.log('Hardening: rate_limit + validation + audit + cfr_guard');
 });
+
+// ── CO-BREATH WEBSOCKET ────────────────────────────────────
+try {
+  const { initCoBreathWS } = require('./src/services/coBreathWebSocket');
+  initCoBreathWS(server);
+} catch (err) {
+  console.warn('[CoBreath WS] Could not initialize:', err.message);
+}
 
 // ── AXIS NIGHTLY REFINEMENT CRON ────────────────────────────
 let isRefinementRunning = false;
