@@ -94,9 +94,28 @@ app.use((req, res, next) => {
 app.use(tenantResolver);
 
 // ═══════════════════════════════════════════════════════════════
-// AUTH ROUTES (public — token generation, verification)
+// AUTH ROUTES (public — registration, login, codes)
 // ═══════════════════════════════════════════════════════════════
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authRoutes); // Legacy token/verify/refresh endpoints
+
+try {
+  const productionAuthRoutes = require('./src/routes/authRoutes');
+  // Public auth endpoints (register, login, verify, reset) — no auth required
+  app.use('/api/auth', productionAuthRoutes);
+  console.log('[AUTH] Production auth routes mounted at /api/auth');
+} catch (err) {
+  console.warn('[AUTH] Could not mount production auth:', err.message);
+}
+
+// Onboarding routes (requires JWT or API key)
+try {
+  const onboardingRoutes = require('./src/routes/onboardingRoutes');
+  app.use('/api/onboarding', authenticateOrApiKey('participant'));
+  app.use('/api/onboarding', onboardingRoutes);
+  console.log('[ONBOARDING] Routes mounted at /api/onboarding');
+} catch (err) {
+  console.warn('[ONBOARDING] Could not mount:', err.message);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ABI ROUTES — Session lifecycle, clinical, admin

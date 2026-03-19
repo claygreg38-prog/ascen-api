@@ -149,12 +149,73 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;heigh
 <div id="screen-login" class="screen active">
   <h1>ASCEN BreathWorx</h1>
   <p class="subtitle">Clinical Staff Test — March 2026</p>
-  <div class="session-dots" id="login-dots"></div>
-  <input type="text" id="input-name" placeholder="First name" autocomplete="off" style="margin:16px 0">
-  <button class="btn" id="btn-begin" onclick="handleLogin()">Begin</button>
+
+  <!-- Auth tabs -->
+  <div style="display:flex;gap:4px;justify-content:center;margin:12px 0;flex-wrap:wrap">
+    <button class="btn small" onclick="showAuthTab('test')" id="tab-test" style="opacity:1">Quick Test</button>
+    <button class="btn small secondary" onclick="showAuthTab('facility')" id="tab-facility">Facility Login</button>
+    <button class="btn small secondary" onclick="showAuthTab('email')" id="tab-email">Email Login</button>
+    <button class="btn small secondary" onclick="showAuthTab('enroll')" id="tab-enroll">Enroll</button>
+    <button class="btn small secondary" onclick="showAuthTab('codes')" id="tab-codes">Manage Codes</button>
+  </div>
+
+  <!-- Quick Test (original flow) -->
+  <div id="auth-test">
+    <div class="session-dots" id="login-dots"></div>
+    <input type="text" id="input-name" placeholder="First name" autocomplete="off" style="margin:16px 0">
+    <button class="btn" id="btn-begin" onclick="handleLogin()">Begin</button>
+  </div>
+
+  <!-- Facility Login -->
+  <div id="auth-facility" style="display:none">
+    <input type="text" id="fac-id" placeholder="Participant ID" style="margin:8px 0">
+    <input type="password" id="fac-pin" placeholder="6-digit PIN" maxlength="6" style="margin:8px 0">
+    <button class="btn" onclick="facilityLogin()">Login</button>
+  </div>
+
+  <!-- Email Login -->
+  <div id="auth-email" style="display:none">
+    <input type="email" id="email-addr" placeholder="Email" style="margin:8px 0">
+    <input type="password" id="email-pass" placeholder="Password" style="margin:8px 0">
+    <button class="btn" onclick="emailLogin()">Login</button>
+    <button class="btn small secondary" onclick="showAuthTab('register-email')" style="margin-top:8px">Create Account</button>
+  </div>
+
+  <!-- Email Registration -->
+  <div id="auth-register-email" style="display:none">
+    <input type="text" id="reg-first" placeholder="First name" style="margin:4px 0">
+    <input type="text" id="reg-last" placeholder="Last name" style="margin:4px 0">
+    <input type="email" id="reg-email" placeholder="Email" style="margin:4px 0">
+    <input type="password" id="reg-pass" placeholder="Password (8+ chars, 1 number)" style="margin:4px 0">
+    <button class="btn" onclick="emailRegister()">Register</button>
+    <div id="reg-verify" style="display:none;margin-top:8px">
+      <input type="text" id="reg-code" placeholder="Verification code" style="margin:4px 0">
+      <button class="btn small" onclick="verifyEmail()">Verify</button>
+    </div>
+  </div>
+
+  <!-- Enrollment -->
+  <div id="auth-enroll" style="display:none">
+    <input type="text" id="enroll-code" placeholder="8-character enrollment code" maxlength="8" style="margin:8px 0;text-transform:uppercase">
+    <input type="text" id="enroll-name" placeholder="First name" style="margin:8px 0">
+    <input type="password" id="enroll-pin" placeholder="Create 6-digit PIN" maxlength="6" style="margin:8px 0">
+    <button class="btn" onclick="enrollWithCode()">Enroll</button>
+  </div>
+
+  <!-- Code Management (facilitator) -->
+  <div id="auth-codes" style="display:none">
+    <input type="text" id="code-name" placeholder="Participant name" style="margin:4px 0">
+    <input type="text" id="code-program" placeholder="Program name" style="margin:4px 0">
+    <button class="btn small" onclick="generateCode()">Generate Code</button>
+    <div id="code-result" style="margin-top:8px;color:var(--accent2)"></div>
+    <div id="code-list" style="margin-top:12px;color:var(--dim);font-size:.85em;max-height:200px;overflow-y:auto"></div>
+    <button class="btn small secondary" onclick="loadCodes()" style="margin-top:4px">Refresh List</button>
+  </div>
+
   <p id="login-status" style="color:var(--dim);font-size:.8em;margin-top:12px"></p>
   <button class="btn small secondary" id="btn-reset" onclick="resetUser()" style="margin-top:16px;display:none">Reset Progress</button>
   <div class="loading" id="login-loading"><div class="spinner"></div><span>Connecting...</span></div>
+  <div id="auth-jwt-info" style="display:none;color:var(--dim);font-size:.7em;margin-top:8px"></div>
 </div>
 
 <!-- ARRIVAL -->
@@ -691,6 +752,159 @@ let state = {
   mirror: {},
   lastArt: null
 };
+
+// ─── AUTH (Production) ────────────────────────────────
+
+let authJWT = localStorage.getItem('ascen_jwt') || '';
+
+function setAuthHeaders(headers) {
+  if (authJWT) headers['Authorization'] = 'Bearer ' + authJWT;
+  if (API_KEY) headers['x-api-key'] = API_KEY;
+  return headers;
+}
+
+function showAuthTab(tab) {
+  ['test','facility','email','register-email','enroll','codes'].forEach(t => {
+    const el = document.getElementById('auth-' + t);
+    if (el) el.style.display = t === tab ? '' : 'none';
+    const tabBtn = document.getElementById('tab-' + t);
+    if (tabBtn) tabBtn.style.opacity = t === tab ? 1 : 0.6;
+  });
+}
+
+function handleAuthResult(data) {
+  if (data.jwt) {
+    authJWT = data.jwt;
+    localStorage.setItem('ascen_jwt', data.jwt);
+    document.getElementById('auth-jwt-info').style.display = '';
+    document.getElementById('auth-jwt-info').textContent = 'JWT stored. User: ' + (data.userId || data.participantId || data.user?.userId || '?');
+  }
+  if (data.refreshToken) localStorage.setItem('ascen_refresh', data.refreshToken);
+}
+
+async function facilityLogin() {
+  const id = document.getElementById('fac-id').value.trim();
+  const pin = document.getElementById('fac-pin').value.trim();
+  if (!id || !pin) return;
+  try {
+    const r = await fetch(API + '/api/auth/login/facility', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participant_id: id, pin })
+    });
+    const data = await r.json();
+    if (data.error) { document.getElementById('login-status').textContent = data.message; return; }
+    handleAuthResult(data);
+    state.userId = data.user?.userId || id;
+    state.name = data.user?.firstName || id;
+    document.getElementById('login-status').textContent = 'Logged in as ' + state.name;
+  } catch(e) { document.getElementById('login-status').textContent = 'Login failed: ' + e.message; }
+}
+
+async function emailLogin() {
+  const email = document.getElementById('email-addr').value.trim();
+  const pass = document.getElementById('email-pass').value;
+  if (!email || !pass) return;
+  try {
+    const r = await fetch(API + '/api/auth/login/email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pass })
+    });
+    const data = await r.json();
+    if (data.error) { document.getElementById('login-status').textContent = data.message; return; }
+    handleAuthResult(data);
+    state.userId = data.user?.userId;
+    state.name = data.user?.firstName || email;
+    document.getElementById('login-status').textContent = 'Logged in as ' + state.name;
+  } catch(e) { document.getElementById('login-status').textContent = 'Login failed: ' + e.message; }
+}
+
+async function emailRegister() {
+  try {
+    const r = await fetch(API + '/api/auth/register/email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        first_name: document.getElementById('reg-first').value.trim(),
+        last_name: document.getElementById('reg-last').value.trim(),
+        email: document.getElementById('reg-email').value.trim(),
+        password: document.getElementById('reg-pass').value
+      })
+    });
+    const data = await r.json();
+    if (data.error) { document.getElementById('login-status').textContent = data.message; return; }
+    document.getElementById('login-status').textContent = data.message;
+    document.getElementById('reg-verify').style.display = '';
+    state.userId = data.userId;
+  } catch(e) { document.getElementById('login-status').textContent = 'Register failed: ' + e.message; }
+}
+
+async function verifyEmail() {
+  try {
+    const r = await fetch(API + '/api/auth/verify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: state.userId, code: document.getElementById('reg-code').value.trim(), purpose: 'email_verify' })
+    });
+    const data = await r.json();
+    if (data.error) { document.getElementById('login-status').textContent = data.message; return; }
+    handleAuthResult(data);
+    document.getElementById('login-status').textContent = 'Verified! JWT issued.';
+  } catch(e) { document.getElementById('login-status').textContent = 'Verify failed: ' + e.message; }
+}
+
+async function enrollWithCode() {
+  try {
+    const r = await fetch(API + '/api/auth/register/facility', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: document.getElementById('enroll-code').value.trim().toUpperCase(),
+        first_name: document.getElementById('enroll-name').value.trim(),
+        pin: document.getElementById('enroll-pin').value.trim()
+      })
+    });
+    const data = await r.json();
+    if (data.error) { document.getElementById('login-status').textContent = data.message; return; }
+    handleAuthResult(data);
+    state.userId = data.userId || data.participantId;
+    state.name = document.getElementById('enroll-name').value.trim();
+    document.getElementById('login-status').textContent = 'Enrolled! ID: ' + (data.participantId || data.userId);
+  } catch(e) { document.getElementById('login-status').textContent = 'Enroll failed: ' + e.message; }
+}
+
+async function generateCode() {
+  try {
+    const r = await fetch(API + '/api/auth/codes/generate', {
+      method: 'POST',
+      headers: setAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        assigned_to_name: document.getElementById('code-name').value.trim(),
+        program_name: document.getElementById('code-program').value.trim() || 'ASCEN Pilot'
+      })
+    });
+    const data = await r.json();
+    if (data.codes && data.codes.length > 0) {
+      document.getElementById('code-result').innerHTML = data.codes.map(c =>
+        '<div style="padding:4px;background:#1a2a3a;border-radius:4px;margin:2px 0;font-family:monospace;font-size:1.1em">' + c.code + '</div>'
+      ).join('');
+    }
+    loadCodes();
+  } catch(e) { document.getElementById('code-result').textContent = 'Failed: ' + e.message; }
+}
+
+async function loadCodes() {
+  try {
+    const r = await fetch(API + '/api/auth/codes/list', { headers: setAuthHeaders({}) });
+    const data = await r.json();
+    const div = document.getElementById('code-list');
+    if (data.codes && data.codes.length > 0) {
+      div.innerHTML = data.codes.map(c =>
+        '<div style="padding:2px 0;border-bottom:1px solid #1a2a3a">' +
+        '<span style="font-family:monospace">' + c.code + '</span> ' +
+        '<span style="color:' + (c.status === 'active' ? 'var(--success)' : c.status === 'used' ? 'var(--dim)' : 'var(--warn)') + '">' + c.status + '</span> ' +
+        (c.assigned_to_name || '') +
+        '</div>'
+      ).join('');
+    } else { div.textContent = 'No codes'; }
+  } catch(e) { /* silent */ }
+}
 
 // ─── UTILITIES ────────────────────────────────────────
 function showScreen(id) {

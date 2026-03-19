@@ -101,6 +101,21 @@ Updated: March 18, 2026
 - Device provider abstracted (LIFX today, Hue/custom tomorrow)
 - Rate limit: 1 capacity state change per 30s per device. 3 consecutive failures deactivates device.
 - LightBridge UI in test harness (simulated light, device registration, events)
+- Migration 021: users expanded (pin_hash, auth_method, role, participant_id, lockout), refresh_tokens, enrollment_codes, verification_codes, user_wallets, auth_audit_log
+- authService.js: 3 registration methods (facility code, email, phone), 3 login methods, JWT+refresh tokens, password reset, lockout
+- walletService.js: silent ethers.js wallet generation, AES-256-CBC encrypted private key storage
+- emailService.js: pilot console logging, interface ready for Resend/Twilio
+- onboardingEngine.js: ABI module — consent collection, orientation, onboarding state transitions
+- authRoutes.js: 17 endpoints (register, login, verify, refresh, logout, reset, me, codes CRUD)
+- onboardingRoutes.js at /api/onboarding: consent, orientation, state, complete
+- JWT: 1h access + 30-day refresh, role-based (participant/facilitator/clinician/admin)
+- 3 auth methods produce identical JWT claims — downstream code doesn't care how you authenticated
+- PIN: 6 digits, bcrypt 12 rounds. Account lockout after 5 failures for 30 min.
+- Enrollment codes: 8-char alphanumeric (no ambiguous chars), single-use, 7-day expiry, revocable
+- WALLET_ENCRYPTION_KEY separate from ART_ENCRYPTION_KEY and RECOVERY_ENCRYPTION_KEY
+- TEST_HARNESS_API_KEY remains functional alongside JWT (backward compatible)
+- Auth UI in test harness (facility login, email login/register, enrollment, code management)
+- Dependencies: bcryptjs
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -152,6 +167,12 @@ Focus only on the task assigned in the session prompt.
 - src/jobs/capacitySnapshot.js — daily snapshot cron job
 - src/abi/lightBridgeEngine.js — IoT light control, LIFX provider, simulation mode
 - src/routes/lightBridgeRoutes.js — LightBridge API endpoints
+- src/services/authService.js — registration, login, JWT, refresh tokens, lockout
+- src/services/walletService.js — embedded wallet generation, encrypted storage
+- src/services/emailService.js — pilot console logging for email/SMS
+- src/abi/onboardingEngine.js — onboarding state machine
+- src/routes/authRoutes.js — production auth endpoints
+- src/routes/onboardingRoutes.js — onboarding endpoints
 - server.js — Express, route mounting, cron
 - public/test.html — throwaway test harness
 
