@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 19, 2026 (Session 23)
+Updated: March 19, 2026 (Session 24)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -207,6 +207,23 @@ Updated: March 19, 2026 (Session 23)
   - API service: axios with JWT interceptor + auto-refresh
   - PWA manifest + dark theme (#061a2a)
 - adminRoutes.js at /api/admin: table-check, migration-count, system-health (admin only)
+- Session 24 — Production Frontend Sprint 2 (ship-ready for pilot):
+  - FamilyScreen: tabbed hub (Members/Co-Breath/Messages/Kitchen Table), gate progress, invite/join
+  - CapacityDisplay: personal state circle + trend + transactions, family dots
+  - HelpButton: "SOS" button fixed on every screen (routes to /app/crisis)
+  - FacilitatedChat: Sonnet-coached messaging thread with coaching cards
+  - CoBreathScreen: full-immersion dual BreathPacer with WebSocket sync
+  - VaultScreen: 7-step capsule creation, 12-word seed phrase, unlock flow
+  - ShowcaseScreen: social art feed with likes
+  - LightBridgeScreen: device management + light state visualization
+  - SubscriptionScreen: tier comparison, trial, subscribe/upgrade/downgrade
+  - TherapyReportScreen: consent checkboxes, preview, send to therapist
+  - CurriculumScreen: weekly assignments, progress bar, completion + Sonnet assessment
+  - HealingMapScreen: generational pattern tree + predictions widget
+  - CrisisScreen: self-report, safe confirmation, 4:6 breathe, privacy mode, exit family
+  - FacilitatorScreen: enrollment codes, participant overview, crisis dashboard, disclosures (role-gated)
+  - ProfileScreen: journey stats, capacity display, privacy, subscription, facilitator tools
+  - App.jsx: all routes added, HelpButton on every protected screen, immersion mode for session/cobreath/crisis
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
