@@ -15,10 +15,11 @@ const lightBridgeEngine = require('../abi/lightBridgeEngine');
 
 router.post('/register', async (req, res) => {
   try {
-    const { user_id, family_unit_id, device_provider, device_token, device_selector, device_name } = req.body;
+    const { family_unit_id, device_provider, device_token, device_selector, device_name } = req.body;
+    const user_id = req.user?.participant_id || req.user?.user_id || req.user?.sub;
 
     if (!user_id || !device_token) {
-      return res.status(400).json({ error: 'user_id and device_token required' });
+      return res.status(400).json({ error: 'device_token required' });
     }
 
     const result = await lightBridgeEngine.registerDevice({

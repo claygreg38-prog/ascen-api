@@ -156,6 +156,7 @@ async function logEvent(deviceId, userId, familyUnitId, eventType, eventData, co
     );
   } catch (err) {
     console.error('[LightBridge] Event log failed:', err.message);
+    Sentry.captureException(err);
   }
 }
 
@@ -373,6 +374,7 @@ async function getDeviceState(userId) {
     );
     return device.rows[0] || null;
   } catch (err) {
+    Sentry.captureException(err);
     return null;
   }
 }
@@ -399,6 +401,13 @@ async function manualOverride(deviceId, command) {
   try {
     const device = await pool.query('SELECT * FROM lightbridge_devices WHERE id = $1', [deviceId]);
     if (device.rows.length === 0) return { error: true, message: 'Device not found' };
+
+    // Rate limit: respect 30s cooldown even for manual overrides
+    const lastChange = stateChangeTimestamps.get(deviceId);
+    if (lastChange && Date.now() - lastChange < STATE_CHANGE_COOLDOWN) {
+      return { error: true, message: 'Rate limited — wait 30 seconds between state changes' };
+    }
+    stateChangeTimestamps.set(deviceId, Date.now());
 
     const result = await sendCommand(device.rows[0], command, 'capacity_state');
     await logEvent(deviceId, device.rows[0].user_id, device.rows[0].family_unit_id, 'capacity_state', { manual: true }, command, true, null);
