@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { getUser } from '../services/auth';
 import { connectDevice, isBleSupported } from '../services/ble';
+import { enableBackgroundMode, disableBackgroundMode } from '../services/backgroundMode';
 import BreathPacer from '../components/BreathPacer';
 
 const PHASES = { ARRIVAL: 'arrival', BREATHING: 'breathing', MIRROR: 'mirror', ART: 'art', COMPLETE: 'complete' };
@@ -28,8 +29,12 @@ export default function SessionScreen() {
 
   // Start session on mount
   useEffect(() => {
+    enableBackgroundMode().catch(() => {});
     startSession();
-    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      disableBackgroundMode().catch(() => {});
+    };
   }, []);
 
   async function startSession() {

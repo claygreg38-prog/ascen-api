@@ -1,5 +1,10 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { isAuthenticated, getUser } from './services/auth';
+import { initBLE } from './services/ble';
+import { initPushNotifications } from './services/pushNotifications';
+import { initGeofencing } from './services/geofencing';
 import BottomNav from './components/BottomNav';
 import HelpButton from './components/HelpButton';
 import LoginScreen from './screens/LoginScreen';
@@ -34,6 +39,14 @@ function FacilitatorOnly({ children }) {
 }
 
 export default function App() {
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      initBLE().catch(() => {});
+      initPushNotifications().catch(() => {});
+      initGeofencing().catch(() => {});
+    }
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

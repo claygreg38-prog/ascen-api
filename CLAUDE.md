@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 19, 2026 (LightBridge Upgrade)
+Updated: March 20, 2026 (Capacitor Native Wrapper)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -109,6 +109,22 @@ Updated: March 19, 2026 (LightBridge Upgrade)
 - Caregiver-controlled visibility per member, personal privacy mode override
 - Configurable hold duration (default 30 min) with scheduled reset
 - "I'm Home" arrival endpoint for geofence/manual trigger
+- Capacitor Native Wrapper (com.mettleworks.ascen):
+  - capacitor.config.ts: appId com.mettleworks.ascen, webDir dist
+  - BLE plugin (@capacitor-community/bluetooth-le): replaces Web Bluetooth, works on iOS + background
+  - Auto-detect: Capacitor BLE on native, Web Bluetooth fallback on Chrome desktop
+  - Push notifications (@capacitor/push-notifications): APNs + FCM via Firebase
+  - pushNotifications.js: token registration, foreground/background handlers, deep linking
+  - geofencing.js: background home zone monitoring, LightBridge arrival trigger
+  - backgroundMode.js: keeps BLE alive during sessions (Android foreground service, iOS background mode)
+  - Native-only modules externalized in Vite build (background-mode, background-geolocation)
+  - App.jsx: native init (BLE, push, geofencing) on startup
+  - SessionScreen: enableBackgroundMode on start, disableBackgroundMode on complete
+- pushService.js: Firebase Admin SDK push sending, expired token cleanup, simulation mode
+- notificationRoutes.js: register-device, unregister, test (at /api/notifications)
+- Migration 029: push_device_tokens table
+- Push wired into: crisis check-ins, messages, co-breath invites, trial expiry, milestones
+- FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL env vars (optional — simulates without)
 - Migration 021: users expanded (pin_hash, auth_method, role, participant_id, lockout), refresh_tokens, enrollment_codes, verification_codes, user_wallets, auth_audit_log
 - authService.js: 3 registration methods (facility code, email, phone), 3 login methods, JWT+refresh tokens, password reset, lockout
 - walletService.js: silent ethers.js wallet generation, AES-256-CBC encrypted private key storage
@@ -313,7 +329,9 @@ Focus only on the task assigned in the session prompt.
 - src/abi/crisisEngine.js — crisis lifecycle, steward system, domestic safety, sanitizeFamilyData
 - src/routes/crisisRoutes.js — crisis participant + facilitator endpoints
 - src/routes/adminRoutes.js — system audit endpoints (table check, migration count, health)
-- frontend/ — production PWA app (Vite + React, built to frontend/dist, served at /app)
+- frontend/ — production PWA + Capacitor app (Vite + React, built to frontend/dist, served at /app)
+- src/services/pushService.js — Firebase push sending (APNs + FCM)
+- src/routes/notificationRoutes.js — push token management
 - server.js — Express, route mounting, cron, WebSocket
 - public/test.html — throwaway test harness
 

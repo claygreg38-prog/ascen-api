@@ -547,6 +547,16 @@ app.post('/api/blockchain/verify-session', authenticateOrApiKey('participant'), 
 });
 
 
+// ── NOTIFICATION ROUTES — Push Token Management ──────────────
+try {
+  const notificationRoutes = require('./src/routes/notificationRoutes');
+  app.use('/api/notifications', authenticateOrApiKey('participant'));
+  app.use('/api/notifications', notificationRoutes);
+  console.log('[NOTIFICATIONS] Routes mounted at /api/notifications');
+} catch (err) {
+  console.warn('[NOTIFICATIONS] Could not mount:', err.message);
+}
+
 // ── ADMIN ROUTES — System Audit (Session 23) ─────────────────
 try {
   const adminRoutes = require('./src/routes/adminRoutes');
