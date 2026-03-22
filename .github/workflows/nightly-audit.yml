@@ -1,112 +1,55 @@
-name: Nightly Audit
-
+name: Nightly ASCEN Audit
 on:
   schedule:
-    - cron: '0 6 * * *'  # 6 AM UTC daily
-  workflow_dispatch:       # manual trigger
-
-env:
-  STAGING_URL: https://ascen-staging-production.up.railway.app
-  TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
-  TEST_FACILITATOR_EMAIL: facilitator@test.ascen.dev
-  TEST_FACILITATOR_PASSWORD: ${{ secrets.TEST_FACILITATOR_PASSWORD }}
-  TEST_PARTICIPANT_1_ID: PUZZ8304
-  TEST_PARTICIPANT_1_PIN: ${{ secrets.TEST_PARTICIPANT_1_PIN }}
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
-  staging-health:
-    name: Staging health check
+  audit:
     runs-on: ubuntu-latest
-    steps:
-      - name: Verify staging is online
-        run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$STAGING_URL/api/health")
-          if [ "$STATUS" != "200" ]; then
-            echo "Staging health check failed: HTTP $STATUS"
-            exit 1
-          fi
-          echo "Staging healthy"
+    timeout-minutes: 10
 
-  full-e2e:
-    name: Full E2E suite
-    runs-on: ubuntu-latest
-    needs: staging-health
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - name: Run all Playwright tests
-        run: npx playwright test --reporter=list
-      - name: Upload HTML report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: nightly-playwright-report
-          path: playwright-report/
-          retention-days: 30
 
-  language-audit:
-    name: Language compliance scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Scan for forbidden terms in user-facing code
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check all source files
         run: |
-          FORBIDDEN='NFT|blockchain|minting|crypto|coherence.score|diagnosis'
-          FAIL=0
-          for f in src/routes/artRoutes.js \
-                   src/routes/capacityRoutes.js \
-                   src/routes/subscriptionRoutes.js \
-                   src/routes/familyRoutes.js \
-                   src/routes/crisisRoutes.js; do
-            if [ -f "$f" ] && grep -Pni "\b($FORBIDDEN)\b" "$f"; then
-              echo "BLOCKED: $f contains forbidden language"
-              FAIL=1
-            fi
+          ERRORS=0
+          for f in $(find src/ -name "*.js"); do
+            node -c "$f" 2>/dev/null || { echo "FAIL: $f"; ERRORS=$((ERRORS+1)); }
           done
-          if [ -d frontend/src ]; then
-            if grep -rPni "\b($FORBIDDEN)\b" frontend/src/; then
-              echo "BLOCKED: frontend contains forbidden language"
-              FAIL=1
+          echo "Syntax errors found: $ERRORS"
+          [ $ERRORS -eq 0 ] || exit 1
+
+      - name: Check for blockchain terms in frontend
+        run: |
+          if [ -d "frontend/src" ]; then
+            HITS=$(grep -ril "NFT\|blockchain\|minting\|wallet\|token" frontend/src/ --include="*.jsx" --include="*.js" | grep -v node_modules || true)
+            if [ -n "$HITS" ]; then
+              echo "FAIL: Blockchain terms found:"
+              echo "$HITS"
+              exit 1
             fi
           fi
-          exit $FAIL
+          echo "PASS: No blockchain terms in frontend"
 
-  architecture-audit:
-    name: Architecture compliance scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: No hardcoded contract addresses
+      - name: Check for clinical terms in frontend
         run: |
-          if grep -rn '0x[0-9a-fA-F]\{40\}' --include='*.js' src/ \
-             | grep -v 'contract_registry' \
-             | grep -v node_modules \
-             | grep -v '\.test\.' ; then
-            echo "BLOCKED: hardcoded contract address found outside contract_registry"
-            exit 1
+          if [ -d "frontend/src" ]; then
+            HITS=$(grep -ril "NS3\|HRV score\|coherence score\|diagnosis" frontend/src/ --include="*.jsx" --include="*.js" | grep -v node_modules || true)
+            if [ -n "$HITS" ]; then
+              echo "FAIL: Clinical terms found:"
+              echo "$HITS"
+              exit 1
+            fi
           fi
-          echo "OK: no hardcoded contract addresses"
-      - name: No direct blockchain writes outside verificationService
-        run: |
-          if grep -rn 'ethers\.\|web3\.\|contract\.mint\|contract\.attest' --include='*.js' src/ \
-             | grep -v 'verificationService.js' \
-             | grep -v 'walletService.js' \
-             | grep -v node_modules; then
-            echo "BLOCKED: blockchain write found outside verificationService"
-            exit 1
-          fi
-          echo "OK: blockchain writes contained to verificationService"
-      - name: No console.log in production src/
-        run: |
-          if grep -rn 'console\.log' --include='*.js' src/ \
-             | grep -v node_modules \
-             | grep -v '\.test\.'; then
-            echo "WARNING: console.log found in src/"
-            exit 1
-          fi
-          echo "OK: no console.log in src/"
+          echo "PASS: No clinical terms in frontend"

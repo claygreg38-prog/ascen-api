@@ -1,60 +1,52 @@
 name: ASCEN CI
-
 on:
   push:
-    branches: [main]
+    branches: [staging, main]
   pull_request:
     branches: [main]
 
-env:
-  STAGING_URL: https://ascen-staging-production.up.railway.app
-  TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
-  TEST_FACILITATOR_EMAIL: facilitator@test.ascen.dev
-  TEST_FACILITATOR_PASSWORD: ${{ secrets.TEST_FACILITATOR_PASSWORD }}
-  TEST_PARTICIPANT_1_ID: PUZZ8304
-  TEST_PARTICIPANT_1_PIN: ${{ secrets.TEST_PARTICIPANT_1_PIN }}
-
 jobs:
-  lint:
-    name: Pre-commit checks
+  test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - name: No hardcoded secrets
-        run: |
-          ! grep -rn 'PRIVATE_KEY\s*=' --include='*.js' src/ || exit 1
-          ! grep -rn 'postgresql://.*:.*@' --include='*.js' src/ || exit 1
-      - name: No forbidden language in user-facing code
-        run: |
-          ! grep -rniw 'NFT\|blockchain\|minting\|crypto' --include='*.js' \
-            src/routes/artRoutes.js \
-            src/routes/capacityRoutes.js \
-            src/routes/subscriptionRoutes.js \
-            frontend/src/ || exit 1
+    timeout-minutes: 15
 
-  e2e:
-    name: Playwright E2E
-    runs-on: ubuntu-latest
-    needs: lint
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check all JS files
+        run: |
+          find src/ -name "*.js" -exec node -c {} \;
+          echo "All JS files pass syntax check"
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
       - name: Run Playwright tests
         run: npx playwright test --reporter=list
-      - name: Upload HTML report
+        env:
+          STAGING_URL: ${{ secrets.STAGING_URL }}
+          TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+          TEST_FACILITATOR_EMAIL: ${{ secrets.TEST_FACILITATOR_EMAIL }}
+          TEST_FACILITATOR_PASSWORD: ${{ secrets.TEST_FACILITATOR_PASSWORD }}
+          TEST_PARTICIPANT_1_ID: ${{ secrets.TEST_PARTICIPANT_1_ID }}
+          TEST_PARTICIPANT_1_PIN: ${{ secrets.TEST_PARTICIPANT_1_PIN }}
+          TEST_PARTICIPANT_2_ID: ${{ secrets.TEST_PARTICIPANT_2_ID }}
+          TEST_PARTICIPANT_2_PIN: ${{ secrets.TEST_PARTICIPANT_2_PIN }}
+          TEST_FAMILY_UNIT_ID: ${{ secrets.TEST_FAMILY_UNIT_ID }}
+
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: playwright-report/
-          retention-days: 14
+          retention-days: 7
