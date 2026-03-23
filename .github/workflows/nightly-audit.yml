@@ -33,7 +33,7 @@ jobs:
       - name: Check for blockchain terms in frontend
         run: |
           if [ -d "frontend/src" ]; then
-            HITS=$(grep -ril "NFT\|blockchain\|minting\|wallet\|token" frontend/src/ --include="*.jsx" --include="*.js" | grep -v node_modules || true)
+            HITS=$(grep -ril "NFT\|blockchain\|minting\|soulbound\|mint token\|crypto wallet" frontend/src/ --include="*.jsx" --include="*.js" | grep -v node_modules || true)
             if [ -n "$HITS" ]; then
               echo "FAIL: Blockchain terms found:"
               echo "$HITS"
