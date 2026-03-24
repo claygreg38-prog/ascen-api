@@ -611,7 +611,7 @@ async function buildFamilyContext(familyUnitId, senderDbId, recipientDbId, tenan
       );
       if (membership.rows.length > 0) {
         const role = membership.rows[0].role;
-        if (role === 'child') context.senderType = 'child';
+        if (role === 'child' || role === 'adult_child') context.senderType = 'child';
         if (role === 'partner') context.senderType = 'partner';
         if (role === 'coparent') context.senderType = 'coparent';
       }

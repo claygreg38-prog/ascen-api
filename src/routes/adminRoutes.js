@@ -86,6 +86,13 @@ router.post('/test-fixture/disclosure', async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Ensure 'child' role is allowed in family_memberships
+    await client.query(`
+      ALTER TABLE family_memberships DROP CONSTRAINT IF EXISTS family_memberships_role_check;
+      ALTER TABLE family_memberships ADD CONSTRAINT family_memberships_role_check
+        CHECK (role IN ('elder', 'adult', 'adult_child', 'child', 'grandchild', 'extended'))
+    `);
+
     // Get ASCEN tenant
     const tenantRow = await client.query("SELECT id FROM tenants WHERE slug = 'ascen'");
     const tenantId = tenantRow.rows[0]?.id;
@@ -126,14 +133,16 @@ router.post('/test-fixture/disclosure', async (req, res) => {
 
     const familyId = family.family_unit_id;
 
-    // Upsert memberships
+    // Upsert memberships (update role if already exists)
     await client.query(
       `INSERT INTO family_memberships (family_unit_id, user_id, role, generation_level)
-       VALUES ($1, $2, 'elder', 0) ON CONFLICT DO NOTHING`, [familyId, parent.id]
+       VALUES ($1, $2, 'elder', 0)
+       ON CONFLICT (family_unit_id, user_id) DO UPDATE SET role = 'elder'`, [familyId, parent.id]
     );
     await client.query(
       `INSERT INTO family_memberships (family_unit_id, user_id, role, generation_level)
-       VALUES ($1, $2, 'adult_child', 1) ON CONFLICT DO NOTHING`, [familyId, child.id]
+       VALUES ($1, $2, 'child', 1)
+       ON CONFLICT (family_unit_id, user_id) DO UPDATE SET role = 'child'`, [familyId, child.id]
     );
 
     // Update users with family_unit_id

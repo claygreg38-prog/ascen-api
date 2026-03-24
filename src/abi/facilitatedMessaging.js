@@ -15,6 +15,26 @@ const Sentry = require('../instrument');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+// ── ROBUST JSON EXTRACTION ──────────────────────────────────
+// Sonnet sometimes wraps JSON in markdown code fences or leading text.
+function extractJSON(raw) {
+  if (!raw) return null;
+  // Try direct parse first
+  try { return JSON.parse(raw); } catch {}
+  // Strip markdown code fences: ```json ... ``` or ``` ... ```
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) {
+    try { return JSON.parse(fenceMatch[1].trim()); } catch {}
+  }
+  // Find first { ... last }
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(raw.substring(start, end + 1)); } catch {}
+  }
+  return null;
+}
+
 // ── CHARACTER LIMITS ─────────────────────────────────────────
 
 const CHAR_LIMITS = {
@@ -74,7 +94,9 @@ async function routeDisclosure(classification, messageId, messageText, senderId,
   };
 
   // Maryland mandatory reporting: any disclosure involving a minor
-  if (familyContext.senderAge && familyContext.senderAge < 18) {
+  // Trigger on explicit age OR when sender is a child/adult_child in the family
+  if ((familyContext.senderAge && familyContext.senderAge < 18) ||
+      familyContext.senderType === 'child') {
     disclosureRecord.mandatory_reporting_flag = true;
   }
 
@@ -203,11 +225,10 @@ async function evaluateOutbound(senderId, recipientId, messageText, channelType,
       userId: senderId
     });
 
-    let evaluation;
-    try {
-      evaluation = JSON.parse(evalResult?.content || '{}');
-    } catch {
-      evaluation = { decision: 'approve', reasoning: 'AI evaluation unavailable — defaulting to approve', confidence: 0 };
+    let evaluation = extractJSON(evalResult?.content);
+    if (!evaluation || !evaluation.decision) {
+      console.warn('[FacilitatedMessaging] Sonnet eval parse failed, raw:', (evalResult?.content || '').substring(0, 200));
+      evaluation = { decision: 'approve', reasoning: 'AI evaluation parse failed — defaulting to approve', confidence: 0 };
     }
 
     // Update message record
@@ -327,11 +348,10 @@ async function evaluateInbound(senderId, recipientId, messageText, channelType, 
       userId: senderId
     });
 
-    let evaluation;
-    try {
-      evaluation = JSON.parse(evalResult?.content || '{}');
-    } catch {
-      evaluation = { decision: 'approve', reasoning: 'AI evaluation unavailable', confidence: 0 };
+    let evaluation = extractJSON(evalResult?.content);
+    if (!evaluation || !evaluation.decision) {
+      console.warn('[FacilitatedMessaging] Sonnet eval parse failed, raw:', (evalResult?.content || '').substring(0, 200));
+      evaluation = { decision: 'approve', reasoning: 'AI evaluation parse failed — defaulting to approve', confidence: 0 };
     }
 
     await pool.query(
