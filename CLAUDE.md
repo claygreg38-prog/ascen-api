@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 20, 2026 (Capacitor Native Wrapper)
+Updated: March 23, 2026 (v8 Immersive Frontend Pairing)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -125,6 +125,23 @@ Updated: March 20, 2026 (Capacitor Native Wrapper)
 - Migration 029: push_device_tokens table
 - Push wired into: crisis check-ins, messages, co-breath invites, trial expiry, milestones
 - FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL env vars (optional — simulates without)
+- **Frontend Architecture:** `/breathe` = canonical participant experience (v8 immersive). `/app` = facilitator/admin dashboard (React PWA). `/test` = development only. Future: move to Vercel as separate deploys post-launch stabilization.
+- Migration 034: session_state JSONB, session_key, session_active, arrival_started_at, vault_response_encrypted on session_completions
+- DB-backed session state via sessionStateManager.js — survives Railway redeploys, supports horizontal scaling
+- 15 new ABI endpoints for v8 immersive frontend support (arrival, pause, resume, exit, BLE, drills, state, events, health, vault, progress)
+- Arrival biometric collection: sample → complete → adapted session parameters. Cap at 60 samples (sliding window), 5-min timeout, Sentry alert at 3 min.
+- Session control: pause, resume, exit (honorable exit), BLE disconnect/reconnect (30s grace period)
+- Drill selection from somatic_exercises table (POST /api/abi/drill/select)
+- Event polling for coaching interventions and Luno dialogue (GET /api/abi/session/events/:sessionKey)
+- ABI health check returns DB stats, NS3 availability, Luno status (GET /api/abi/health)
+- Alias endpoints: POST /api/lightbridge/activate, POST /api/blockchain/verify-session (already existed)
+- v8Routes.js at /api/fr: progress upsert + vault save/read endpoints
+- Vault responses ENCRYPTED at rest (AES-256-CBC via ART_ENCRYPTION_KEY). Clinician-only decrypt.
+- JWT auth integrated into v8 frontend. Login overlay with facility PIN + email paths.
+- API key is dev-only fallback, gated behind dev panel (triple-tap Luno).
+- getBio() wrapper: real BLE data when available, synthetic fallback for dev only
+- Stale session cleanup cron every 15 minutes (sessions active > 2 hours)
+- Playwright tests for v8 session lifecycle in tests/v8-session-flow.spec.js
 - Migration 021: users expanded (pin_hash, auth_method, role, participant_id, lockout), refresh_tokens, enrollment_codes, verification_codes, user_wallets, auth_audit_log
 - authService.js: 3 registration methods (facility code, email, phone), 3 login methods, JWT+refresh tokens, password reset, lockout
 - walletService.js: silent ethers.js wallet generation, AES-256-CBC encrypted private key storage
@@ -332,6 +349,10 @@ Focus only on the task assigned in the session prompt.
 - frontend/ — production PWA + Capacitor app (Vite + React, built to frontend/dist, served at /app)
 - src/services/pushService.js — Firebase push sending (APNs + FCM)
 - src/routes/notificationRoutes.js — push token management
+- src/services/sessionStateManager.js — DB-backed session state (replaces in-memory Map)
+- src/routes/v8Routes.js — FR progress, vault (encrypted), clinician vault read
+- public/index_v8.html — v8 immersive breathing frontend (served at /breathe)
+- tests/v8-session-flow.spec.js — Playwright tests for v8 session lifecycle
 - server.js — Express, route mounting, cron, WebSocket
 - public/test.html — throwaway test harness
 

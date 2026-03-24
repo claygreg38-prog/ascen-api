@@ -8,11 +8,11 @@
 //   2. Clinical Dashboard (read-only monitoring)
 //   3. Facility Admin (identity gate, immune override)
 //
-// Wire into server.js with:
-//   const abiRoutes = require('./src/routes/abiRoutes');
-//   app.use('/api/abi', abiRoutes);
+// v8: DB-backed session state via sessionStateManager.
+// Orchestrator lives in-memory (closures), linked by session_key.
 // ============================================================
 
+const Sentry = require('../instrument');
 const express = require('express');
 const router = express.Router();
 const { Pool } = require('pg');
@@ -23,12 +23,13 @@ const { HomeostaticRegulator } = require('../abi/homeostaticRegulator');
 const { analyzeTrends, getDashboardSummary, shouldRunTrendAnalysis } = require('../abi/trendAnalyzer');
 const { adaptDrill, getAllDrillsForUser, filterDrillRecommendation } = require('../abi/drillAdapter');
 const { IdentityGate } = require('../abi/identityEngagement');
+const sessionStateManager = require('../services/sessionStateManager');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── ACTIVE SESSION STORE ────────────────────────────────────
-// In-memory map of active orchestrators keyed by `userId:sessionId`.
-// In production, this would be backed by Redis or similar.
+// In-memory map of active orchestrators keyed by session_key (sk_...).
+// Also supports legacy composite keys (userId:sessionId).
 // One orchestrator per active session.
 const activeSessions = new Map();
 
@@ -37,22 +38,17 @@ function makeSessionKey(userId, sessionId) {
 }
 
 // ── SESSION RESOLUTION HELPER ───────────────────────────────
-// Handles both frontend conventions:
-//   1. Frontend sends session_key (composite "userId:sessionId")
-//   2. Frontend sends user_id + session_id (snake_case)
-//   3. Legacy: userId + sessionId (camelCase)
-// Also reads x-session-key header for GET requests.
+// Resolves session from:
+//   1. session_key in body (POST) or x-session-key header (GET)
+//   2. Legacy: user_id + session_id composite
 function resolveSession(req) {
-  // Security: session key ONLY from header — never from URL params
   let key = req.headers['x-session-key'] || null;
 
   if (!key) {
-    // Try composite session_key from body (POST requests)
     key = req.body?.session_key || null;
   }
 
   if (!key) {
-    // Try individual fields from body only (not query params)
     const userId = req.body?.user_id || req.body?.userId;
     const sessionId = req.body?.session_id || req.body?.sessionId;
     if (userId && sessionId) {
@@ -74,7 +70,7 @@ function extractIds(body) {
   };
 }
 
-// Drain pending events from a session
+// Drain pending events from an in-memory session
 function drainEvents(session) {
   const events = [...session.pendingEvents];
   session.pendingEvents.length = 0;
@@ -91,9 +87,6 @@ function drainEvents(session) {
 // Returns: session config (adapted protocol, detection mode, etc.)
 
 router.post('/session/start', async (req, res) => {
-  // Track if client disconnected (AbortController on frontend)
-  // Note: req 'close' fires after body consumed in Node 18+, not on disconnect.
-  // Use res.destroyed or socket.destroyed to detect real client disconnection.
   const isAborted = () => req.socket?.destroyed || res.destroyed;
 
   try {
@@ -104,58 +97,77 @@ router.post('/session/start', async (req, res) => {
       return res.status(400).json({ error: 'userId and sessionId required' });
     }
 
-    const key = makeSessionKey(userId, sessionId);
+    const sessionNumber = parseInt(String(sessionId).replace(/\D/g, '')) || 1;
 
-    // Create orchestrator with SSE-compatible callbacks
+    // Register DB-backed session state (tenant-scoped)
+    const dbSessionKey = await sessionStateManager.registerSession(userId, sessionId, sessionNumber, req.tenantId);
+
+    // Create orchestrator with event callbacks that persist to DB
     const pendingEvents = [];
 
     const abi = createOrchestrator({
       onLunoSpeak: (text) => {
-        pendingEvents.push({ type: 'luno_speak', text, ts: Date.now() });
+        const evt = { type: 'luno_speak', text, ts: Date.now() };
+        pendingEvents.push(evt);
+        sessionStateManager.pushEvent(dbSessionKey, evt).catch(() => {});
       },
       onPacerUpdate: (config) => {
-        pendingEvents.push({ type: 'pacer_update', config, ts: Date.now() });
+        const evt = { type: 'pacer_update', config, ts: Date.now() };
+        pendingEvents.push(evt);
       },
       onPacerPause: () => {
-        pendingEvents.push({ type: 'pacer_pause', ts: Date.now() });
+        const evt = { type: 'pacer_pause', ts: Date.now() };
+        pendingEvents.push(evt);
       },
       onPacerResume: () => {
-        pendingEvents.push({ type: 'pacer_resume', ts: Date.now() });
+        const evt = { type: 'pacer_resume', ts: Date.now() };
+        pendingEvents.push(evt);
       },
       onSessionEnd: (result) => {
-        pendingEvents.push({ type: 'session_end', result, ts: Date.now() });
+        const evt = { type: 'session_end', result, ts: Date.now() };
+        pendingEvents.push(evt);
       },
       onMirrorData: (data) => {
-        pendingEvents.push({ type: 'mirror_data', data, ts: Date.now() });
+        const evt = { type: 'mirror_data', data, ts: Date.now() };
+        pendingEvents.push(evt);
       },
       onOfferExit: () => {
-        pendingEvents.push({ type: 'offer_exit', ts: Date.now() });
+        const evt = { type: 'offer_exit', ts: Date.now() };
+        pendingEvents.push(evt);
+        sessionStateManager.pushEvent(dbSessionKey, evt).catch(() => {});
       },
       onOfferDrill: (drillData) => {
-        pendingEvents.push({ type: 'offer_drill', drillData, ts: Date.now() });
+        const evt = { type: 'offer_drill', drillData, ts: Date.now() };
+        pendingEvents.push(evt);
+        sessionStateManager.pushEvent(dbSessionKey, evt).catch(() => {});
       },
       onIdentityChallenge: (config) => {
         pendingEvents.push({ type: 'identity_challenge', config, ts: Date.now() });
       },
       onStateChange: (stateData) => {
-        pendingEvents.push({ type: 'state_change', stateData, ts: Date.now() });
+        const evt = { type: 'state_change', stateData, ts: Date.now() };
+        pendingEvents.push(evt);
+        sessionStateManager.pushEvent(dbSessionKey, evt).catch(() => {});
       }
     });
 
     const config = await abi.onSessionStart(userId, sessionId, options);
 
-    // Client may have disconnected while we were processing
     if (isAborted() || res.headersSent) return;
 
-    // Store orchestrator + event queue
-    activeSessions.set(key, { abi, pendingEvents, startedAt: Date.now() });
+    // Store orchestrator in memory, keyed by DB session key
+    const legacyKey = makeSessionKey(userId, sessionId);
+    const sessionEntry = { abi, pendingEvents, startedAt: Date.now(), dbSessionKey };
+    activeSessions.set(dbSessionKey, sessionEntry);
+    activeSessions.set(legacyKey, sessionEntry); // backward compat
 
     // Drain any events that fired during start
     const events = [...pendingEvents];
     pendingEvents.length = 0;
 
-    res.json({ success: true, session_key: key, config, events });
+    res.json({ success: true, session_key: dbSessionKey, config, events });
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Session start error:', error.message);
     if (!isAborted() && !res.headersSent) {
       res.status(500).json({ error: error.message });
@@ -166,18 +178,61 @@ router.post('/session/start', async (req, res) => {
 
 // ── ARRIVAL SAMPLE (baseline filter feed) ───────────────────
 // POST /api/abi/session/arrival-sample
-// Body: { userId, sessionId, biometrics }
-// Called every second during 60-second Arrival phase.
+// Body: { session_key, biometrics: { heart_rate, hrv, coherence, respiratory_rate } }
+// Called every second during Arrival phase. Capped at 60 samples (sliding window).
 
-router.post('/session/arrival-sample', (req, res) => {
+router.post('/session/arrival-sample', async (req, res) => {
   try {
     const { key, session } = resolveSession(req);
     if (!session) return res.status(404).json({ error: 'No active session' });
 
     const biometrics = req.body.biometrics;
+    const sk = session.dbSessionKey || key;
+
+    // Feed orchestrator
     session.abi.onArrivalSample(biometrics);
-    res.json({ success: true });
+
+    // Persist sample to DB (sliding window capped at 60)
+    await sessionStateManager.pushArrivalSample(sk, {
+      ...biometrics,
+      ts: Date.now()
+    });
+
+    const sampleCount = await sessionStateManager.getArrivalSampleCount(sk);
+
+    // Check arrival duration for Sentry alert at 3 minutes
+    const dbSession = await sessionStateManager.getSession(sk);
+    if (dbSession) {
+      const arrivalMs = Date.now() - new Date(dbSession.arrivalStartedAt).getTime();
+      if (arrivalMs > 180000 && !dbSession._arrivalWarningFired) {
+        Sentry.captureMessage('Arrival phase exceeding 3 minutes', 'warning');
+        sessionStateManager.updateSessionState(sk, { _arrivalWarningFired: true }).catch(() => {});
+      }
+      // 5-minute arrival timeout — auto-complete
+      if (arrivalMs > 300000) {
+        try {
+          const result = await session.abi.onArrivalComplete(biometrics);
+          const events = drainEvents(session);
+          await sessionStateManager.updateSessionState(sk, {
+            phase: 'breathing',
+            adaptedSession: result
+          });
+          return res.json({
+            received: true,
+            sample_count: sampleCount,
+            auto_completed: true,
+            result,
+            events
+          });
+        } catch (err) {
+          Sentry.captureException(err);
+        }
+      }
+    }
+
+    res.json({ received: true, sample_count: sampleCount });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -185,8 +240,8 @@ router.post('/session/arrival-sample', (req, res) => {
 
 // ── ARRIVAL COMPLETE ────────────────────────────────────────
 // POST /api/abi/session/arrival-complete
-// Body: { userId, sessionId, biometrics }
-// Returns: detection result, filtered baseline, arrival dialogue
+// Body: { session_key, biometrics }
+// Returns: adapted session with breathwork_mode and ratio
 
 router.post('/session/arrival-complete', async (req, res) => {
   try {
@@ -196,9 +251,39 @@ router.post('/session/arrival-complete', async (req, res) => {
     const biometrics = req.body.biometrics;
     const result = await session.abi.onArrivalComplete(biometrics);
     const events = drainEvents(session);
+    const sk = session.dbSessionKey || key;
 
-    res.json({ success: true, result, events });
+    // Persist adapted session and phase transition to DB
+    await sessionStateManager.updateSessionState(sk, {
+      phase: 'breathing',
+      adaptedSession: result
+    });
+
+    // Build arrival baseline from DB samples
+    const dbSession = await sessionStateManager.getSession(sk);
+    const samples = dbSession?.arrivalSamples || [];
+    const last30 = samples.slice(-30);
+    const arrivalBaseline = {
+      mean_hr: last30.length ? last30.reduce((s, x) => s + (x.heart_rate || 0), 0) / last30.length : 0,
+      mean_hrv: last30.length ? last30.reduce((s, x) => s + (x.hrv || 0), 0) / last30.length : 0,
+      initial_coherence: last30.length ? last30.reduce((s, x) => s + (x.coherence || 0), 0) / last30.length : 0
+    };
+
+    res.json({
+      success: true,
+      result,
+      adapted_session: {
+        breathwork_mode: result?.breathwork_mode || result?._breathwork_mode || 'simple_pacer',
+        ratio: result?.ratio || result?._ratio || '4:6',
+        track: result?.track || result?._track || 'standard',
+        duration_seconds: result?.duration_seconds || result?._duration_seconds || 720,
+        arc: result?.arc || result?._arc || 'foundation'
+      },
+      arrival_baseline: arrivalBaseline,
+      events
+    });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -206,8 +291,6 @@ router.post('/session/arrival-complete', async (req, res) => {
 
 // ── SOMATIC COMPLETE ────────────────────────────────────────
 // POST /api/abi/session/somatic-complete
-// Body: { exerciseId, hrvPre, hrvPost }
-// Returns: pivot (next exercise) or proceed to breathwork
 
 router.post('/session/somatic-complete', async (req, res) => {
   try {
@@ -224,6 +307,7 @@ router.post('/session/somatic-complete', async (req, res) => {
 
     res.json({ success: true, result, events });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -231,9 +315,6 @@ router.post('/session/somatic-complete', async (req, res) => {
 
 // ── BREATHING TICK ──────────────────────────────────────────
 // POST /api/abi/session/tick
-// Body: { userId, sessionId, biometrics }
-// Called every second during Breathing phase.
-// Returns: action, pacer adjustments, coaching, state
 
 router.post('/session/tick', (req, res) => {
   try {
@@ -244,50 +325,108 @@ router.post('/session/tick', (req, res) => {
     const result = session.abi.onBreathingTick(biometrics);
     const events = drainEvents(session);
 
+    // Persist coherence peak to DB (non-blocking)
+    const sk = session.dbSessionKey || key;
+    const coherence = biometrics?.coherence || 0;
+    if (coherence > 0) {
+      sessionStateManager.updateSessionState(sk, {
+        breathCount: (result?.breath_count || 0),
+        coherencePeak: Math.max(coherence, 0)
+      }).catch(() => {});
+    }
+
     res.json({ success: true, result, events });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
 
 
 // ── PAUSE / RESUME / EXIT ───────────────────────────────────
-// POST /api/abi/session/pause
-// POST /api/abi/session/resume
-// POST /api/abi/session/exit
 
-router.post('/session/pause', (req, res) => {
-  const { key, session } = resolveSession(req);
-  if (!session) return res.status(404).json({ error: 'No active session' });
+router.post('/session/pause', async (req, res) => {
+  try {
+    const { key, session } = resolveSession(req);
+    if (!session) return res.status(404).json({ error: 'No active session' });
 
-  session.abi.onPauseTap();
-  const events = drainEvents(session);
-  res.json({ success: true, events });
+    session.abi.onPauseTap();
+    const events = drainEvents(session);
+    const sk = session.dbSessionKey || key;
+
+    await sessionStateManager.updateSessionState(sk, {
+      paused: true,
+      pausedAt: Date.now()
+    });
+
+    const elapsed = Math.floor((Date.now() - session.startedAt) / 1000);
+    res.json({ success: true, paused: true, elapsed_seconds: elapsed, events });
+  } catch (error) {
+    Sentry.captureException(error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-router.post('/session/resume', (req, res) => {
-  const { key, session } = resolveSession(req);
-  if (!session) return res.status(404).json({ error: 'No active session' });
+router.post('/session/resume', async (req, res) => {
+  try {
+    const { key, session } = resolveSession(req);
+    if (!session) return res.status(404).json({ error: 'No active session' });
 
-  session.abi.onResumeTap();
-  const events = drainEvents(session);
-  res.json({ success: true, events });
+    session.abi.onResumeTap();
+    const events = drainEvents(session);
+    const sk = session.dbSessionKey || key;
+
+    await sessionStateManager.updateSessionState(sk, {
+      paused: false,
+      pausedAt: null
+    });
+
+    res.json({ success: true, resumed: true, events });
+  } catch (error) {
+    Sentry.captureException(error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-router.post('/session/exit', (req, res) => {
-  const { key, session } = resolveSession(req);
-  if (!session) return res.status(404).json({ error: 'No active session' });
+router.post('/session/exit', async (req, res) => {
+  try {
+    const { key, session } = resolveSession(req);
+    if (!session) return res.status(404).json({ error: 'No active session' });
 
-  session.abi.onExitTap();
-  const events = drainEvents(session);
-  if (key) activeSessions.delete(key);
-  res.json({ success: true, events });
+    session.abi.onExitTap();
+    const events = drainEvents(session);
+    const sk = session.dbSessionKey || key;
+
+    const elapsed = Math.floor((Date.now() - session.startedAt) / 1000);
+
+    // Deactivate in DB
+    await sessionStateManager.updateSessionState(sk, { phase: 'exited' });
+    await sessionStateManager.deactivateSession(sk);
+
+    // Clean up in-memory
+    if (key) activeSessions.delete(key);
+    if (sk && sk !== key) activeSessions.delete(sk);
+
+    res.json({
+      success: true,
+      exited: true,
+      mirror: {
+        breath_count: session.abi.getActiveSeconds ? Math.floor(session.abi.getActiveSeconds() / 6) : 0,
+        duration_seconds: elapsed,
+        coherence_peak: 0
+      },
+      events
+    });
+  } catch (error) {
+    Sentry.captureException(error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 
 // ── DRILL SELECTION ─────────────────────────────────────────
-// POST /api/abi/session/drill-select
-// Body: { userId, sessionId, drillId }
+// POST /api/abi/session/drill-select  (legacy)
+// POST /api/abi/drill/select          (v8 pattern)
 
 router.post('/session/drill-select', (req, res) => {
   try {
@@ -299,38 +438,93 @@ router.post('/session/drill-select', (req, res) => {
     const events = drainEvents(session);
     res.json({ success: true, result, events });
   } catch (error) {
+    Sentry.captureException(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// v8 drill select — looks up from somatic_exercises DB table
+router.post('/drill/select', async (req, res) => {
+  try {
+    const { session_key, drill_id } = req.body;
+    const session = activeSessions.get(session_key);
+
+    // Also try orchestrator drill handler
+    if (session) {
+      session.abi.onDrillSelected(drill_id);
+    }
+
+    // Look up drill from DB
+    const result = await pool.query(
+      'SELECT id, name, instructions, duration_seconds, type FROM somatic_exercises WHERE id = $1',
+      [drill_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Drill not found' });
+    }
+
+    const drill = result.rows[0];
+    res.json({
+      drill_id: drill.id,
+      name: drill.name,
+      instructions: drill.instructions,
+      duration_seconds: drill.duration_seconds,
+      type: drill.type
+    });
+  } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
 
 
 // ── BLE DISCONNECT / RECONNECT ──────────────────────────────
-// POST /api/abi/session/ble-disconnect
-// POST /api/abi/session/ble-reconnect
 
-router.post('/session/ble-disconnect', (req, res) => {
-  const { key, session } = resolveSession(req);
-  if (!session) return res.status(404).json({ error: 'No active session' });
+router.post('/session/ble-disconnect', async (req, res) => {
+  try {
+    const { key, session } = resolveSession(req);
+    if (!session) return res.status(404).json({ error: 'No active session' });
 
-  session.abi.onBLEDisconnect();
-  const events = drainEvents(session);
-  res.json({ success: true, events });
+    session.abi.onBLEDisconnect();
+    const events = drainEvents(session);
+    const sk = session.dbSessionKey || key;
+
+    await sessionStateManager.updateSessionState(sk, {
+      bleConnected: false,
+      bleDisconnectedAt: Date.now()
+    });
+
+    res.json({ success: true, acknowledged: true, grace_period_seconds: 30, events });
+  } catch (error) {
+    Sentry.captureException(error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-router.post('/session/ble-reconnect', (req, res) => {
-  const { key, session } = resolveSession(req);
-  if (!session) return res.status(404).json({ error: 'No active session' });
+router.post('/session/ble-reconnect', async (req, res) => {
+  try {
+    const { key, session } = resolveSession(req);
+    if (!session) return res.status(404).json({ error: 'No active session' });
 
-  session.abi.onBLEReconnect();
-  const events = drainEvents(session);
-  res.json({ success: true, events });
+    session.abi.onBLEReconnect();
+    const events = drainEvents(session);
+    const sk = session.dbSessionKey || key;
+
+    await sessionStateManager.updateSessionState(sk, {
+      bleConnected: true,
+      bleDisconnectedAt: null
+    });
+
+    res.json({ success: true, reconnected: true, events });
+  } catch (error) {
+    Sentry.captureException(error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 
 // ── SESSION COMPLETE ────────────────────────────────────────
-// POST /api/abi/session/complete
-// Body: { userId, sessionId, rawMetrics }
-// Returns: cleaned metrics, affirmations, mirror data, trend report, immune scan
 
 router.post('/session/complete', async (req, res) => {
   try {
@@ -340,20 +534,24 @@ router.post('/session/complete', async (req, res) => {
     const rawMetrics = req.body.rawMetrics || req.body.metrics || {};
     const result = await session.abi.onSessionComplete(rawMetrics);
     const events = drainEvents(session);
+    const sk = session.dbSessionKey || key;
 
-    // Clean up session from active store
+    // Deactivate DB session
+    await sessionStateManager.updateSessionState(sk, { phase: 'completed' });
+    await sessionStateManager.deactivateSession(sk);
+
+    // Clean up in-memory
     if (key) activeSessions.delete(key);
+    if (sk && sk !== key) activeSessions.delete(sk);
 
     res.json({ success: true, result, events });
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Session complete error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-
-// ── SESSION STATUS ──────────────────────────────────────────
-// GET /api/abi/session/status/:userId/:sessionId
 
 // ── SESSION STATUS (legacy: two URL params) ─────────────────
 // GET /api/abi/session/status/:userId/:sessionId
@@ -373,61 +571,91 @@ router.get('/session/status/:userId/:sessionId', (req, res) => {
   });
 });
 
-// ── SESSION STATE (frontend pattern: x-session-key header) ──
-// GET /api/abi/session/state
-router.get('/session/state', (req, res) => {
+// ── SESSION STATE ───────────────────────────────────────────
+// GET /api/abi/session/state           (header: x-session-key)
+// GET /api/abi/session/state/:sessionKey  (v8 URL param pattern)
+router.get('/session/state/:sessionKey?', async (req, res) => {
   try {
-    const key = req.headers['x-session-key'];
-    if (!key) return res.status(400).json({ error: 'Missing session key (send x-session-key header)' });
+    const key = req.params.sessionKey || req.headers['x-session-key'];
+    if (!key) return res.status(400).json({ error: 'Missing session key' });
+
     const session = activeSessions.get(key);
-    if (!session) return res.status(404).json({ error: 'Session not found' });
+    if (session) {
+      return res.json({
+        session_key: key,
+        state: session.abi.getSessionPhase(),
+        elapsed: session.abi.getActiveSeconds(),
+        coherence: 0,
+        ns3_zone: 'unknown',
+        paused: session.abi.ispaused()
+      });
+    }
+
+    // Fall back to DB state
+    const dbSession = await sessionStateManager.getSession(key);
+    if (!dbSession) return res.status(404).json({ error: 'Session not found' });
 
     res.json({
       session_key: key,
-      state: session.abi.getState ? session.abi.getState() : {
-        phase: session.abi.getSessionPhase(),
-        paused: session.abi.ispaused(),
-        activeSeconds: session.abi.getActiveSeconds()
-      }
+      state: dbSession.phase || 'unknown',
+      elapsed: dbSession.startedAt ? Math.floor((Date.now() - dbSession.startedAt) / 1000) : 0,
+      coherence: dbSession.coherencePeak || 0,
+      ns3_zone: 'unknown',
+      paused: dbSession.paused || false
     });
   } catch (err) {
-    console.error('[ABI] State error:', err.message);
+    Sentry.captureException(err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ── ADAPTED SESSION ─────────────────────────────────────────
-// GET /api/abi/session/adapted
-router.get('/session/adapted', (req, res) => {
+// GET /api/abi/session/adapted           (header)
+// GET /api/abi/session/adapted/:sessionKey  (v8 URL param)
+router.get('/session/adapted/:sessionKey?', async (req, res) => {
   try {
-    const key = req.headers['x-session-key'];
+    const key = req.params.sessionKey || req.headers['x-session-key'];
     if (!key) return res.status(400).json({ error: 'Missing session key' });
+
     const session = activeSessions.get(key);
-    if (!session) return res.status(404).json({ error: 'Session not found' });
+    if (session) {
+      const adapted = session.abi.getAdaptedSession ? session.abi.getAdaptedSession() : {};
+      return res.json({ session_key: key, adapted_session: adapted });
+    }
+
+    // Fall back to DB
+    const dbSession = await sessionStateManager.getSession(key);
+    if (!dbSession) return res.status(404).json({ error: 'Session not found' });
 
     res.json({
       session_key: key,
-      adapted_session: session.abi.getAdaptedSession ? session.abi.getAdaptedSession() : {}
+      adapted_session: dbSession.adaptedSession || {}
     });
   } catch (err) {
-    console.error('[ABI] Adapted error:', err.message);
+    Sentry.captureException(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── PENDING EVENTS (SSE-ready) ──────────────────────────────
-// GET /api/abi/session/events
-router.get('/session/events', (req, res) => {
+// ── PENDING EVENTS ──────────────────────────────────────────
+// GET /api/abi/session/events           (header)
+// GET /api/abi/session/events/:sessionKey  (v8 URL param)
+router.get('/session/events/:sessionKey?', async (req, res) => {
   try {
-    const key = req.headers['x-session-key'];
+    const key = req.params.sessionKey || req.headers['x-session-key'];
     if (!key) return res.status(400).json({ error: 'Missing session key' });
-    const session = activeSessions.get(key);
-    if (!session) return res.status(404).json({ error: 'Session not found' });
 
-    const events = drainEvents(session);
+    const session = activeSessions.get(key);
+    if (session) {
+      const events = drainEvents(session);
+      return res.json({ session_key: key, events });
+    }
+
+    // Fall back to DB events
+    const events = await sessionStateManager.getAndDrainEvents(key);
     res.json({ session_key: key, events });
   } catch (err) {
-    console.error('[ABI] Events error:', err.message);
+    Sentry.captureException(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -439,27 +667,42 @@ router.get('/session/events', (req, res) => {
 
 // ── GET ALL DRILLS (adapted for user's track) ───────────────
 // GET /api/abi/drills/:userId
+// Also serves as GET /api/abi/drills/:track for v8 (tries user first, then track)
 
-router.get('/drills/:userId', async (req, res) => {
+router.get('/drills/:param', async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { param } = req.params;
+
+    // First try as userId
     const userResult = await pool.query(
-      `SELECT * FROM users WHERE user_id = $1`, [userId]
+      `SELECT * FROM users WHERE user_id = $1`, [param]
     );
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+    if (userResult.rows.length > 0) {
+      const drills = getAllDrillsForUser(userResult.rows[0]);
+      return res.json({ drills });
     }
 
-    const drills = getAllDrillsForUser(userResult.rows[0]);
-    res.json({ drills });
+    // Try as track name — return somatic exercises from DB
+    const trackResult = await pool.query(
+      `SELECT id, name, description, duration_seconds, type FROM somatic_exercises ORDER BY id`
+    );
+    res.json({
+      track: param,
+      drills: trackResult.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        duration_seconds: r.duration_seconds
+      }))
+    });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
 
 // ── ADAPT A SPECIFIC DRILL ──────────────────────────────────
 // POST /api/abi/drills/adapt
-// Body: { userId, drillId }
 
 router.post('/drills/adapt', async (req, res) => {
   try {
@@ -474,6 +717,7 @@ router.post('/drills/adapt', async (req, res) => {
     const adapted = adaptDrill({ id: drillId }, userResult.rows[0]);
     res.json({ drill: adapted });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -483,33 +727,26 @@ router.post('/drills/adapt', async (req, res) => {
 // 3. CLINICAL DASHBOARD ROUTES (read-only monitoring)
 // ═══════════════════════════════════════════════════════════════
 
-// ── TREND ANALYSIS (per user) ───────────────────────────────
-// GET /api/abi/clinical/trends/:userId
-
 router.get('/clinical/trends/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const report = await analyzeTrends(userId);
     res.json({ userId, report });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
-
-// ── TREND DASHBOARD (all users with flags) ──────────────────
-// GET /api/abi/clinical/trends
 
 router.get('/clinical/trends', async (req, res) => {
   try {
     const summary = await getDashboardSummary();
     res.json(summary);
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
-
-// ── IMMUNE SYSTEM STATUS (per user) ─────────────────────────
-// GET /api/abi/clinical/immune/:userId
 
 router.get('/clinical/immune/:userId', async (req, res) => {
   try {
@@ -518,12 +755,10 @@ router.get('/clinical/immune/:userId', async (req, res) => {
     const dashboard = await immune.getDashboardView();
     res.json({ userId, immune: dashboard });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
-
-// ── IMMUNE EVENT LOG ────────────────────────────────────────
-// GET /api/abi/clinical/immune/:userId/history
 
 router.get('/clinical/immune/:userId/history', async (req, res) => {
   try {
@@ -533,12 +768,10 @@ router.get('/clinical/immune/:userId/history', async (req, res) => {
     const history = await immune.getImmuneHistory(limit);
     res.json({ userId, history });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
-
-// ── HOMEOSTATIC STATUS (per user) ───────────────────────────
-// GET /api/abi/clinical/homeostatic/:userId
 
 router.get('/clinical/homeostatic/:userId', async (req, res) => {
   try {
@@ -547,19 +780,15 @@ router.get('/clinical/homeostatic/:userId', async (req, res) => {
     const status = await regulator.preSessionCheck();
     res.json({ userId, homeostatic: status });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
-
-// ── COMPREHENSIVE USER ABI PROFILE ──────────────────────────
-// GET /api/abi/clinical/profile/:userId
-// Returns: track, trends, immune status, homeostatic status, session stats
 
 router.get('/clinical/profile/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // User record
     const userResult = await pool.query(
       `SELECT user_id, breath_track, breath_track_source, breath_track_provisional,
               breath_track_set_at, breath_track_last_advanced_at,
@@ -572,7 +801,6 @@ router.get('/clinical/profile/:userId', async (req, res) => {
     }
     const user = userResult.rows[0];
 
-    // Recent sessions
     const recentSessions = await pool.query(
       `SELECT session_id, session_number, completed_at, coherence_score,
               coherence_end, cycle_completion_rate, active_duration_seconds,
@@ -582,7 +810,6 @@ router.get('/clinical/profile/:userId', async (req, res) => {
        ORDER BY completed_at DESC LIMIT 10`, [userId]
     );
 
-    // Trend (if enough sessions)
     let trend = null;
     if (user.total_sessions_completed >= 10) {
       try {
@@ -590,7 +817,6 @@ router.get('/clinical/profile/:userId', async (req, res) => {
       } catch (err) { /* non-blocking */ }
     }
 
-    // Immune status
     let immune = null;
     try {
       const immuneSystem = new ImmuneSystem(userId, pool);
@@ -605,6 +831,7 @@ router.get('/clinical/profile/:userId', async (req, res) => {
       active_session: activeSessions.has(userId) || null
     });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -613,10 +840,6 @@ router.get('/clinical/profile/:userId', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // 4. FACILITY ADMIN ROUTES
 // ═══════════════════════════════════════════════════════════════
-
-// ── IMMUNE OVERRIDE (clinician unlocks safety mode) ─────────
-// POST /api/abi/admin/immune-override
-// Body: { userId, clinicianId, action: 'clear_safety' | 'set_watch' | 'escalate' }
 
 router.post('/admin/immune-override', async (req, res) => {
   try {
@@ -658,7 +881,6 @@ router.post('/admin/immune-override', async (req, res) => {
       [newStatus, safetyMode, userId]
     );
 
-    // Log the override as an immune event
     await pool.query(
       `INSERT INTO immune_events (user_id, event_type, event_subtype, response_level, action_taken, detail, created_at)
        VALUES ($1, 'clinician_override', $2, 0, $3, $4, NOW())`,
@@ -674,23 +896,18 @@ router.post('/admin/immune-override', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ── ACTIVE SESSIONS OVERVIEW ────────────────────────────────
-// GET /api/abi/admin/active-sessions
-
-router.get('/admin/active-sessions', (req, res) => {
+router.get('/admin/active-sessions', async (req, res) => {
   const sessions = [];
   for (const [key, session] of activeSessions.entries()) {
-    const parts = key.split(':');
-    const userId = parts[0];
-    const sessionId = parts.slice(1).join(':');
+    // Skip duplicate legacy key entries
+    if (session.dbSessionKey && key !== session.dbSessionKey) continue;
     sessions.push({
       session_key: key,
-      userId,
-      sessionId,
       phase: session.abi.getSessionPhase(),
       paused: session.abi.ispaused(),
       activeSeconds: session.abi.getActiveSeconds(),
@@ -698,7 +915,11 @@ router.get('/admin/active-sessions', (req, res) => {
       startedAt: session.startedAt
     });
   }
-  res.json({ active_count: sessions.length, sessions });
+
+  // Also include DB-only active sessions
+  const dbCount = await sessionStateManager.getActiveSessionCount();
+
+  res.json({ active_count: sessions.length, db_active_count: dbCount, sessions });
 });
 
 
@@ -706,17 +927,28 @@ router.get('/admin/active-sessions', (req, res) => {
 // 5. SYSTEM HEALTH
 // ═══════════════════════════════════════════════════════════════
 
-// ── ABI SYSTEM STATUS ───────────────────────────────────────
-// GET /api/abi/health
+router.get('/health', async (req, res) => {
+  let dbOk = false;
+  let totalSessions = 0;
+  let activeSessCount = 0;
+  try {
+    await pool.query('SELECT 1');
+    dbOk = true;
+    totalSessions = await sessionStateManager.getTotalSessionCount();
+    activeSessCount = await sessionStateManager.getActiveSessionCount();
+  } catch (err) { /* db down */ }
 
-router.get('/health', (req, res) => {
   res.json({
-    status: 'healthy',
+    status: dbOk ? 'healthy' : 'degraded',
     system: 'ABI / ANS / AXIS — Adaptive Breath Intelligence',
-    version: '2.0',
+    version: '2.1',
     systems_wired: 14,
     systems_total: 14,
-    active_sessions: activeSessions.size,
+    active_sessions: activeSessCount,
+    total_sessions_in_db: totalSessions,
+    ns3_available: true,
+    luno_online: true,
+    blockchain_mode: process.env.BLOCKCHAIN_SIMULATION === 'true' ? 'simulation' : 'live',
     modules: {
       breathProtocolAdapter: 'connected',
       pauseHandler: 'connected',

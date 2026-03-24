@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ASCEN BreathWorx</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#020812;--surface:#0a1628;--accent:#4fd1c5;--accent2:#63b3ed;--text:#e2e8f0;--text-dim:#718096;--danger:#fc8181;--success:#68d391}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif}
+
+/* ── LOGIN OVERLAY ─────────────────────────────────── */
+#loginOverlay{position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .4s}
+#loginOverlay.hidden{opacity:0;pointer-events:none}
+.login-card{width:90%;max-width:380px;padding:2rem;border-radius:16px;background:var(--surface);border:1px solid rgba(79,209,197,.15)}
+.login-title{font-size:1.5rem;font-weight:600;text-align:center;margin-bottom:.5rem;color:var(--accent)}
+.login-subtitle{font-size:.85rem;text-align:center;color:var(--text-dim);margin-bottom:1.5rem}
+.login-tabs{display:flex;gap:.5rem;margin-bottom:1.5rem}
+.login-tab{flex:1;padding:.6rem;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,.1);color:var(--text-dim);font-family:inherit;font-size:.85rem;cursor:pointer;transition:all .2s}
+.login-tab.active{background:rgba(79,209,197,.1);border-color:var(--accent);color:var(--accent)}
+.login-field{width:100%;padding:.75rem 1rem;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--text);font-family:inherit;font-size:1rem;margin-bottom:.75rem;outline:none;transition:border-color .2s}
+.login-field:focus{border-color:var(--accent)}
+.login-field::placeholder{color:var(--text-dim)}
+.pin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:.75rem}
+.pin-key{padding:.9rem;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--text);font-size:1.3rem;font-family:inherit;cursor:pointer;transition:background .15s}
+.pin-key:active{background:rgba(79,209,197,.2)}
+.pin-key.empty{visibility:hidden}
+.pin-display{display:flex;gap:8px;justify-content:center;margin-bottom:1rem}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.2);transition:all .2s}
+.pin-dot.filled{background:var(--accent);border-color:var(--accent)}
+.login-btn{width:100%;padding:.8rem;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:var(--bg);font-family:inherit;font-size:1rem;font-weight:600;cursor:pointer;transition:opacity .2s}
+.login-btn:disabled{opacity:.4;cursor:not-allowed}
+.login-error{color:var(--danger);font-size:.8rem;text-align:center;margin-top:.5rem;min-height:1.2rem}
+
+/* ── MAIN SESSION UI ───────────────────────────────── */
+#sessionContainer{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;transition:opacity .6s}
+#sessionContainer.visible{opacity:1}
+
+/* Breath circle */
+.breath-ring{width:240px;height:240px;border-radius:50%;border:3px solid var(--accent);display:flex;align-items:center;justify-content:center;transition:transform .1s linear;position:relative}
+.breath-ring::after{content:'';position:absolute;inset:8px;border-radius:50%;border:1px solid rgba(79,209,197,.2)}
+.breath-label{font-size:1.1rem;font-weight:300;color:var(--accent);text-transform:uppercase;letter-spacing:.1em}
+
+/* Luno */
+.luno-container{margin-top:2rem;text-align:center;min-height:60px}
+.luno-text{font-size:.95rem;color:var(--text-dim);font-weight:300;line-height:1.5;max-width:320px;margin:0 auto;opacity:0;transition:opacity .5s}
+.luno-text.visible{opacity:1}
+
+/* Status bar */
+.status-bar{position:fixed;bottom:0;left:0;right:0;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(transparent,rgba(2,8,18,.9))}
+.status-item{font-size:.75rem;color:var(--text-dim)}
+.status-value{color:var(--accent);font-weight:500}
+
+/* Phase indicator */
+.phase-badge{position:fixed;top:env(safe-area-inset-top,20px);left:50%;transform:translateX(-50%);padding:.4rem 1.2rem;border-radius:20px;background:rgba(79,209,197,.1);border:1px solid rgba(79,209,197,.2);font-size:.75rem;color:var(--accent);text-transform:uppercase;letter-spacing:.15em}
+
+/* Controls */
+.controls{position:fixed;bottom:5rem;left:50%;transform:translateX(-50%);display:flex;gap:1rem}
+.ctrl-btn{width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--text-dim);font-size:1.2rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.ctrl-btn:active{background:rgba(79,209,197,.15);border-color:var(--accent)}
+
+/* Mirror screen */
+#mirrorScreen{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:500;padding:2rem}
+#mirrorScreen.visible{display:flex}
+.mirror-stat{text-align:center;margin-bottom:1.5rem}
+.mirror-value{font-size:2.5rem;font-weight:600;color:var(--accent)}
+.mirror-label{font-size:.8rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;margin-top:.25rem}
+.mirror-close{margin-top:2rem;padding:.8rem 2rem;border-radius:10px;background:rgba(79,209,197,.15);border:1px solid rgba(79,209,197,.3);color:var(--accent);font-family:inherit;font-size:.9rem;cursor:pointer}
+
+/* Dev panel (triple-tap Luno) */
+#devPanel{position:fixed;top:0;right:0;width:280px;height:100%;background:var(--surface);border-left:1px solid rgba(255,255,255,.1);padding:1rem;z-index:2000;transform:translateX(100%);transition:transform .3s;overflow-y:auto;font-size:.75rem}
+#devPanel.open{transform:translateX(0)}
+.dev-field{margin-bottom:.5rem}
+.dev-field label{display:block;color:var(--text-dim);margin-bottom:2px}
+.dev-field input{width:100%;padding:.4rem;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:var(--text);font-family:inherit;font-size:.75rem}
+</style>
+</head>
+<body>
+
+<!-- ═══ LOGIN OVERLAY ═══ -->
+<div id="loginOverlay">
+  <div class="login-card">
+    <div class="login-title">ASCEN BreathWorx</div>
+    <div class="login-subtitle">Breathe. Grow. Heal.</div>
+    <div class="login-tabs">
+      <button class="login-tab active" onclick="switchLoginTab('participant')">Participant</button>
+      <button class="login-tab" onclick="switchLoginTab('staff')">Staff</button>
+    </div>
+
+    <!-- Participant login (ID + PIN) -->
+    <div id="participantLogin">
+      <input class="login-field" id="participantId" type="text" placeholder="Participant ID" autocomplete="off">
+      <div class="pin-display" id="pinDisplay"></div>
+      <div class="pin-grid" id="pinGrid"></div>
+    </div>
+
+    <!-- Staff login (email + password) -->
+    <div id="staffLogin" style="display:none">
+      <input class="login-field" id="staffEmail" type="email" placeholder="Email address" autocomplete="email">
+      <input class="login-field" id="staffPassword" type="password" placeholder="Password" autocomplete="current-password">
+      <button class="login-btn" onclick="loginStaff()">Sign In</button>
+    </div>
+
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- ═══ SESSION CONTAINER ═══ -->
+<div id="sessionContainer">
+  <div class="phase-badge" id="phaseBadge">Arrival</div>
+
+  <div class="breath-ring" id="breathRing">
+    <span class="breath-label" id="breathLabel">Settle In</span>
+  </div>
+
+  <div class="luno-container">
+    <div class="luno-text" id="lunoText"></div>
+  </div>
+
+  <div class="controls">
+    <button class="ctrl-btn" id="btnPause" title="Pause">&#10074;&#10074;</button>
+    <button class="ctrl-btn" id="btnExit" title="Exit" style="display:none">&#x2715;</button>
+  </div>
+
+  <div class="status-bar">
+    <span class="status-item">HR <span class="status-value" id="hrDisplay">--</span></span>
+    <span class="status-item">Coherence <span class="status-value" id="cohDisplay">--</span></span>
+    <span class="status-item"><span class="status-value" id="timerDisplay">0:00</span></span>
+  </div>
+</div>
+
+<!-- ═══ MIRROR SCREEN ═══ -->
+<div id="mirrorScreen">
+  <div class="mirror-stat">
+    <div class="mirror-value" id="mirrorBreaths">0</div>
+    <div class="mirror-label">Breaths</div>
+  </div>
+  <div class="mirror-stat">
+    <div class="mirror-value" id="mirrorDuration">0:00</div>
+    <div class="mirror-label">Duration</div>
+  </div>
+  <div class="mirror-stat">
+    <div class="mirror-value" id="mirrorCoherence">0</div>
+    <div class="mirror-label">Peak Coherence</div>
+  </div>
+  <button class="mirror-close" onclick="closeMirror()">Complete</button>
+</div>
+
+<!-- ═══ DEV PANEL (triple-tap Luno) ═══ -->
+<div id="devPanel">
+  <h3 style="color:var(--accent);margin-bottom:1rem">Dev Panel</h3>
+  <div class="dev-field">
+    <label>API Key Override</label>
+    <input id="devApiKey" type="text" placeholder="API key for dev mode">
+  </div>
+  <div class="dev-field">
+    <label>User ID Override</label>
+    <input id="devUserId" type="text" placeholder="Override user_id">
+  </div>
+  <div class="dev-field">
+    <label>Session Override</label>
+    <input id="devSessionId" type="text" placeholder="Override session_id">
+  </div>
+  <div style="margin-top:1rem">
+    <button class="login-btn" onclick="devStartSession()" style="font-size:.8rem;padding:.5rem">Start Session (Dev)</button>
+  </div>
+  <pre id="devLog" style="margin-top:1rem;color:var(--text-dim);white-space:pre-wrap;max-height:300px;overflow-y:auto"></pre>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// ASCEN v8 Immersive Breathing Session Engine
+// ═══════════════════════════════════════════════════════════════
+
+const API_BASE = window.location.origin;
+
+// ── STATE ──────────────────────────────────────────────────
+let state = {
+  jwt: localStorage.getItem('ascen_jwt'),
+  refreshToken: localStorage.getItem('ascen_refresh'),
+  sessionKey: null,
+  phase: 'idle', // idle, arrival, breathing, paused, mirror, done
+  userId: null,
+  sessionId: null,
+  breathCount: 0,
+  coherencePeak: 0,
+  elapsed: 0,
+  paused: false,
+  bleConnected: false,
+  arrivalTimer: null,
+  tickTimer: null,
+  breathAnimFrame: null,
+  devPanelOpen: false,
+  lunoTapCount: 0,
+  lunoTapTimeout: null
+};
+
+// ═══════════════════════════════════════════════════════════════
+// AUTH SERVICE
+// ═══════════════════════════════════════════════════════════════
+
+async function apiRequest(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+
+  if (state.jwt) {
+    headers['Authorization'] = 'Bearer ' + state.jwt;
+  } else if (state.devPanelOpen) {
+    const devKey = document.getElementById('devApiKey')?.value;
+    if (devKey) headers['x-api-key'] = devKey;
+  }
+
+  if (state.sessionKey) {
+    headers['x-session-key'] = state.sessionKey;
+  }
+
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+
+  const res = await fetch(API_BASE + path, opts);
+
+  // Token refresh on 401
+  if (res.status === 401 && state.refreshToken) {
+    const refreshed = await refreshJWT();
+    if (refreshed) {
+      headers['Authorization'] = 'Bearer ' + state.jwt;
+      const retry = await fetch(API_BASE + path, { method, headers, body: opts.body });
+      return retry.json();
+    } else {
+      showLogin();
+      throw new Error('Session expired');
+    }
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
+
+async function refreshJWT() {
+  try {
+    const res = await fetch(API_BASE + '/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: state.refreshToken })
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    state.jwt = data.jwt || data.token;
+    localStorage.setItem('ascen_jwt', state.jwt);
+    if (data.refresh_token) {
+      state.refreshToken = data.refresh_token;
+      localStorage.setItem('ascen_refresh', state.refreshToken);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LOGIN
+// ═══════════════════════════════════════════════════════════════
+
+let loginPin = '';
+
+function initPinPad() {
+  const display = document.getElementById('pinDisplay');
+  const grid = document.getElementById('pinGrid');
+  display.innerHTML = Array(6).fill('<div class="pin-dot"></div>').join('');
+
+  const keys = [1,2,3,4,5,6,7,8,9,'',0,'<'];
+  grid.innerHTML = keys.map(k => {
+    if (k === '') return '<button class="pin-key empty"></button>';
+    if (k === '<') return '<button class="pin-key" onclick="pinBackspace()">&#9003;</button>';
+    return `<button class="pin-key" onclick="pinPress(${k})">${k}</button>`;
+  }).join('');
+}
+
+function pinPress(digit) {
+  if (loginPin.length >= 6) return;
+  loginPin += digit;
+  updatePinDots();
+  if (loginPin.length === 6) {
+    setTimeout(() => loginParticipant(), 150);
+  }
+}
+
+function pinBackspace() {
+  loginPin = loginPin.slice(0, -1);
+  updatePinDots();
+}
+
+function updatePinDots() {
+  const dots = document.querySelectorAll('.pin-dot');
+  dots.forEach((d, i) => d.classList.toggle('filled', i < loginPin.length));
+}
+
+async function loginParticipant() {
+  const participantId = document.getElementById('participantId').value.trim();
+  if (!participantId) {
+    showLoginError('Enter your Participant ID');
+    loginPin = '';
+    updatePinDots();
+    return;
+  }
+
+  try {
+    const data = await fetch(API_BASE + '/api/auth/login/facility', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participant_id: participantId, pin: loginPin })
+    }).then(r => r.json());
+
+    if (data.jwt) {
+      state.jwt = data.jwt;
+      state.refreshToken = data.refresh_token;
+      state.userId = data.user?.id || data.user?.user_id || participantId;
+      localStorage.setItem('ascen_jwt', state.jwt);
+      localStorage.setItem('ascen_refresh', state.refreshToken);
+      hideLogin();
+      loadSessionAndStart();
+    } else {
+      showLoginError(data.error || 'Login failed');
+      loginPin = '';
+      updatePinDots();
+    }
+  } catch (err) {
+    showLoginError(err.message);
+    loginPin = '';
+    updatePinDots();
+  }
+}
+
+async function loginStaff() {
+  const email = document.getElementById('staffEmail').value.trim();
+  const password = document.getElementById('staffPassword').value;
+
+  if (!email || !password) {
+    showLoginError('Enter email and password');
+    return;
+  }
+
+  try {
+    const data = await fetch(API_BASE + '/api/auth/login/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    }).then(r => r.json());
+
+    if (data.jwt) {
+      state.jwt = data.jwt;
+      state.refreshToken = data.refresh_token;
+      state.userId = data.user?.id || data.user?.user_id;
+      localStorage.setItem('ascen_jwt', state.jwt);
+      localStorage.setItem('ascen_refresh', state.refreshToken);
+      hideLogin();
+      loadSessionAndStart();
+    } else {
+      showLoginError(data.error || 'Login failed');
+    }
+  } catch (err) {
+    showLoginError(err.message);
+  }
+}
+
+function switchLoginTab(tab) {
+  document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('participantLogin').style.display = tab === 'participant' ? 'block' : 'none';
+  document.getElementById('staffLogin').style.display = tab === 'staff' ? 'block' : 'none';
+  showLoginError('');
+}
+
+function showLoginError(msg) { document.getElementById('loginError').textContent = msg; }
+function showLogin() { document.getElementById('loginOverlay').classList.remove('hidden'); document.getElementById('sessionContainer').classList.remove('visible'); }
+function hideLogin() { document.getElementById('loginOverlay').classList.add('hidden'); document.getElementById('sessionContainer').classList.add('visible'); }
+
+// ═══════════════════════════════════════════════════════════════
+// BLE INTEGRATION
+// ═══════════════════════════════════════════════════════════════
+
+// Real BLE data set by Web Bluetooth or Capacitor BLE
+window._lastBLEData = null;
+
+function getSyntheticBio() {
+  const t = Date.now() / 1000;
+  return {
+    heart_rate: 68 + Math.sin(t * 0.1) * 5 + (Math.random() * 2 - 1),
+    respiratory_rate: 12 + Math.sin(t * 0.05) * 2,
+    hrv: 35 + Math.sin(t * 0.08) * 10 + (Math.random() * 3),
+    coherence: Math.min(1, Math.max(0, 0.3 + Math.sin(t * 0.03) * 0.25 + (Math.random() * 0.1)))
+  };
+}
+
+function getBio() {
+  // Real BLE data (from Web Bluetooth or Capacitor BLE)
+  if (window._lastBLEData && (Date.now() - window._lastBLEData.timestamp < 5000)) {
+    return {
+      heart_rate: window._lastBLEData.hr,
+      respiratory_rate: window._lastBLEData.rr || 14,
+      hrv: window._lastBLEData.hrv || 0,
+      coherence: window._lastBLEData.coherence || 0
+    };
+  }
+  // Synthetic fallback (development and testing ONLY)
+  return getSyntheticBio();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SESSION LIFECYCLE
+// ═══════════════════════════════════════════════════════════════
+
+async function loadSessionAndStart() {
+  try {
+    // Load next session for user (default to session 1)
+    const sessions = await apiRequest('GET', '/api/sessions');
+    state.sessionId = sessions.sessions?.[0]?.session_number || 1;
+    await startSession();
+  } catch (err) {
+    showLuno('Having trouble connecting. Please try again.');
+    devLog('loadSessionAndStart error: ' + err.message);
+  }
+}
+
+async function startSession() {
+  try {
+    setPhase('arrival');
+    const data = await apiRequest('POST', '/api/abi/session/start', {
+      user_id: state.userId,
+      session_id: state.sessionId,
+      options: {}
+    });
+
+    state.sessionKey = data.session_key;
+    processEvents(data.events || []);
+
+    // Start arrival sampling
+    startArrival();
+  } catch (err) {
+    showLuno('Session could not start. ' + err.message);
+    devLog('startSession error: ' + err.message);
+  }
+}
+
+function startArrival() {
+  let sampleCount = 0;
+  state.arrivalTimer = setInterval(async () => {
+    if (state.phase !== 'arrival') {
+      clearInterval(state.arrivalTimer);
+      return;
+    }
+
+    const bio = getBio();
+    updateBioDisplay(bio);
+
+    try {
+      const data = await apiRequest('POST', '/api/abi/session/arrival-sample', {
+        session_key: state.sessionKey,
+        biometrics: bio
+      });
+      sampleCount = data.sample_count || sampleCount + 1;
+
+      // Auto-complete after 30 samples (30 seconds)
+      if (sampleCount >= 30) {
+        clearInterval(state.arrivalTimer);
+        completeArrival(bio);
+      }
+
+      // Auto-completed by server (5-minute timeout)
+      if (data.auto_completed) {
+        clearInterval(state.arrivalTimer);
+        onArrivalDone(data);
+      }
+    } catch (err) {
+      devLog('arrival-sample error: ' + err.message);
+    }
+  }, 1000);
+}
+
+async function completeArrival(bio) {
+  try {
+    const data = await apiRequest('POST', '/api/abi/session/arrival-complete', {
+      session_key: state.sessionKey,
+      biometrics: bio
+    });
+    onArrivalDone(data);
+  } catch (err) {
+    devLog('arrival-complete error: ' + err.message);
+    // Continue with default breathing
+    setPhase('breathing');
+    startBreathing({ ratio: '4:6', duration_seconds: 720 });
+  }
+}
+
+function onArrivalDone(data) {
+  processEvents(data.events || []);
+  const adapted = data.adapted_session || data.result || {};
+  setPhase('breathing');
+  startBreathing(adapted);
+}
+
+function startBreathing(adapted) {
+  const ratio = (adapted.ratio || '4:6').split(':').map(Number);
+  const inhale = ratio[0] || 4;
+  const exhale = ratio[1] || 6;
+  const cycleSec = inhale + exhale;
+  const duration = adapted.duration_seconds || 720;
+  const startTime = Date.now();
+
+  document.getElementById('breathLabel').textContent = adapted.ratio || '4:6';
+
+  // Breath animation
+  function animateBreath() {
+    if (state.phase !== 'breathing' && state.phase !== 'paused') return;
+    if (state.paused) {
+      state.breathAnimFrame = requestAnimationFrame(animateBreath);
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = ((now - startTime) / 1000) % cycleSec;
+    const ring = document.getElementById('breathRing');
+
+    if (elapsed < inhale) {
+      // Inhale — expand
+      const progress = elapsed / inhale;
+      const scale = 1 + progress * 0.3;
+      ring.style.transform = `scale(${scale})`;
+      ring.style.borderColor = 'var(--accent)';
+    } else {
+      // Exhale — contract
+      const progress = (elapsed - inhale) / exhale;
+      const scale = 1.3 - progress * 0.3;
+      ring.style.transform = `scale(${scale})`;
+      ring.style.borderColor = 'var(--accent2)';
+    }
+
+    state.breathAnimFrame = requestAnimationFrame(animateBreath);
+  }
+  state.breathAnimFrame = requestAnimationFrame(animateBreath);
+
+  // Tick timer
+  let tickCount = 0;
+  state.tickTimer = setInterval(async () => {
+    if (state.phase !== 'breathing') {
+      clearInterval(state.tickTimer);
+      return;
+    }
+    if (state.paused) return;
+
+    tickCount++;
+    state.elapsed = tickCount;
+    updateTimer(tickCount);
+
+    const bio = getBio();
+    updateBioDisplay(bio);
+    state.coherencePeak = Math.max(state.coherencePeak, bio.coherence);
+
+    try {
+      const data = await apiRequest('POST', '/api/abi/session/tick', {
+        session_key: state.sessionKey,
+        biometrics: bio
+      });
+      processEvents(data.events || []);
+    } catch (err) {
+      devLog('tick error: ' + err.message);
+    }
+
+    // Auto-complete at duration
+    if (tickCount >= duration) {
+      clearInterval(state.tickTimer);
+      completeSession();
+    }
+  }, 1000);
+}
+
+async function completeSession() {
+  try {
+    cancelAnimationFrame(state.breathAnimFrame);
+    const data = await apiRequest('POST', '/api/abi/session/complete', {
+      session_key: state.sessionKey,
+      rawMetrics: {
+        breath_count: state.breathCount,
+        coherence_peak: state.coherencePeak,
+        duration_seconds: state.elapsed,
+        coherence_end: state.coherencePeak
+      }
+    });
+
+    processEvents(data.events || []);
+    showMirror(data.result);
+  } catch (err) {
+    devLog('complete error: ' + err.message);
+    showMirror({ breath_count: state.breathCount, duration_seconds: state.elapsed, coherence_peak: state.coherencePeak });
+  }
+}
+
+// ── PAUSE / RESUME / EXIT ──
+
+async function togglePause() {
+  if (state.paused) {
+    state.paused = false;
+    document.getElementById('btnPause').innerHTML = '&#10074;&#10074;';
+    document.getElementById('btnExit').style.display = 'none';
+    try { await apiRequest('POST', '/api/abi/session/resume', { session_key: state.sessionKey }); } catch {}
+  } else {
+    state.paused = true;
+    document.getElementById('btnPause').innerHTML = '&#9654;';
+    document.getElementById('btnExit').style.display = 'flex';
+    try { await apiRequest('POST', '/api/abi/session/pause', { session_key: state.sessionKey }); } catch {}
+  }
+}
+
+async function exitSession() {
+  try {
+    cancelAnimationFrame(state.breathAnimFrame);
+    clearInterval(state.tickTimer);
+    clearInterval(state.arrivalTimer);
+    const data = await apiRequest('POST', '/api/abi/session/exit', { session_key: state.sessionKey });
+    showMirror(data.mirror || { breath_count: 0, duration_seconds: state.elapsed, coherence_peak: 0 });
+  } catch {
+    showMirror({ breath_count: 0, duration_seconds: state.elapsed, coherence_peak: 0 });
+  }
+}
+
+// ── EVENTS ──
+
+function processEvents(events) {
+  for (const evt of events) {
+    switch (evt.type) {
+      case 'luno_speak':
+        showLuno(evt.text);
+        break;
+      case 'offer_exit':
+        document.getElementById('btnExit').style.display = 'flex';
+        break;
+      case 'state_change':
+        devLog('State: ' + JSON.stringify(evt.stateData));
+        break;
+      case 'coaching_intervention':
+        showLuno(evt.data?.message || '');
+        break;
+    }
+  }
+}
+
+// Event polling (pull-based, every 3 seconds during breathing)
+setInterval(async () => {
+  if ((state.phase === 'breathing' || state.phase === 'arrival') && state.sessionKey) {
+    try {
+      const data = await apiRequest('GET', '/api/abi/session/events/' + state.sessionKey);
+      processEvents(data.events || []);
+    } catch {}
+  }
+}, 3000);
+
+// ═══════════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+function setPhase(phase) {
+  state.phase = phase;
+  const badge = document.getElementById('phaseBadge');
+  const labels = { idle: '', arrival: 'Arrival', breathing: 'Breathing', paused: 'Paused', mirror: 'Mirror', done: 'Complete' };
+  badge.textContent = labels[phase] || phase;
+}
+
+function updateBioDisplay(bio) {
+  document.getElementById('hrDisplay').textContent = Math.round(bio.heart_rate);
+  document.getElementById('cohDisplay').textContent = (bio.coherence || 0).toFixed(2);
+}
+
+function updateTimer(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  document.getElementById('timerDisplay').textContent = m + ':' + String(s).padStart(2, '0');
+}
+
+function showLuno(text) {
+  const el = document.getElementById('lunoText');
+  el.classList.remove('visible');
+  setTimeout(() => {
+    el.textContent = text;
+    el.classList.add('visible');
+  }, 100);
+}
+
+function showMirror(result) {
+  setPhase('mirror');
+  document.getElementById('mirrorBreaths').textContent = result?.breath_count || Math.floor(state.elapsed / 10);
+  const d = result?.duration_seconds || state.elapsed;
+  document.getElementById('mirrorDuration').textContent = Math.floor(d / 60) + ':' + String(d % 60).padStart(2, '0');
+  document.getElementById('mirrorCoherence').textContent = (result?.coherence_peak || state.coherencePeak || 0).toFixed(2);
+  document.getElementById('mirrorScreen').classList.add('visible');
+}
+
+function closeMirror() {
+  document.getElementById('mirrorScreen').classList.remove('visible');
+  setPhase('done');
+  showLuno('Session complete. You showed up. That matters.');
+  // Reset for next session
+  state.sessionKey = null;
+  state.paused = false;
+  state.breathCount = 0;
+  state.coherencePeak = 0;
+  state.elapsed = 0;
+  document.getElementById('breathRing').style.transform = 'scale(1)';
+  document.getElementById('breathLabel').textContent = 'Complete';
+}
+
+// ── DEV PANEL (triple-tap Luno) ──
+
+document.querySelector('.luno-container').addEventListener('click', () => {
+  state.lunoTapCount++;
+  clearTimeout(state.lunoTapTimeout);
+  state.lunoTapTimeout = setTimeout(() => { state.lunoTapCount = 0; }, 500);
+  if (state.lunoTapCount >= 3) {
+    state.lunoTapCount = 0;
+    state.devPanelOpen = !state.devPanelOpen;
+    document.getElementById('devPanel').classList.toggle('open', state.devPanelOpen);
+  }
+});
+
+function devStartSession() {
+  state.userId = document.getElementById('devUserId').value || 'dev_user';
+  state.sessionId = document.getElementById('devSessionId').value || '1';
+  hideLogin();
+  startSession();
+}
+
+function devLog(msg) {
+  const el = document.getElementById('devLog');
+  if (el) {
+    el.textContent = new Date().toLocaleTimeString() + ' ' + msg + '\n' + el.textContent;
+    if (el.textContent.length > 5000) el.textContent = el.textContent.slice(0, 3000);
+  }
+}
+
+// ── BUTTON HANDLERS ──
+
+document.getElementById('btnPause').addEventListener('click', togglePause);
+document.getElementById('btnExit').addEventListener('click', exitSession);
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+
+initPinPad();
+
+// Auto-login if JWT exists
+if (state.jwt) {
+  // Verify JWT is still valid
+  apiRequest('GET', '/api/auth/me')
+    .then(data => {
+      state.userId = data.user?.id || data.user?.user_id || data.userId;
+      hideLogin();
+      loadSessionAndStart();
+    })
+    .catch(() => {
+      // JWT expired, show login
+      localStorage.removeItem('ascen_jwt');
+      localStorage.removeItem('ascen_refresh');
+      state.jwt = null;
+      state.refreshToken = null;
+      showLogin();
+    });
+} else {
+  showLogin();
+}
+</script>
+</body>
+</html>

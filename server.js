@@ -28,6 +28,11 @@ app.get('/test/config', (req, res) => {
 // ── CROWN SVGs — static assets ──────────────────────────────
 app.use('/assets/crowns', express.static(path.join(__dirname, 'src/assets/crowns')));
 
+// ── V8 IMMERSIVE FRONTEND — canonical participant experience ─
+app.get('/breathe', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index_v8.html'));
+});
+
 // ── PRODUCTION FRONTEND PWA (Session 23) ────────────────────
 app.use('/app', express.static(path.join(__dirname, 'frontend/dist')));
 app.get('/app/*', (req, res) => res.sendFile(path.join(__dirname, 'frontend/dist/index.html')));
@@ -153,6 +158,7 @@ app.use('/api/abi/admin', authenticateOrApiKey('admin'));
 
 // Drill routes — accepts JWT or API key
 app.use('/api/abi/drills', authenticateOrApiKey('participant'));
+app.use('/api/abi/drill', authenticateOrApiKey('participant'));
 
 // Health — public (no auth)
 // /api/abi/health is handled by abiRoutes, no auth middleware above it
@@ -166,6 +172,19 @@ try {
 } catch (err) {
   console.warn('[FR] Could not mount:', err.message);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// V8 ROUTES — Progress, Vault (encrypted at rest)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const v8Routes = require('./src/routes/v8Routes');
+  app.use('/api/fr', authenticateOrApiKey('participant'));
+  app.use('/api/fr', v8Routes);
+  console.log('[V8] FR progress/vault routes mounted at /api/fr');
+} catch (err) {
+  console.warn('[V8] Could not mount FR routes:', err.message);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // AXIS ROUTES — Brain stem analytics
 // ═══════════════════════════════════════════════════════════════
@@ -715,4 +734,18 @@ try {
   console.log('[CRISIS CRON] Scheduled: 0 9 * * * UTC (daily 9 AM)');
 } catch (err) {
   console.warn('[CRISIS CRON] Could not schedule:', err.message);
+}
+
+// ── STALE SESSION CLEANUP CRON ────────────────────────────────
+try {
+  const sessionStateManager = require('./src/services/sessionStateManager');
+  cron.schedule('*/15 * * * *', async () => {
+    await sessionStateManager.cleanupStaleSessions();
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[SESSION CRON] Stale cleanup scheduled: */15 * * * * UTC');
+} catch (err) {
+  console.warn('[SESSION CRON] Could not schedule:', err.message);
 }
