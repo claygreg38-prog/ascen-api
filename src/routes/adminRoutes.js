@@ -133,7 +133,7 @@ router.post('/test-fixture/disclosure', async (req, res) => {
     );
     await client.query(
       `INSERT INTO family_memberships (family_unit_id, user_id, role, generation_level)
-       VALUES ($1, $2, 'child', 1) ON CONFLICT DO NOTHING`, [familyId, child.id]
+       VALUES ($1, $2, 'adult_child', 1) ON CONFLICT DO NOTHING`, [familyId, child.id]
     );
 
     // Update users with family_unit_id
