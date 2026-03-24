@@ -261,6 +261,10 @@ async function evaluateOutbound(senderId, recipientId, messageText, channelType,
       notifyCaregiverOfMinorMessage(familyContext.caregiverId, messageId, familyContext).catch(() => {});
     }
 
+    // For self_harm and abuse_third_party: ALWAYS deliver to recipient.
+    // Only abuse_recipient blocks delivery (handled above).
+    const delivered = disclosure ? true : evaluation.decision === 'approve';
+
     return {
       messageId,
       decision: evaluation.decision,
@@ -270,7 +274,7 @@ async function evaluateOutbound(senderId, recipientId, messageText, channelType,
       reasoning: evaluation.reasoning || null,
       confidence: evaluation.confidence || null,
       disclosure: disclosure || null,
-      delivered: evaluation.decision === 'approve'
+      delivered
     };
   } catch (err) {
     console.error('[FacilitatedMessaging] evaluateOutbound failed:', err.message);
@@ -382,6 +386,12 @@ async function evaluateInbound(senderId, recipientId, messageText, channelType, 
       notifyCaregiverOfMinorMessage(familyContext.caregiverId, messageId, familyContext).catch(() => {});
     }
 
+    // For self_harm and abuse_third_party: ALWAYS deliver to parent.
+    // The parent needs to know. Only abuse_recipient blocks delivery (handled above).
+    // Therapeutic coaching (flag/coach) guides the conversation but does NOT block
+    // delivery of safety-critical disclosures.
+    const delivered = disclosure ? true : evaluation.decision === 'approve';
+
     return {
       messageId,
       decision: evaluation.decision,
@@ -391,7 +401,7 @@ async function evaluateInbound(senderId, recipientId, messageText, channelType, 
       reasoning: evaluation.reasoning || null,
       confidence: evaluation.confidence || null,
       disclosure: disclosure || null,
-      delivered: evaluation.decision === 'approve'
+      delivered
     };
   } catch (err) {
     console.error('[FacilitatedMessaging] evaluateInbound failed:', err.message);
