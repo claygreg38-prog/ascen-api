@@ -78,4 +78,83 @@ router.get('/system-health', async (req, res) => {
   res.json(checks);
 });
 
+// ── TEST FIXTURE: Disclosure routing test data ──────────────
+// Creates parent + child users in a family with guided_bridge tier.
+// Idempotent. Returns credentials needed to run disclosure tests.
+router.post('/test-fixture/disclosure', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Get ASCEN tenant
+    const tenantRow = await client.query("SELECT id FROM tenants WHERE slug = 'ascen'");
+    const tenantId = tenantRow.rows[0]?.id;
+
+    // Upsert parent user
+    const parentUid = 'UTESTPARENT01';
+    let parent = (await client.query('SELECT id, user_id FROM users WHERE user_id = $1', [parentUid])).rows[0];
+    if (!parent) {
+      parent = (await client.query(
+        `INSERT INTO users (user_id, first_name, last_name, auth_method, role, is_active, is_verified, tenant_id, participant_id, onboarding_state, created_at)
+         VALUES ($1, 'TestParent', 'Disclosure', 'facility_code', 'participant', true, true, $2, $1, '{"step":"complete"}', NOW())
+         RETURNING id, user_id`, [parentUid, tenantId]
+      )).rows[0];
+    }
+
+    // Upsert child user
+    const childUid = 'UTESTCHILD01';
+    let child = (await client.query('SELECT id, user_id FROM users WHERE user_id = $1', [childUid])).rows[0];
+    if (!child) {
+      child = (await client.query(
+        `INSERT INTO users (user_id, first_name, last_name, auth_method, role, is_active, is_verified, tenant_id, participant_id, onboarding_state, created_at)
+         VALUES ($1, 'TestChild', 'Disclosure', 'facility_code', 'participant', true, true, $2, $1, '{"step":"complete"}', NOW())
+         RETURNING id, user_id`, [childUid, tenantId]
+      )).rows[0];
+    }
+
+    // Upsert family unit
+    let family = (await client.query("SELECT family_unit_id FROM family_units WHERE name = 'Disclosure Test Family'")).rows[0];
+    if (!family) {
+      family = (await client.query(
+        `INSERT INTO family_units (name, created_by, tenant_id, status, gate_state, premium_tier)
+         VALUES ('Disclosure Test Family', $1, $2, 'active', '{"gate_1":true}', 'guided_bridge')
+         RETURNING family_unit_id`, [parent.id, tenantId]
+      )).rows[0];
+    } else {
+      await client.query("UPDATE family_units SET premium_tier = 'guided_bridge' WHERE family_unit_id = $1", [family.family_unit_id]);
+    }
+
+    const familyId = family.family_unit_id;
+
+    // Upsert memberships
+    await client.query(
+      `INSERT INTO family_memberships (family_unit_id, user_id, role, generation_level)
+       VALUES ($1, $2, 'elder', 0) ON CONFLICT DO NOTHING`, [familyId, parent.id]
+    );
+    await client.query(
+      `INSERT INTO family_memberships (family_unit_id, user_id, role, generation_level)
+       VALUES ($1, $2, 'child', 1) ON CONFLICT DO NOTHING`, [familyId, child.id]
+    );
+
+    // Update users with family_unit_id
+    await client.query('UPDATE users SET family_unit_id = $1 WHERE id IN ($2, $3)', [familyId, parent.id, child.id]);
+
+    await client.query('COMMIT');
+
+    res.json({
+      parent: { db_id: parent.id, user_id: parent.user_id },
+      child: { db_id: child.id, user_id: child.user_id },
+      family_unit_id: familyId,
+      tenant_id: tenantId,
+      tier: 'guided_bridge'
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[Admin] Test fixture failed:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;
