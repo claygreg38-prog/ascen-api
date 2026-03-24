@@ -180,8 +180,7 @@ async function seed() {
     }
 
     // ── 7. CREATE 10 SESSIONS FOR TESTUSER1 ───────────────
-    // session_completions.user_id is UUID type — use a stable UUID for the participant
-    const p1Uuid = crypto.randomUUID();
+    // session_completions.user_id is INTEGER referencing users.id (fixed in migration 030)
     const sessionIds = [];
     for (let i = 1; i <= 10; i++) {
       const sessionId = crypto.randomUUID();
@@ -224,7 +223,7 @@ async function seed() {
            $24
          ) RETURNING id`,
         [
-          p1Uuid, sessionId, i, coherenceScore, coherenceEnd,
+          participant1.id, sessionId, i, coherenceScore, coherenceEnd,
           (0.85 + Math.random() * 0.15).toFixed(2), duration,
           arcs[i % arcs.length], completedAt, tenantId,
           ttr, arrivalHr, arrivalHrv,
@@ -253,9 +252,8 @@ async function seed() {
       sessionIds.push(result.rows[0].id);
     }
     print('[7] Created 10 sessions for TestUser1, IDs:', sessionIds.join(', '));
-    print('[7] Session user_id (UUID):', p1Uuid);
+    print('[7] Session user_id (integer):', participant1.id);
     output.sessionIds = sessionIds;
-    output.participant1SessionUuid = p1Uuid;
 
     // ── 8. CREATE FAMILY UNIT ─────────────────────────────
     const familyResult = await client.query(
@@ -266,7 +264,7 @@ async function seed() {
                '{"total_sessions": 12, "collective_regulated_hours": 4.5, "co_breath_count": 2}',
                $4)
        RETURNING family_unit_id`,
-      ['Test Family', p1Uuid, tenantId, participant1.id]
+      ['Test Family', participant1.id, tenantId, participant1.id]
     );
     const familyUnitId = familyResult.rows[0].family_unit_id;
 
@@ -358,7 +356,7 @@ async function seed() {
     print('  participant_id:', participant1.participant_id);
     print('  PIN:           ', pin1);
     print('  Wallet:        ', output.participant1.wallet);
-    print('  Session UUID:  ', p1Uuid);
+    print('  Sessions user: ', participant1.id);
     print('  Sessions:       10 completed');
     print('  Capacity:       65.50 (steady)');
     print('\nParticipant 2 (TestUser2):');
