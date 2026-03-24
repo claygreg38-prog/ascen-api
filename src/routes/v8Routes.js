@@ -51,7 +51,7 @@ router.post('/progress', async (req, res) => {
     const t = tenantInsert(req.tenantId, 5);
 
     await pool.query(`
-      INSERT INTO session_completions (user_id, session_number, coherence_score, active_duration_seconds, exit_type${t.columns}, created_at)
+      INSERT INTO session_completions (user_id, session_number, coherence_score, active_duration_seconds, exit_type${t.columns}, completed_at)
       VALUES ($1, $2, $3, $4, $5${t.values}, NOW())
       ON CONFLICT (user_id, session_number)
       DO UPDATE SET

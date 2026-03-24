@@ -456,7 +456,7 @@ router.post('/drill/select', async (req, res) => {
 
     // Look up drill from DB
     const result = await pool.query(
-      'SELECT id, name, instructions, duration_seconds, type FROM somatic_exercises WHERE id = $1',
+      'SELECT id, name, instructions, duration_sec, type FROM somatic_exercises WHERE id = $1',
       [drill_id]
     );
 
@@ -684,15 +684,15 @@ router.get('/drills/:param', async (req, res) => {
 
     // Try as track name — return somatic exercises from DB
     const trackResult = await pool.query(
-      `SELECT id, name, description, duration_seconds, type FROM somatic_exercises ORDER BY id`
+      `SELECT id, name, instructions, duration_sec, type FROM somatic_exercises ORDER BY id`
     );
     res.json({
       track: param,
       drills: trackResult.rows.map(r => ({
         id: r.id,
         name: r.name,
-        description: r.description,
-        duration_seconds: r.duration_seconds
+        description: r.instructions,
+        duration_seconds: r.duration_sec
       }))
     });
   } catch (error) {
