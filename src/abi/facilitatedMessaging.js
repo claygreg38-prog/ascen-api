@@ -56,19 +56,32 @@ function getCharLimit(senderType, senderAge) {
 async function classifyDisclosure(messageText, senderType, recipientType, familyContext) {
   const aiRouter = require('../services/aiRouter');
 
+  // Build explicit recipient identity for the classifier
+  const recipientLabel = recipientType === 'parent'
+    ? 'their parent (dad/mom — the person who would receive this message)'
+    : `their ${recipientType}`;
+
   const result = await aiRouter.route('disclosure_classification', `
-    Classify this message from a ${senderType} (age: ${familyContext.senderAge || 'unknown'})
-    to their ${recipientType}.
+    Classify this message for safety routing.
+
+    Context: A ${senderType} (age: ${familyContext.senderAge || 'unknown'}) is sending a message
+    to ${recipientLabel}. The RECIPIENT is the ${recipientType}.
 
     Message: "${messageText}"
 
-    Classify as ONE of:
+    CRITICAL: If the message describes abuse, determine WHO is the abuser:
+    - If the abuser IS the recipient (the ${recipientType} receiving this message, including
+      references like "dad", "mom", "you"), classify as abuse_recipient.
+    - If the abuser is someone ELSE (teacher, uncle, neighbor, stranger — anyone who is NOT
+      the recipient), classify as abuse_third_party.
+
+    Classify as exactly ONE of these values:
     - null: No concerning content
     - self_harm: Sender expresses self-harm ideation or intent
     - abuse_third_party: Sender discloses abuse by someone OTHER than the recipient
-    - abuse_recipient: Sender discloses abuse BY the recipient (the person who would receive this message)
+    - abuse_recipient: Sender discloses abuse BY the recipient
 
-    Respond with ONLY the classification value, nothing else.
+    Respond with ONLY the classification value. No explanation.
   `, { maxTokens: 50, temperature: 0.1 });
 
   const classification = result?.content?.trim() || null;
