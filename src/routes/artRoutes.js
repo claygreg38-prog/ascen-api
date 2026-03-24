@@ -32,7 +32,7 @@ function enrichPiece(row) {
     has_intention: !!(row.intention_hash),
     is_milestone: [10, 30, 50].includes(sessionNum),
     is_victory_lap: row.sustained_optimal === true,
-    arc_name: row.arc_id || null,
+    arc_name: row.arc || null,
     ipfs_image_url: row.art_ipfs_hash ? `${PINATA_GATEWAY}/${row.art_ipfs_hash}` : null
   };
 }
@@ -45,7 +45,7 @@ router.get('/session/:id', async (req, res) => {
     const result = await pool.query(
       `SELECT session_id, session_number, completed_at, art_ipfs_hash, art_token_id,
               art_encoding_version, crown_id, photo_palette, intention_hash,
-              sustained_optimal, arc_id
+              sustained_optimal, arc
        FROM session_completions WHERE session_id = $1${t.clause}
        ORDER BY completed_at DESC LIMIT 1`,
       [id, ...t.params]
@@ -83,7 +83,7 @@ router.get('/gallery/:participantId', async (req, res) => {
     const result = await pool.query(
       `SELECT session_id, session_number, completed_at, art_ipfs_hash, art_token_id,
               art_encoding_version, crown_id, photo_palette, intention_hash,
-              sustained_optimal, arc_id
+              sustained_optimal, arc
        FROM session_completions
        WHERE user_id = $1 AND art_ipfs_hash IS NOT NULL${t2.clause}
        ORDER BY completed_at DESC
