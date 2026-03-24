@@ -21,6 +21,13 @@ Updated: March 23, 2026 (v8 Immersive Frontend Pairing)
 - DB: resourceful-wisdom (Railway PostgreSQL)
 - ABI 14/14, AXIS active, verificationService live
 - Blockchain writes LIVE — ORACLE_ROLE granted, block 84319510
+- Blockchain attestation queue auto-processing: cron */30 * * * * (processQueue)
+- Blockchain retry processing: cron */15 * * * * (processRetries + processGasDeferred)
+- Blockchain signer balance monitor: daily 9 AM UTC, Sentry alert below 0.1 POL
+- Migration 037: blockchain_tx_hash + blockchain_simulated on session_completions, enrollment_tx_hash on users
+- processQueue() picks up 'ready' and 'awaiting_facilitator' attestations, submits to BiometricOracle
+- checkSignerBalance() on VerificationService for daily monitoring
+- VERIFICATION_SERVICE_PRIVATE_KEY env var required for real writes (fallback: simulation mode)
 - processQueue() cron active every 30 minutes
 - Migration 011: wallet, family, attestation fields
 - Migration 012: somatic_exercises + personalized_closes tables
@@ -125,7 +132,7 @@ Updated: March 23, 2026 (v8 Immersive Frontend Pairing)
 - Migration 029: push_device_tokens table
 - Push wired into: crisis check-ins, messages, co-breath invites, trial expiry, milestones
 - FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL env vars (optional — simulates without)
-- **Frontend Architecture:** `/breathe` = canonical participant experience (v8 immersive). `/app` = facilitator/admin dashboard (React PWA). `/test` = development only. Future: move to Vercel as separate deploys post-launch stabilization.
+- **Frontend Architecture:** `/breathe` = v8 immersive session engine (standalone + embedded). `/app` = production PWA shell (login, home, gallery, family, profile, session iframe). `/app/session` = v8 launched in iframe with postMessage bridge. `/test` = development only.
 - Migration 034: session_state JSONB, session_key, session_active, arrival_started_at, vault_response_encrypted on session_completions
 - DB-backed session state via sessionStateManager.js — survives Railway redeploys, supports horizontal scaling
 - 15 new ABI endpoints for v8 immersive frontend support (arrival, pause, resume, exit, BLE, drills, state, events, health, vault, progress)
@@ -265,6 +272,50 @@ Updated: March 23, 2026 (v8 Immersive Frontend Pairing)
   - FacilitatorScreen: enrollment codes, participant overview, crisis dashboard, disclosures (role-gated)
   - ProfileScreen: journey stats, capacity display, privacy, subscription, facilitator tools
   - App.jsx: all routes added, HelpButton on every protected screen, immersion mode for session/cobreath/crisis
+- V8 PWA Integration (React PWA shell + v8 immersive session engine):
+  - v8 immersive integrated into React PWA via full-screen iframe at /app/session
+  - SessionScreen: iframe bridge to /breathe?embedded=true, postMessage auth, full-screen, no nav
+  - **SECURITY: JWT passed via postMessage after iframe_ready, NEVER in URL params**
+  - postMessage protocol: iframe_ready (v8→PWA), auth (PWA→v8), session_complete (v8→PWA), session_exit (v8→PWA), view_gallery (v8→PWA)
+  - Embedded mode in v8: hides login overlay, waits for auth postMessage, auto-selects requested session
+  - Dev panel restricted by role in embedded mode (facilitator/admin/clinician only)
+  - In embedded mode: session complete returns to PWA (no loop), exit returns to PWA
+  - HomeScreen: ocean visual design — Plankton canvas, MiniLuno, CoherenceRings, AuroraHint, Waves
+  - HomeScreen wired to GET /api/auth/context for persona, capacity, next_session, features, streak
+  - GET /api/auth/context: composite endpoint — persona (INDV/ELDR/AFAM/FCLT), features, capacity_state, next_session, gate_state, tenant, streak
+  - Persona derived from role + family_unit_id + family_memberships.role
+  - Features: family_hub, partner_hub, co_breath, lightbridge, facilitator_dashboard (persona-driven)
+  - GET /api/user/next-session: returns next session number, title, arc, duration from session_completions + session_templates
+  - GalleryScreen: 2-column grid, IPFS images, milestone badges, expanded view with date
+  - BottomNav: persona-driven tabs (Family tab only if features.family_hub, Partner if features.partner_hub)
+  - FeaturesContext provider in App.jsx for sharing persona features across components
+  - Session complete returns to PWA home with sessionCompleted location state → completion banner + context refresh
+  - Visual components extracted to frontend/src/components/: Plankton, MiniLuno, CoherenceRings, AuroraHint, Waves, CapacityCard, SessionCard, SessionLauncher
+  - Character color: teal for Luno (default), rose for Luna (tenant.luno_variant === 'spiritual_companion')
+  - Dev controls hidden by default, triple-tap on MiniLuno for facilitator/admin only
+  - Capacitor: allowNavigation added for iframe same-origin, safe-area-inset handling in SessionScreen
+  - Playwright tests: tests/v8-pwa-integration.spec.js (full flow, early exit, persona tabs, security, protected routes)
+- Email/SMS Service (Production Grade):
+  - emailService.js: Resend integration with notification_queue retry (3 attempts, exponential backoff)
+  - smsService.js: Twilio integration with auth gate (503 when unavailable, not silent fail)
+  - Migration 036: notification_queue table — stores all failed/pending deliveries for facilitator visibility
+  - RESEND_API_KEY required for production. Missing = Sentry error + all emails queued in notification_queue.
+  - No console-only delivery. Every notification is sent via Resend/Twilio or queued for retry.
+  - Phone auth returns 503 when Twilio not configured (Finding 1.2 addressed)
+  - Console fallback replaced with notification_queue + retry logic (Finding 1.1 addressed)
+  - Email templates: verification code, password reset, therapy report (with legal disclaimer), family invitation
+  - Therapy report email includes LEGAL_DISCLAIMER from therapyReportService.js (Review Finding #5)
+  - Family invitation emails sent when inviteeName contains @ (email address)
+  - Retry cron every 5 minutes with exponential backoff (5 min, 20 min, 80 min)
+  - 3 failed attempts → status = 'failed' + Sentry alert
+  - Sentry alert on 3+ consecutive failures for same recipient in 24h
+  - Admin endpoints at /api/admin: notifications/failed, notifications/:id/resend, notifications/stats
+  - Auth flow NEVER blocks on email/SMS failure — queues and continues
+  - Backward-compat exports: sendVerificationEmail, sendPasswordResetEmail, sendSMS (authService.js unchanged)
+  - RESEND_API_KEY, EMAIL_FROM env vars for email
+  - TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER env vars for SMS (optional — 503 without)
+  - Dependencies: resend (npm installed)
+  - Twilio loaded dynamically via require('twilio') — no npm install needed until configured
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -354,6 +405,19 @@ Focus only on the task assigned in the session prompt.
 - public/index_v8.html — v8 immersive breathing frontend (served at /breathe)
 - tests/v8-session-flow.spec.js — Playwright tests for v8 session lifecycle
 - server.js — Express, route mounting, cron, WebSocket
+- src/routes/contextRoute.js — GET /api/auth/context composite endpoint
+- src/routes/nextSessionRoute.js — GET /api/user/next-session endpoint
+- frontend/src/components/Plankton.jsx — Canvas particle system (coherence + sessionCount driven)
+- frontend/src/components/MiniLuno.jsx — Small breathing organism with character colors
+- frontend/src/components/CoherenceRings.jsx — Three alignment rings (drift/align)
+- frontend/src/components/AuroraHint.jsx — Subtle aurora bands (coherence-gated)
+- frontend/src/components/Waves.jsx — Animated horizontal wave lines
+- frontend/src/components/CapacityCard.jsx — Capacity state display with CAPACITY_STATES map
+- frontend/src/components/SessionCard.jsx — Next session card with MiniLuno + Begin button
+- frontend/src/components/SessionLauncher.jsx — Full-screen session launch overlay
+- tests/v8-pwa-integration.spec.js — Playwright tests for PWA-v8 integration
+- src/services/smsService.js — Twilio SMS with auth gate (503 when unavailable)
+- migrations/036_notification_queue.sql — notification_queue table for email/SMS retry
 - public/test.html — throwaway test harness
 
 ## BLE Devices

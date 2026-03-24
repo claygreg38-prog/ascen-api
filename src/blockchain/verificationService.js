@@ -14,6 +14,7 @@
 // ============================================================
 
 const { ethers } = require('ethers');
+const Sentry = require('../instrument');
 const oracleArtifact = require('./BiometricOracleABI.json');
 
 // ── CONFIGURATION ────────────────────────────────────────────
@@ -76,6 +77,7 @@ class VerificationService {
       console.log(`[BLOCKCHAIN] Signer: ${this.signer.address}`);
     } catch (err) {
       console.error('[BLOCKCHAIN] Initialization failed:', err.message);
+      Sentry.captureException(err);
     }
   }
 
@@ -181,6 +183,7 @@ class VerificationService {
         // someone else submitted it — investigate
         if (err.message?.includes('AttestationAlreadyExists')) {
           console.error('[BLOCKCHAIN] Duplicate hash detected — possible front-running');
+          Sentry.captureException(err);
           await this._updateQueueStatus(sessionCompletionId, 'failed', {
             error_message: 'Duplicate hash on-chain — possible front-running. Manual review required.',
             retry_count: attempt
@@ -209,6 +212,7 @@ class VerificationService {
     }
 
     // All retries exhausted
+    if (lastError) Sentry.captureException(lastError);
     await this._updateQueueStatus(sessionCompletionId, 'failed', {
       error_message: lastError?.message?.slice(0, 500),
       retry_count: MAX_RETRIES
@@ -315,6 +319,7 @@ class VerificationService {
       return { success: true, userId, courtOrderRef };
     } catch (err) {
       console.error('[BLOCKCHAIN] Expungement failed:', err.message);
+      Sentry.captureException(err);
       return { success: false, error: err.message };
     }
   }
@@ -353,9 +358,11 @@ class VerificationService {
       // Update session_completions
       await this.pool.query(
         `UPDATE session_completions SET
-           attestation_submitted = true
-         WHERE id = $1`,
-        [sessionCompletionId]
+           attestation_submitted = true,
+           blockchain_tx_hash = $1,
+           blockchain_simulated = false
+         WHERE id = $2`,
+        [receipt.hash, sessionCompletionId]
       );
 
       console.log(`[BLOCKCHAIN] Attestation confirmed: tx=${receipt.hash}`);
@@ -398,6 +405,125 @@ class VerificationService {
       );
     } catch (err) {
       console.error('[BLOCKCHAIN] Queue status update failed:', err.message);
+    }
+  }
+
+  /**
+   * Process ready attestations from the queue.
+   * Called by cron every 30 minutes.
+   * Picks up items in 'ready' or 'awaiting_facilitator' status and submits them.
+   */
+  async processQueue() {
+    if (this.shutdown || !this.initialized) return { processed: 0, reason: 'not initialized' };
+
+    const gasPriceCheck = await this._checkGasPrice();
+    if (!gasPriceCheck.ok) {
+      return { processed: 0, reason: `Gas too high: ${gasPriceCheck.gasGwei} gwei` };
+    }
+
+    let processed = 0;
+    let failed = 0;
+
+    try {
+      // Get ready attestations (includes those queued by session orchestrator)
+      const ready = await this.pool.query(
+        `SELECT aq.*, sc.packet_hash, sc.session_number, sc.session_id,
+                sc.completed_at, u.wallet_address
+         FROM attestation_queue aq
+         JOIN session_completions sc ON sc.id = aq.session_completion_id
+         JOIN users u ON u.user_id = aq.user_id OR u.id::text = aq.user_id
+         WHERE aq.status IN ('ready', 'awaiting_facilitator')
+           AND aq.retry_count < ${MAX_RETRIES}
+         ORDER BY aq.created_at ASC
+         LIMIT 10`
+      );
+
+      for (const row of ready.rows) {
+        // Re-check gas before each tx
+        const check = await this._checkGasPrice();
+        if (!check.ok) break;
+
+        try {
+          // Build attestation params from queue data
+          const sessionTimestamp = Math.floor(new Date(row.completed_at || Date.now()).getTime() / 1000);
+          const packetHash = row.packet_hash;
+
+          if (!packetHash) {
+            await this._updateQueueStatus(row.session_completion_id, 'failed', {
+              error_message: 'No packet_hash available'
+            });
+            failed++;
+            continue;
+          }
+
+          // For auto-processing: use system signatures
+          // (facilitator co-sign is deferred for pilot — submit with oracle role directly)
+          const packetHashBytes = '0x' + packetHash;
+          const sessionTypeBytes = ethers.encodeBytes32String('foundation');
+
+          const input = {
+            packetHash: packetHashBytes,
+            sessionNumber: row.session_number || 0,
+            sessionTimestamp,
+            sessionType: sessionTypeBytes,
+            tier: 1,
+            jointSession: false,
+            familyId: ethers.ZeroHash,
+            participantSig: '0x' + '00'.repeat(65), // System-submitted (oracle role)
+            facilitatorSig: '0x' + '00'.repeat(65)   // System-submitted (oracle role)
+          };
+
+          const tx = await this.oracleContract.submitAttestation(input);
+          const receipt = await tx.wait();
+
+          await this._onAttestationConfirmed(row.session_completion_id, receipt);
+          processed++;
+        } catch (err) {
+          if (this._isNonRetryable(err)) {
+            await this._updateQueueStatus(row.session_completion_id, 'failed', {
+              error_message: err.message?.slice(0, 500),
+              retry_count: row.retry_count + 1
+            });
+          } else {
+            await this._updateQueueStatus(row.session_completion_id, 'failed', {
+              error_message: err.message?.slice(0, 500),
+              retry_count: row.retry_count + 1
+            });
+          }
+          failed++;
+        }
+      }
+    } catch (err) {
+      console.error('[BLOCKCHAIN] processQueue error:', err.message);
+      Sentry.captureException(err);
+    }
+
+    if (processed > 0 || failed > 0) {
+      console.log(`[BLOCKCHAIN] processQueue: ${processed} confirmed, ${failed} failed`);
+    }
+    return { processed, failed };
+  }
+
+  /**
+   * Check signer wallet balance and alert if low.
+   */
+  async checkSignerBalance() {
+    if (!this.provider || !this.signer) return null;
+
+    try {
+      const balance = await this.provider.getBalance(this.signer.address);
+      const polBalance = parseFloat(ethers.formatEther(balance));
+      console.log(`[BLOCKCHAIN] Signer balance: ${polBalance.toFixed(4)} POL`);
+
+      if (polBalance < 0.1) {
+        console.warn('[BLOCKCHAIN] LOW BALANCE — signer wallet needs POL for gas');
+        Sentry.captureMessage(`Blockchain signer wallet low: ${polBalance.toFixed(4)} POL (${this.signer.address})`, 'warning');
+      }
+
+      return { address: this.signer.address, balance: polBalance };
+    } catch (err) {
+      console.error('[BLOCKCHAIN] Balance check failed:', err.message);
+      return null;
     }
   }
 

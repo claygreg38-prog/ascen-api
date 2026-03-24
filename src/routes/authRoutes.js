@@ -46,6 +46,14 @@ router.post('/register/email', async (req, res) => {
 
 router.post('/register/phone', async (req, res) => {
   try {
+    // Gate: phone auth requires Twilio
+    const smsService = require('../services/smsService');
+    if (!smsService.isSMSAvailable()) {
+      return res.status(503).json({
+        error: 'phone_auth_unavailable',
+        message: 'Phone registration is temporarily unavailable. Please use email or facility code.'
+      });
+    }
     const { phone, first_name } = req.body;
     if (!phone || !first_name) return res.status(400).json({ error: 'phone and first_name required' });
     const result = await authService.registerWithPhone(phone, first_name, req);
@@ -106,6 +114,14 @@ router.post('/login/email', async (req, res) => {
 
 router.post('/login/phone', async (req, res) => {
   try {
+    // Gate: phone auth requires Twilio
+    const smsService = require('../services/smsService');
+    if (!smsService.isSMSAvailable()) {
+      return res.status(503).json({
+        error: 'phone_auth_unavailable',
+        message: 'Phone login is temporarily unavailable. Please use email or facility code.'
+      });
+    }
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ error: 'phone required' });
     const result = await authService.loginWithPhone(phone, req);

@@ -125,6 +125,26 @@ try {
   console.warn('[AUTH] Could not mount production auth:', err.message);
 }
 
+// Auth context route (requires JWT or API key) — persona, features, capacity, next session
+try {
+  const contextRoute = require('./src/routes/contextRoute');
+  app.use('/api/auth', authenticateOrApiKey('participant'));
+  app.use('/api/auth', contextRoute);
+  console.log('[CONTEXT] Auth context route mounted at /api/auth/context');
+} catch (err) {
+  console.warn('[CONTEXT] Could not mount:', err.message);
+}
+
+// User routes (requires JWT or API key) — next session
+try {
+  const nextSessionRoute = require('./src/routes/nextSessionRoute');
+  app.use('/api/user', authenticateOrApiKey('participant'));
+  app.use('/api/user', nextSessionRoute);
+  console.log('[USER] Next session route mounted at /api/user/next-session');
+} catch (err) {
+  console.warn('[USER] Could not mount:', err.message);
+}
+
 // Onboarding routes (requires JWT or API key)
 try {
   const onboardingRoutes = require('./src/routes/onboardingRoutes');
@@ -748,4 +768,78 @@ try {
   console.log('[SESSION CRON] Stale cleanup scheduled: */15 * * * * UTC');
 } catch (err) {
   console.warn('[SESSION CRON] Could not schedule:', err.message);
+}
+
+// ── BLOCKCHAIN QUEUE PROCESSING (every 30 minutes) ──────────
+try {
+  cron.schedule('*/30 * * * *', async () => {
+    const result = await verificationService.processQueue();
+    if (result.processed > 0) {
+      console.log(`[BLOCKCHAIN CRON] Processed ${result.processed} attestations`);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[BLOCKCHAIN CRON] Attestation queue processing scheduled: */30 * * * * UTC');
+} catch (err) {
+  console.warn('[BLOCKCHAIN CRON] Could not schedule queue processing:', err.message);
+}
+
+// ── BLOCKCHAIN RETRY (every 15 minutes) ─────────────────────
+try {
+  const { BlockchainRetry } = require('./src/blockchain/blockchainRetry');
+  const blockchainRetry = new BlockchainRetry(pool);
+  cron.schedule('*/15 * * * *', async () => {
+    await blockchainRetry.processRetries();
+    await blockchainRetry.processGasDeferred();
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[BLOCKCHAIN CRON] Retry processing scheduled: */15 * * * * UTC');
+} catch (err) {
+  console.warn('[BLOCKCHAIN CRON] Could not schedule retries:', err.message);
+}
+
+// ── BLOCKCHAIN BALANCE MONITOR (daily 9 AM UTC) ─────────────
+try {
+  cron.schedule('0 9 * * *', async () => {
+    await verificationService.checkSignerBalance();
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[BLOCKCHAIN CRON] Balance monitor scheduled: daily 9 AM UTC');
+} catch (err) {
+  console.warn('[BLOCKCHAIN CRON] Could not schedule balance monitor:', err.message);
+}
+
+// ── EMAIL + SMS INITIALIZATION ──────────────────────────────
+try {
+  const emailService = require('./src/services/emailService');
+  emailService.initEmail();
+} catch (err) {
+  console.warn('[EMAIL] Could not initialize:', err.message);
+}
+
+try {
+  const smsService = require('./src/services/smsService');
+  smsService.initSMS();
+} catch (err) {
+  console.warn('[SMS] Could not initialize:', err.message);
+}
+
+// ── NOTIFICATION RETRY CRON (every 5 minutes) ───────────────
+try {
+  const emailService = require('./src/services/emailService');
+  cron.schedule('*/5 * * * *', async () => {
+    await emailService.retryFailedNotifications();
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[NOTIFICATION CRON] Retry scheduled: */5 * * * * UTC');
+} catch (err) {
+  console.warn('[NOTIFICATION CRON] Could not schedule:', err.message);
 }

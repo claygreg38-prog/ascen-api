@@ -5,7 +5,8 @@ const config: CapacitorConfig = {
   appName: 'ASCEN BreathWorx',
   webDir: 'dist',
   server: {
-    androidScheme: 'https'
+    androidScheme: 'https',
+    allowNavigation: ['*']
   },
   plugins: {
     PushNotifications: {

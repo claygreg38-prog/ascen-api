@@ -258,13 +258,11 @@ async function sendToTherapist(reportId, therapistEmail, senderId) {
       return { error: true, message: 'Family must preview report before sending to therapist' };
     }
 
-    // Send email (via emailService — console log for pilot)
+    // Send email via Resend with branded template
     const emailService = require('./emailService');
-    await emailService.sendEmail({
-      to: therapistEmail,
-      subject: `ASCEN BreathWorx Family Therapy Report — ${r.report_period_start} to ${r.report_period_end}`,
-      body: `Report ID: ${reportId}\nReport Hash: ${r.report_hash}\n\n${LEGAL_DISCLAIMER}\n\nReport data attached.`
-    });
+    const familyName = r.family_name || 'Family';
+    const reportPeriod = `${r.report_period_start} to ${r.report_period_end}`;
+    await emailService.sendTherapyReport(therapistEmail, familyName, reportPeriod, r.report_data || {}, LEGAL_DISCLAIMER);
 
     await pool.query(
       'UPDATE therapy_reports SET therapist_email = $1, sent_to_therapist_at = NOW() WHERE id = $2',

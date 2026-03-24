@@ -200,6 +200,70 @@ let state = {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// EMBEDDED MODE (PWA iframe integration)
+// ═══════════════════════════════════════════════════════════════
+
+const urlParams = new URLSearchParams(window.location.search);
+const IS_EMBEDDED = urlParams.get('embedded') === 'true';
+const REQUESTED_SESSION = urlParams.get('session') || null;
+
+// SECURITY: Auth received via postMessage, NOT URL params.
+let _embeddedAuthReceived = false;
+
+if (IS_EMBEDDED) {
+  // Notify parent the iframe is ready — parent responds with auth credentials
+  window.parent.postMessage({ type: 'iframe_ready' }, window.location.origin);
+
+  // Listen for auth message from parent PWA
+  window.addEventListener('message', function(event) {
+    if (event.origin !== window.location.origin) return;
+    const { type, token, apiKey } = event.data || {};
+    if (type === 'auth') {
+      if (token) {
+        state.jwt = token;
+        localStorage.setItem('ascen_jwt', token);
+      }
+      if (apiKey) {
+        const devKeyInput = document.getElementById('devApiKey');
+        if (devKeyInput) devKeyInput.value = apiKey;
+      }
+      _embeddedAuthReceived = true;
+      console.log('[V8] Auth received via postMessage');
+      // Hide login and start session
+      hideLogin();
+      // Decode userId from JWT
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        state.userId = payload.userId || payload.sub || payload.id;
+      } catch (e) { console.warn('[V8] JWT decode failed:', e); }
+      if (REQUESTED_SESSION) {
+        state.sessionId = parseInt(REQUESTED_SESSION);
+        startSession();
+      } else {
+        loadSessionAndStart();
+      }
+    }
+  });
+}
+
+// postMessage helpers for embedded mode
+function notifyParentComplete(sessionNumber) {
+  if (IS_EMBEDDED) {
+    window.parent.postMessage({ type: 'session_complete', data: { session_number: sessionNumber } }, window.location.origin);
+  }
+}
+function notifyParentExit() {
+  if (IS_EMBEDDED) {
+    window.parent.postMessage({ type: 'session_exit' }, window.location.origin);
+  }
+}
+function notifyParentGallery() {
+  if (IS_EMBEDDED) {
+    window.parent.postMessage({ type: 'view_gallery' }, window.location.origin);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // AUTH SERVICE
 // ═══════════════════════════════════════════════════════════════
 
@@ -622,9 +686,15 @@ async function exitSession() {
     cancelAnimationFrame(state.breathAnimFrame);
     clearInterval(state.tickTimer);
     clearInterval(state.arrivalTimer);
-    const data = await apiRequest('POST', '/api/abi/session/exit', { session_key: state.sessionKey });
-    showMirror(data.mirror || { breath_count: 0, duration_seconds: state.elapsed, coherence_peak: 0 });
+    await apiRequest('POST', '/api/abi/session/exit', { session_key: state.sessionKey });
+    // In embedded mode, return to PWA without mirror
+    if (IS_EMBEDDED) {
+      notifyParentExit();
+      return;
+    }
+    showMirror({ breath_count: 0, duration_seconds: state.elapsed, coherence_peak: 0 });
   } catch {
+    if (IS_EMBEDDED) { notifyParentExit(); return; }
     showMirror({ breath_count: 0, duration_seconds: state.elapsed, coherence_peak: 0 });
   }
 }
@@ -703,6 +773,13 @@ function showMirror(result) {
 function closeMirror() {
   document.getElementById('mirrorScreen').classList.remove('visible');
   setPhase('done');
+
+  // In embedded mode, return to PWA instead of showing "Complete"
+  if (IS_EMBEDDED) {
+    notifyParentComplete(state.sessionId);
+    return;
+  }
+
   showLuno('Session complete. You showed up. That matters.');
   // Reset for next session
   state.sessionKey = null;
@@ -722,6 +799,13 @@ document.querySelector('.luno-container').addEventListener('click', () => {
   state.lunoTapTimeout = setTimeout(() => { state.lunoTapCount = 0; }, 500);
   if (state.lunoTapCount >= 3) {
     state.lunoTapCount = 0;
+    // In embedded mode, restrict dev panel to facilitator/admin/clinician
+    if (IS_EMBEDDED && state.jwt) {
+      try {
+        const payload = JSON.parse(atob(state.jwt.split('.')[1]));
+        if (!['facilitator', 'admin', 'clinician'].includes(payload.role)) return;
+      } catch (e) { return; }
+    }
     state.devPanelOpen = !state.devPanelOpen;
     document.getElementById('devPanel').classList.toggle('open', state.devPanelOpen);
   }
@@ -753,9 +837,14 @@ document.getElementById('btnExit').addEventListener('click', exitSession);
 
 initPinPad();
 
-// Auto-login if JWT exists
-if (state.jwt) {
-  // Verify JWT is still valid
+// In embedded mode: wait for auth via postMessage (don't show login or auto-start)
+if (IS_EMBEDDED) {
+  // Show session container (loading state), hide login
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('sessionContainer').classList.add('visible');
+  showLuno('Preparing your session...');
+} else if (state.jwt) {
+  // Auto-login if JWT exists (standalone mode)
   apiRequest('GET', '/api/auth/me')
     .then(data => {
       state.userId = data.user?.id || data.user?.user_id || data.userId;

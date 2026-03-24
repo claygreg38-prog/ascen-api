@@ -297,7 +297,22 @@ async function sendInvitation(familyUnitId, invitedByDbId, inviteeName, relation
     [familyUnitId, invitedByDbId, inviteeName, relationship, code, gateNumber]
   );
 
-  console.log(`[FamilyUnit] Invitation ${code} sent for ${familyUnitId}`);
+  console.log(`[FamilyUnit] Invitation ${code} created for ${familyUnitId}`);
+
+  // Send invitation email if invitee email provided
+  if (inviteeName && inviteeName.includes('@')) {
+    // inviteeName might be an email — send invitation
+    try {
+      const emailService = require('../services/emailService');
+      // Look up inviter name
+      const inviter = await pool.query('SELECT first_name FROM users WHERE id = $1', [invitedByDbId]);
+      const inviterName = inviter.rows[0]?.first_name || 'Your family';
+      await emailService.sendFamilyInvitation(inviteeName, inviterName, code);
+    } catch (err) {
+      console.error('[FamilyUnit] Invitation email failed:', err.message);
+      // Don't fail the invitation — email is best-effort
+    }
+  }
 
   return {
     invitationCode: result.rows[0].invitation_code,

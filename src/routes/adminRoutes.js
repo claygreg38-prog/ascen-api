@@ -23,7 +23,8 @@ const ALLOWED_TABLES = [
   'enrollment_codes', 'ai_usage_log', 'message_templates', 'conflict_events',
   'therapeutic_letters', 'therapy_reports', 'clinical_disclosures', 'story_arcs',
   'curriculum_assignments', 'payment_history', 'subscription_events',
-  'crisis_checkins', 'steward_actions', 'crisis_message_templates'
+  'crisis_checkins', 'steward_actions', 'crisis_message_templates',
+  'notification_queue'
 ];
 
 // Table existence + row count
@@ -163,6 +164,55 @@ router.post('/test-fixture/disclosure', async (req, res) => {
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
+  }
+});
+
+// ── NOTIFICATION QUEUE MANAGEMENT ────────────────────────────
+
+// GET /api/admin/notifications/failed — view failed deliveries
+router.get('/notifications/failed', async (req, res) => {
+  try {
+    const failed = await pool.query(`
+      SELECT id, type, recipient, subject, template_name, attempts, last_error, created_at
+      FROM notification_queue
+      WHERE status = 'failed'
+      ORDER BY created_at DESC
+      LIMIT 50
+    `);
+    res.json({ failed: failed.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/notifications/:id/resend — manual resend
+router.post('/notifications/:id/resend', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'UPDATE notification_queue SET status = $1, attempts = 0 WHERE id = $2 RETURNING id',
+      ['retrying', req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Notification not found' });
+    res.json({ queued: true, id: req.params.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/notifications/stats — delivery stats (last 7 days)
+router.get('/notifications/stats', async (req, res) => {
+  try {
+    const stats = await pool.query(`
+      SELECT status, COUNT(*) as count FROM notification_queue
+      WHERE created_at > NOW() - INTERVAL '7 days'
+      GROUP BY status
+    `);
+    const total = await pool.query(
+      'SELECT COUNT(*) as count FROM notification_queue WHERE created_at > NOW() - INTERVAL \'7 days\''
+    );
+    res.json({ stats: stats.rows, total: parseInt(total.rows[0]?.count || 0) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
