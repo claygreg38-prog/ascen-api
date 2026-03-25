@@ -317,6 +317,21 @@ Updated: March 23, 2026 (v8 Immersive Frontend Pairing)
   - Dependencies: resend (npm installed)
   - Twilio loaded dynamically via require('twilio') — no npm install needed until configured
 
+- Prevention Impact Score (PIS) — AXIS actuarial module:
+  - preventionImpactEngine.js: PIS = P(no recidivism | NS3 trajectory, engagement, capacity)
+  - CRITICAL: logisticTransform() is a MANUAL sigmoid — do NOT import from simple-statistics
+  - Confidence tiers: preliminary (<15 sessions, 0.8x valuation cap), standard (15-50), high (>50)
+  - Base rates loaded from base_rates DB table (not constants), staleness alert at 18 months via Sentry
+  - Emergency fallback hardcoded rate (0.40) only if DB has no rates at all + Sentry error
+  - Migration 038: base_rates, prevention_impact_scores tables, PIS columns on users, jurisdiction_code on users
+  - Seeded base rates: MD, MD-PG, MD-BALT from published DOC data
+  - computation_data JSONB stores ALL inputs for full auditability
+  - Admin endpoints: GET /api/admin/pis/:userId, POST /api/admin/pis/compute/:userId, GET/POST /api/admin/base-rates
+  - Monthly cron: 1st of month, 2 AM UTC — computes PIS for all active participants
+  - PIS is clinician/admin only — NEVER shown to participants
+  - Minimum 5 sessions before PIS computed (returns insufficient_data)
+  - Dependencies: simple-statistics (linearRegression, rSquared, mean)
+
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
 - Invisible watermark injection — Session 10+
@@ -417,7 +432,9 @@ Focus only on the task assigned in the session prompt.
 - frontend/src/components/SessionLauncher.jsx — Full-screen session launch overlay
 - tests/v8-pwa-integration.spec.js — Playwright tests for PWA-v8 integration
 - src/services/smsService.js — Twilio SMS with auth gate (503 when unavailable)
+- src/axis/preventionImpactEngine.js — PIS: manual sigmoid on NS3 trajectory + engagement + capacity
 - migrations/036_notification_queue.sql — notification_queue table for email/SMS retry
+- migrations/038_prevention_impact.sql — base_rates, prevention_impact_scores, PIS user columns
 - public/test.html — throwaway test harness
 
 ## BLE Devices

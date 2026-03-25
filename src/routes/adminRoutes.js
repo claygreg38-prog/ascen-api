@@ -167,6 +167,63 @@ router.post('/test-fixture/disclosure', async (req, res) => {
   }
 });
 
+// ── PREVENTION IMPACT SCORE ──────────────────────────────────
+
+// GET /api/admin/pis/:userId — view PIS for a user (clinician/admin only)
+router.get('/pis/:userId', async (req, res) => {
+  try {
+    const latest = await pool.query(
+      'SELECT * FROM prevention_impact_scores WHERE user_id = $1 ORDER BY computed_at DESC LIMIT 1',
+      [req.params.userId]
+    );
+    const history = await pool.query(
+      'SELECT score, confidence, improvement_score, computed_at FROM prevention_impact_scores WHERE user_id = $1 ORDER BY computed_at DESC LIMIT 12',
+      [req.params.userId]
+    );
+    res.json({ current: latest.rows[0] || null, history: history.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/pis/compute/:userId — force recompute
+router.post('/pis/compute/:userId', async (req, res) => {
+  try {
+    const preventionImpactEngine = require('../axis/preventionImpactEngine');
+    const result = await preventionImpactEngine.computePIS(parseInt(req.params.userId));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/base-rates — view current base rates
+router.get('/base-rates', async (req, res) => {
+  try {
+    const rates = await pool.query('SELECT * FROM base_rates ORDER BY jurisdiction_code, effective_date DESC');
+    res.json({ rates: rates.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/base-rates — add/update rate (audit trail via updated_by)
+router.post('/base-rates', async (req, res) => {
+  try {
+    const { jurisdiction_code, rate_type, rate, source_url, source_name, effective_date } = req.body;
+    if (!jurisdiction_code || !rate_type || rate == null || !effective_date) {
+      return res.status(400).json({ error: 'jurisdiction_code, rate_type, rate, effective_date required' });
+    }
+    await pool.query(`
+      INSERT INTO base_rates (jurisdiction_code, rate_type, rate, source_url, source_name, effective_date, updated_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `, [jurisdiction_code, rate_type, rate, source_url || null, source_name || null, effective_date, req.user?.userId || null]);
+    res.json({ saved: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── NOTIFICATION QUEUE MANAGEMENT ────────────────────────────
 
 // GET /api/admin/notifications/failed — view failed deliveries

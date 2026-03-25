@@ -770,6 +770,35 @@ try {
   console.warn('[SESSION CRON] Could not schedule:', err.message);
 }
 
+// ── PREVENTION IMPACT SCORE (1st of month, 2 AM UTC) ────────
+try {
+  const preventionImpactEngine = require('./src/axis/preventionImpactEngine');
+  cron.schedule('0 2 1 * *', async () => {
+    console.log('[CRON] Running monthly Prevention Impact Score computation...');
+    const users = await pool.query(
+      "SELECT id FROM users WHERE role = 'participant' AND is_active = true"
+    );
+    let computed = 0, skipped = 0;
+    for (const user of users.rows) {
+      try {
+        const result = await preventionImpactEngine.computePIS(user.id);
+        if (result.score !== null) computed++;
+        else skipped++;
+      } catch (err) {
+        console.error(`[PIS] Failed for user ${user.id}:`, err.message);
+        Sentry.captureException(err);
+      }
+    }
+    console.log(`[CRON] PIS: ${computed} computed, ${skipped} skipped (insufficient data)`);
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[PIS CRON] Monthly PIS computation scheduled: 1st of month, 2 AM UTC');
+} catch (err) {
+  console.warn('[PIS CRON] Could not schedule:', err.message);
+}
+
 // ── BLOCKCHAIN QUEUE PROCESSING (every 30 minutes) ──────────
 try {
   cron.schedule('*/30 * * * *', async () => {
