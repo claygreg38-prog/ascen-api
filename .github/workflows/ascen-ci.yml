@@ -27,6 +27,9 @@ jobs:
           find src/ -name "*.js" -exec node -c {} \;
           echo "All JS files pass syntax check"
 
+      - name: Wait for Railway deploy
+        run: sleep 90
+
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
 
