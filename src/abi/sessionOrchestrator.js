@@ -65,6 +65,7 @@ const familyIntelligence = require('./familyIntelligence');
 const familyUnitEngine = require('./familyUnitEngine');
 const capacityCurrency = require('./capacityCurrency');
 const lightBridgeEngine = require('./lightBridgeEngine');
+const lineageService = require('../services/lineageService');
 const Sentry = require('../instrument');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -1487,6 +1488,28 @@ function createOrchestrator(callbacks = {}) {
     } catch (err) {
       console.error('[CapacityCurrency] Session deposit failed (non-blocking):', err.message);
       Sentry.captureException(err);
+    }
+
+    // ── LINEAGE LEDGER: FIRMWARE TRACKING ──────────────────
+    // If session has firmware_number, record in lineage ledger
+    if (rawSession.firmware_number) {
+      try {
+        const internalUserId = await pool.query('SELECT id FROM users WHERE user_id = $1', [userId]);
+        if (internalUserId.rows.length) {
+          await lineageService.recordEntry(
+            internalUserId.rows[0].id, familyUnitId, null,
+            'firmware_installed',
+            {
+              firmware_number: rawSession.firmware_number,
+              firmware_name: rawSession.firmware_name || null,
+              session_number: rawSession.session_number || 0,
+              coherence_peak: rawMetrics.coherence_peak || 0,
+            }
+          );
+        }
+      } catch (err) {
+        console.error('[LINEAGE] Firmware recording failed (non-blocking):', err.message);
+      }
     }
 
     // ── LIGHTBRIDGE: SESSION EVENT ─────────────────────────

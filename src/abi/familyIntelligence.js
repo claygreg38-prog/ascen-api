@@ -529,14 +529,14 @@ async function checkEscalation(familyUnitId, patterns) {
       // Check if already escalated recently
       const recentEsc = await pool.query(
         `SELECT id FROM family_escalations
-         WHERE family_unit_id = $1 AND escalation_type = 'sustained_dysregulation'
+         WHERE family_unit_id = $1 AND escalation_type = 'sustained_system_load'
          AND created_at > NOW() - INTERVAL '7 days' AND status != 'resolved'`,
         [familyUnitId]
       );
 
       if (recentEsc.rows.length === 0) {
         escalations.push({
-          type: 'sustained_dysregulation',
+          type: 'sustained_system_load',
           triggerData: { affected_members: dysregMembers.rows.map(r => r.id), period: '14 days' },
           routeTo: 'facilitator'
         });

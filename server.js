@@ -411,6 +411,36 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// HOS FAMILY LAYER — LACE, Firmware, Lineage (Session 25)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const laceRoutes = require('./src/routes/laceRoutes');
+  app.use('/api/lace', authenticateOrApiKey('participant'));
+  app.use('/api/lace', laceRoutes);
+  console.log('[LACE] Routes mounted at /api/lace');
+} catch (err) {
+  console.warn('[LACE] Could not mount:', err.message);
+}
+
+try {
+  const firmwareRoutes = require('./src/routes/firmwareRoutes');
+  app.use('/api/firmware', authenticateOrApiKey('participant'));
+  app.use('/api/firmware', firmwareRoutes);
+  console.log('[FIRMWARE] Routes mounted at /api/firmware');
+} catch (err) {
+  console.warn('[FIRMWARE] Could not mount:', err.message);
+}
+
+try {
+  const lineageRoutes = require('./src/routes/lineageRoutes');
+  app.use('/api/lineage', authenticateOrApiKey('participant'));
+  app.use('/api/lineage', lineageRoutes);
+  console.log('[LINEAGE] Routes mounted at /api/lineage');
+} catch (err) {
+  console.warn('[LINEAGE] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // SUBSCRIPTION ROUTES — Billing & Tier Management (Session 21)
 // ═══════════════════════════════════════════════════════════════
 try {

@@ -453,6 +453,30 @@ Focus only on the task assigned in the session prompt.
 - migrations/039_artifact_valuation.sql — artifact_valuations, census_data, user/session valuation columns
 - public/test.html — throwaway test harness
 
+## HOS Family Layer (Session 25)
+- **HOS vocabulary enforced** across all user-facing strings. Clinical terms in code comments only.
+- N1: "therapeutic" → "system work", "dysregulation" → "system under load" in API responses
+- laceEngine.js — LACE (Legacy ACE) assessment with breath-first diagnostic
+  - 15 domains (LACE_001-LACE_014 + LACE_OPP) from legacy-ace-v2-dual-axis.yaml
+  - 6 clusters: External Threat, System Contact, Household/Relational, Economic/Material, Identity/Cultural, Unknown
+  - Inter-cluster breath baselines — intelligence before disclosure
+  - LACE NEVER produces a SCORE. It produces a MAP. This is absolute.
+  - 15 armor names: The Sentinel, The Fortress, The Ghost, The Atlas, The Override, The Chameleon, The Scanner, The Hoarder, The Spender, The Nomad, The Wanderer, The Refuser, The Doubter, The Inventor, The Inheritor
+  - Armor strength named BEFORE cost. Always.
+- lineage_profiles table — family code naming (elder only), carriers with generation level, dominant armors
+- 8 YAML-defined firmware (foundation): cache_clearing, baseline_reboot, file_recovery, legacy_thread, legacy_code_deprecation, gratitude_patch, cultural_source_code_recovery, network_expansion_protocol
+- 1 extension firmware: boundary_firmware
+- firmwareRecommender.js — AXIS reads confirmed armors, recommends firmware sequence. Cache Clearing always first.
+- lineage_entries table — permanent milestone record with SHA-256 attestation hash
+  - Entry types: armor_confirmed, firmware_installed, firmware_completed, field_test_passed, crest_versioned, family_code_named, quilting_completed, heritage_mapped
+- lineageService.js — records milestones, wired into sessionOrchestrator for firmware tracking
+- laceRoutes.js at /api/lace: start, domain, breath-baseline, confirm-armor, complete, status, map, domains, family/code-name
+- firmwareRoutes.js at /api/firmware: recommended, progress, :number
+- lineageRoutes.js at /api/lineage: ledger, timeline, family
+- Migration 040: lace_assessments, lineage_profiles
+- Migration 041: firmware_templates (9 seeded), firmware columns on session_completions
+- Migration 042: lineage_entries
+
 ## Alignment Backend Extensions (Session 24)
 - /api/family/unit/:id extended: per-member capacity_state + lightbridge_state, co_breath_suggestion
 - GET /api/user/vagal-journey/:sessionId — arrival + landing NS3 with HOS zone labels
@@ -463,6 +487,22 @@ Focus only on the task assigned in the session prompt.
 - Privacy: family members see capacity STATE only — never balance, never NS3, never biometrics
 - Co-breath suggestion requires 3+ historical co-breath sessions before surfacing
 - Drifting word fires at milestone moments only. 99% of ticks return null.
+
+## Depth Metaphor — Frontend (Session 25, LOCKED)
+- **Surface = sunny PWA, deep = dark v8 session.** Weather = biofeedback (capacity state → clouds/warmth/calm).
+- SurfaceOcean.jsx: single continuous canvas — sky + sun + clouds + horizon + water + plankton. Weather interpolates at 2% per frame (~2 second transitions). Canvas NEVER restarts on prop changes (all ref-based).
+- HomeScreen.jsx: sunny surface with sky-zone cards (white, dark text) above waterline, water-zone cards (dark, light text) below. MiniLuno at waterline. "Dive In" not "Begin."
+- DescentAnimation.jsx: 10 seconds, 6 depth zones (Luno/Luna palettes), easeInOut cubic bezier. IS the first exercise — not a loading screen. Luno's glow increases → sole light at midnight.
+- Ascent: 8 seconds, reverse descent. Return to potentially clearer sky if NS3 improved. Never punish with worse weather if NS3 declined.
+- DriftingWord.jsx: coherence-gated word bank. Simpler words at low coherence, absent at peak (0.85+). Backend drifting_word overrides local bank.
+- PullDownShade.jsx: opt-in text overlay. Never defaults to open. Swipe or tap chevron to reveal.
+- VagalJourneyScreen.jsx: vertical 4-zone bar (Regulated/Settling/Activated/Protected) with arrival/landing dots. No numbers, no clinical terms.
+- 30-day pattern: arrival dots migrating upward. Trend: improving/stable/declining with compassionate text.
+- SessionScreen.jsx flow: descent → somatic (if NS3<25) → breathing (v8 iframe with sessionKey) → ascent → journey → vault → home.
+- v8 iframe receives sessionKey param to continue SAME session (no duplicate session/start).
+- Weather never storms. Even at Depleted: heavy overcast, grey and still. Never threatening.
+- Voice hooks marked with VOICE_HOOK comments for future ElevenLabs TTS. Drifting words carry the load without voice.
+- Design references: HomeScreen.depth-v5.design.jsx, DescentAnimation.design.jsx (in frontend/src/screens/)
 
 ## BLE Devices
 - Polar H10: ECG, gold standard, deviceConfidence = 1.0
