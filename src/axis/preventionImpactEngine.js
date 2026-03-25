@@ -20,7 +20,13 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 // ── MAIN COMPUTE ────────────────────────────────────────────
 
 async function computePIS(userId) {
-  const user = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+  let user;
+  try {
+    user = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+  } catch (err) {
+    Sentry.captureException(err);
+    throw err;
+  }
   if (!user.rows.length) throw new Error(`User ${userId} not found`);
 
   const jurisdictionCode = user.rows[0].jurisdiction_code || 'MD-PG';
@@ -53,38 +59,44 @@ async function computePIS(userId) {
   const pis = logisticTransform(improvementScore, baseRate.rate);
 
   // Store result
-  await pool.query(`
-    INSERT INTO prevention_impact_scores
-    (user_id, tenant_id, score, confidence, computation_data, base_rate_used, base_rate_source, improvement_score)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-  `, [
-    userId,
-    user.rows[0].tenant_id,
-    pis,
-    confidence,
-    JSON.stringify({
-      ns3_trajectory: ns3Trajectory.summary,
-      engagement: engagementSignals.summary,
-      capacity: capacitySignals.summary,
-      improvement_score: improvementScore,
+  try {
+    await pool.query(`
+      INSERT INTO prevention_impact_scores
+      (user_id, tenant_id, score, confidence, computation_data, base_rate_used, base_rate_source, improvement_score)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `, [
+      userId,
+      user.rows[0].tenant_id,
+      pis,
       confidence,
-      base_rate: {
-        jurisdiction: jurisdictionCode,
-        rate: parseFloat(baseRate.rate),
-        source: baseRate.source_name,
-        effective_date: baseRate.effective_date
-      }
-    }),
-    baseRate.rate,
-    baseRate.source_name,
-    improvementScore
-  ]);
+      JSON.stringify({
+        ns3_trajectory: ns3Trajectory.summary,
+        engagement: engagementSignals.summary,
+        capacity: capacitySignals.summary,
+        improvement_score: improvementScore,
+        confidence,
+        base_rate: {
+          jurisdiction: jurisdictionCode,
+          rate: parseFloat(baseRate.rate),
+          source: baseRate.source_name,
+          effective_date: baseRate.effective_date
+        }
+      }),
+      baseRate.rate,
+      baseRate.source_name,
+      improvementScore
+    ]);
 
-  // Update user's latest PIS for fast lookup
-  await pool.query(
-    'UPDATE users SET prevention_impact_score = $1, pis_confidence = $2, pis_computed_at = NOW() WHERE id = $3',
-    [pis, confidence, userId]
-  );
+    // Update user's latest PIS for fast lookup
+    await pool.query(
+      'UPDATE users SET prevention_impact_score = $1, pis_confidence = $2, pis_computed_at = NOW() WHERE id = $3',
+      [pis, confidence, userId]
+    );
+  } catch (err) {
+    console.error(`[PIS] Storage failed for user ${userId}:`, err.message);
+    Sentry.captureException(err);
+    // Still return the computed score even if storage fails
+  }
 
   return { score: pis, confidence, improvementScore };
 }
@@ -218,7 +230,9 @@ async function getEngagementSignals(userId) {
       [userId.toString()]
     );
     kitchenTableCount = parseInt(ktResult.rows[0].count);
-  } catch {}
+  } catch (err) {
+    Sentry.captureException(err);
+  }
 
   let coBreathCount = 0;
   try {
@@ -227,7 +241,9 @@ async function getEngagementSignals(userId) {
       [userId.toString()]
     );
     coBreathCount = parseInt(cbResult.rows[0].count);
-  } catch {}
+  } catch (err) {
+    Sentry.captureException(err);
+  }
 
   return {
     totalSessions,

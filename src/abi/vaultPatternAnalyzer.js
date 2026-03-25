@@ -18,13 +18,11 @@ class VaultPatternAnalyzer {
     try {
       const entries = await this.pool.query(
         `SELECT
-           vault_response->>'resonance_signal' as resonance,
-           vault_response->>'impact_slider' as impact,
-           vault_response->'emotional_tags' as tags,
+           vault_response_encrypted as vault_encrypted,
            sc.coherence_score, sc.coherence_end, sc.completed_at
          FROM session_completions sc
          WHERE sc.user_id = $1
-           AND sc.vault_response IS NOT NULL
+           AND sc.vault_response_encrypted IS NOT NULL
          ORDER BY sc.completed_at DESC LIMIT 30`,
         [userId]
       );
