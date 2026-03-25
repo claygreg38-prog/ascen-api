@@ -444,6 +444,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// FAMILY DESIGN ROUTES — System Design Mode (Session 26)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const familyDesignRoutes = require('./src/routes/familyDesignRoutes');
+  app.use('/api/design', authenticateOrApiKey('participant'));
+  app.use('/api/design', familyDesignRoutes);
+  console.log('[DESIGN] Routes mounted at /api/design');
+} catch (err) {
+  console.warn('[DESIGN] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // TTS ROUTES — ElevenLabs Text-to-Speech (Session 26)
 // ═══════════════════════════════════════════════════════════════
 try {

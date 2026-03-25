@@ -455,6 +455,9 @@ Focus only on the task assigned in the session prompt.
 - src/routes/ttsRoutes.js — TTS API endpoints (generate, available, prewarm, stats)
 - frontend/src/utils/audioPlayer.js — TTS audio playback utility
 - migrations/043_tts_cache.sql — tts_cache table + ASCEN voice config seed
+- src/abi/familyDesignEngine.js — Heritage/Price + Blueprint + Sandbox + Vision Board
+- src/routes/familyDesignRoutes.js — System Design Mode API (18 endpoints at /api/design)
+- migrations/044_family_design.sql — heritage_price_sessions, family_blueprints, sandbox_sessions, vision_board_entries, preset_scenarios
 - public/test.html — throwaway test harness
 
 ## HOS Family Layer (Session 25)
@@ -527,6 +530,30 @@ Focus only on the task assigned in the session prompt.
 - Cost: ~$0.005-0.01 per NEW generation, $0 for cached playback
 - ELEVENLABS_API_KEY env var required. voice_id values set in tenant voice_config after ElevenLabs dashboard setup.
 - Luno's silence rule still applies: no real-time verbal biometric feedback. TTS is for scripted moments only.
+
+## Heritage/Price Engine + Family Design Interface (Session 26)
+- **Arc position:** LACE → Armor → Heritage/Price → System Design Mode → Firmware → Field Testing
+- **Stages of change:** Blueprint = contemplation→preparation, Sandbox = preparation→action, Vision Board = preparation→maintenance
+- Heritage/Price Engine: maps confirmed armors to 8 heritage dimensions (physical, emotional, relational, financial, spiritual, vocational, educational, communal)
+- ARMOR_DIMENSION_COSTS: per-armor cost scores across dimensions (e.g., The Sentinel: physical 8, emotional 6, communal 7)
+- High-cost dimensions: cost_score >= 7 → deprecate, >= 5 → modify, < 5 → maintain
+- Heritage/Price completion updates lineage_profiles.heritage_dimensions and records heritage_mapped lineage entry
+- familyDesignEngine.js — three modes: Blueprint (imagine), Sandbox (rehearse), Vision Board (manifest)
+- Blueprint: per-dimension visions from 3 generational roles (elder, parent, child), family declaration (elder only)
+- Blueprint prompts filtered to high-cost dimensions only (those marked modify/deprecate in Heritage/Price)
+- Blueprint statement auto-generated when all 3 roles contribute to a dimension
+- Blueprint completion updates lineage_profiles.family_blueprint and records blueprint_created lineage entry
+- Sandbox: replay (redo past), preview (practice future), contrast (old code vs new code with biometric comparison)
+- Biometric comparison: participants see regulation_improved boolean ONLY — never raw NS3 values
+- 15 preset scenarios seeded in preset_scenarios table (5 replay, 5 preview, 5 contrast) covering common armor × dimension combinations
+- Scenario suggest: AXIS recommends based on confirmed armors from LACE, excludes already-completed scenarios
+- Vision Board: auto-assembled from blueprint + milestones + sandbox history. No manual creation step.
+- Blueprint before Sandbox. You cannot rehearse what you haven't imagined.
+- Drawing prompts for elementary children. They draw the future, they don't write it.
+- Child's Contrast role — "Tell us which family you want to live in" — the Mirror speaks truth.
+- All endpoints require family membership. Declaration is elder-only.
+- Migration 044: heritage_price_sessions, family_blueprints, sandbox_sessions, vision_board_entries, preset_scenarios
+- lineage_entries CHECK constraint extended: blueprint_created, sandbox_completed, heritage_price_completed added
 
 ## BLE Devices
 - Polar H10: ECG, gold standard, deviceConfidence = 1.0
