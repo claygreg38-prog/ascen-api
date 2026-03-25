@@ -335,7 +335,36 @@ router.post('/session/tick', (req, res) => {
       }).catch(() => {});
     }
 
-    res.json({ success: true, result, events });
+    // ── DRIFTING WORD — milestone-triggered textless UI word ──
+    // 99% of ticks return null. Fires only at rare, meaningful moments.
+    let drifting_word = null;
+    if (!session._driftingMilestones) session._driftingMilestones = new Set();
+    const milestones = session._driftingMilestones;
+    const breathCount = result?.breath_count || 0;
+    const currentCoherence = biometrics?.coherence || 0;
+    const priorPeak = session._priorCoherencePeak || 0;
+
+    if (currentCoherence >= 0.7 && priorPeak < 0.7 && !milestones.has('arriving')) {
+      drifting_word = 'arriving';
+      milestones.add('arriving');
+    } else if (currentCoherence > priorPeak + 0.1 && currentCoherence > 0.5 && !milestones.has('deeper_' + Math.floor(currentCoherence * 10))) {
+      drifting_word = 'deeper';
+      milestones.add('deeper_' + Math.floor(currentCoherence * 10));
+    } else if (breathCount === 10 && !milestones.has('breath_10')) {
+      drifting_word = 'steady';
+      milestones.add('breath_10');
+    } else if (breathCount === 25 && !milestones.has('breath_25')) {
+      drifting_word = 'building';
+      milestones.add('breath_25');
+    } else if (breathCount === 50 && !milestones.has('breath_50')) {
+      drifting_word = 'rooted';
+      milestones.add('breath_50');
+    }
+
+    // Track coherence peak for next tick comparison
+    if (currentCoherence > priorPeak) session._priorCoherencePeak = currentCoherence;
+
+    res.json({ success: true, result, events, drifting_word });
   } catch (error) {
     Sentry.captureException(error);
     res.status(500).json({ error: error.message });
@@ -456,7 +485,7 @@ router.post('/drill/select', async (req, res) => {
 
     // Look up drill from DB
     const result = await pool.query(
-      'SELECT id, name, instructions, duration_sec, type FROM somatic_exercises WHERE id = $1',
+      'SELECT id, name, instructions, duration_sec, protocol FROM somatic_exercises WHERE id = $1',
       [drill_id]
     );
 
@@ -469,8 +498,8 @@ router.post('/drill/select', async (req, res) => {
       drill_id: drill.id,
       name: drill.name,
       instructions: drill.instructions,
-      duration_seconds: drill.duration_seconds,
-      type: drill.type
+      duration_seconds: drill.duration_sec,
+      type: drill.protocol
     });
   } catch (error) {
     Sentry.captureException(error);
@@ -684,7 +713,7 @@ router.get('/drills/:param', async (req, res) => {
 
     // Try as track name — return somatic exercises from DB
     const trackResult = await pool.query(
-      `SELECT id, name, instructions, duration_sec, type FROM somatic_exercises ORDER BY id`
+      `SELECT id, name, instructions, duration_sec, protocol FROM somatic_exercises ORDER BY id`
     );
     res.json({
       track: param,

@@ -145,6 +145,16 @@ try {
   console.warn('[USER] Could not mount:', err.message);
 }
 
+// Vagal journey + pattern routes (requires JWT or API key)
+try {
+  const vagalRoutes = require('./src/routes/vagalRoutes');
+  app.use('/api/user', authenticateOrApiKey('participant'));
+  app.use('/api/user', vagalRoutes);
+  console.log('[VAGAL] Routes mounted at /api/user/vagal-journey, /api/user/vagal-pattern');
+} catch (err) {
+  console.warn('[VAGAL] Could not mount:', err.message);
+}
+
 // Onboarding routes (requires JWT or API key)
 try {
   const onboardingRoutes = require('./src/routes/onboardingRoutes');

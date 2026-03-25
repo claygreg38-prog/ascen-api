@@ -453,6 +453,17 @@ Focus only on the task assigned in the session prompt.
 - migrations/039_artifact_valuation.sql — artifact_valuations, census_data, user/session valuation columns
 - public/test.html — throwaway test harness
 
+## Alignment Backend Extensions (Session 24)
+- /api/family/unit/:id extended: per-member capacity_state + lightbridge_state, co_breath_suggestion
+- GET /api/user/vagal-journey/:sessionId — arrival + landing NS3 with HOS zone labels
+- GET /api/user/vagal-pattern — 30-day trend with improving/stable/declining direction
+- drifting_word added to tick response — milestone-triggered words for textless UI (arriving, deeper, steady, building, rooted)
+- vagalRoutes.js at /api/user: vagal-journey, vagal-pattern
+- HOS zone vocabulary: Regulated (71-100), Settling (41-70), Activated (25-40), Protected (0-24) — never clinical terms
+- Privacy: family members see capacity STATE only — never balance, never NS3, never biometrics
+- Co-breath suggestion requires 3+ historical co-breath sessions before surfacing
+- Drifting word fires at milestone moments only. 99% of ticks return null.
+
 ## BLE Devices
 - Polar H10: ECG, gold standard, deviceConfidence = 1.0
 - Kyto2935: PPG finger clip, deviceConfidence = 0.75

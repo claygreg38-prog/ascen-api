@@ -47,7 +47,120 @@ router.get('/unit/:id', async (req, res) => {
   try {
     const result = await familyUnitEngine.getFamilyUnit(req.params.id);
     if (!result) return res.status(404).json({ error: 'Family unit not found' });
-    res.json(result);
+
+    // ── Per-member capacity state + LightBridge state ──────
+    // Privacy rule: capacity STATE only — never balance, never NS3, never biometrics
+    const membersWithState = await Promise.all(result.members.map(async (member) => {
+      // Resolve internal user id for DB queries
+      let internalId = null;
+      try {
+        const userRow = await pool.query('SELECT id FROM users WHERE user_id = $1', [member.userId]);
+        if (userRow.rows.length) internalId = userRow.rows[0].id;
+      } catch (e) { /* skip enrichment */ }
+
+      // Get capacity state (label only — NEVER balance or NS3 score)
+      let capacityState = 'steady'; // default
+      if (internalId) {
+        try {
+          const capResult = await pool.query(
+            `SELECT capacity_state FROM capacity_snapshots
+             WHERE user_id = $1 ORDER BY snapshot_date DESC LIMIT 1`,
+            [internalId]
+          );
+          if (capResult.rows.length) capacityState = capResult.rows[0].capacity_state;
+        } catch (e) { /* default to steady */ }
+      }
+
+      // Get LightBridge state (null if no device)
+      let lightbridgeState = null;
+      if (internalId) {
+        try {
+          const lbResult = await pool.query(
+            `SELECT current_state FROM lightbridge_devices
+             WHERE user_id = $1 AND is_active = true LIMIT 1`,
+            [internalId]
+          );
+          if (lbResult.rows.length) lightbridgeState = lbResult.rows[0].current_state;
+        } catch (e) { /* null */ }
+      }
+
+      return {
+        ...member,
+        capacity_state: capacityState,
+        lightbridge_state: lightbridgeState
+      };
+    }));
+
+    // ── Co-breath suggestion (null if insufficient data) ───
+    let coBreathSuggestion = null;
+    const requestingUserId = req.user?.participant_id || req.user?.user_id || req.user?.sub;
+    try {
+      // Resolve requesting user's internal id
+      const reqUserRow = await pool.query('SELECT id FROM users WHERE user_id = $1', [requestingUserId]);
+      if (reqUserRow.rows.length) {
+        const reqInternalId = reqUserRow.rows[0].id;
+
+        // Analyze historical co-breath timing + quality
+        const coBreathHistory = await pool.query(
+          `SELECT cs.partner_id, u.first_name,
+                  EXTRACT(DOW FROM cs.created_at) as day_of_week,
+                  EXTRACT(HOUR FROM cs.created_at) as hour,
+                  cs.connection_score
+           FROM cobreath_sessions cs
+           JOIN users u ON u.id = cs.partner_id
+           WHERE cs.initiator_id = $1 AND cs.connection_score IS NOT NULL
+           ORDER BY cs.created_at DESC LIMIT 20`,
+          [reqInternalId]
+        );
+
+        if (coBreathHistory.rows.length >= 3) {
+          // Find best partner + best time
+          const partnerScores = {};
+          coBreathHistory.rows.forEach(row => {
+            if (!partnerScores[row.partner_id]) {
+              partnerScores[row.partner_id] = {
+                name: row.first_name, scores: [], days: [], hours: []
+              };
+            }
+            partnerScores[row.partner_id].scores.push(parseFloat(row.connection_score));
+            partnerScores[row.partner_id].days.push(parseInt(row.day_of_week));
+            partnerScores[row.partner_id].hours.push(parseInt(row.hour));
+          });
+
+          // Best partner by average connection score
+          let bestPartner = null;
+          let bestAvg = 0;
+          for (const [id, data] of Object.entries(partnerScores)) {
+            const avg = data.scores.reduce((a, b) => a + b, 0) / data.scores.length;
+            if (avg > bestAvg) { bestAvg = avg; bestPartner = { id, ...data }; }
+          }
+
+          if (bestPartner) {
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const dayCount = {};
+            bestPartner.days.forEach(d => { dayCount[d] = (dayCount[d] || 0) + 1; });
+            const bestDay = Object.entries(dayCount).sort((a, b) => b[1] - a[1])[0];
+
+            const hourCount = {};
+            bestPartner.hours.forEach(h => { hourCount[h] = (hourCount[h] || 0) + 1; });
+            const bestHour = Object.entries(hourCount).sort((a, b) => b[1] - a[1])[0];
+            const timeLabel = bestHour ? (parseInt(bestHour[0]) < 12 ? 'mornings' : 'evenings') : null;
+
+            coBreathSuggestion = {
+              partner_name: bestPartner.name,
+              best_day: bestDay ? dayNames[parseInt(bestDay[0])] : null,
+              best_time: timeLabel
+            };
+          }
+        }
+      }
+    } catch (e) { /* null — insufficient data */ }
+
+    res.json({
+      ...result,
+      members: membersWithState,
+      co_breath_suggestion: coBreathSuggestion
+    });
   } catch (err) {
     console.error('[Family] Get unit failed:', err.message);
     Sentry.captureException(err);
