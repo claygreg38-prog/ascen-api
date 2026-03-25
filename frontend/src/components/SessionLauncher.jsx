@@ -66,7 +66,7 @@ export default function SessionLauncher({ nextSession, character = 'luno', coher
             letterSpacing: '0.03em'
           }}
         >
-          Begin Breathing
+          Dive In
         </button>
       </div>
     </div>
