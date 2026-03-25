@@ -163,6 +163,23 @@ async function registerWithFacilityCode(code, pin, firstName, req) {
   await logAuthEvent(user.id, 'wallet_generated', req, { wallet_address: wallet.walletAddress });
   await logAuthEvent(null, 'code_used', req, { code, used_by: user.id });
 
+  // Lock disadvantage index at enrollment (non-blocking)
+  try {
+    const countyCode = 'PG'; // Default county — updated by facilitator if needed
+    const census = await pool.query(
+      "SELECT disadvantage_index FROM census_data WHERE geographic_level = 'county' AND geographic_code = $1",
+      [countyCode]
+    );
+    const di = parseFloat(census.rows[0]?.disadvantage_index) || 0.5;
+    const multiplier = Math.round((1.0 + di * 1.5) * 100) / 100;
+    await pool.query(
+      'UPDATE users SET county_code = $1, disadvantage_index_at_enrollment = $2, disadvantage_index_multiplier = $3 WHERE id = $4',
+      [countyCode, di, multiplier, user.id]
+    );
+  } catch (err) {
+    console.error('[AUTH] Disadvantage index setup failed (non-blocking):', err.message);
+  }
+
   // Generate tokens
   const accessToken = generateJWT(user);
   const refreshToken = await generateRefreshToken(user.id, req?.headers?.['user-agent']);
@@ -266,6 +283,23 @@ async function verifyCode(userId, code, purpose, req) {
   // Generate wallet
   const wallet = await walletService.generateWallet(user.id);
   await logAuthEvent(user.id, 'wallet_generated', req, { wallet_address: wallet.walletAddress });
+
+  // Lock disadvantage index at enrollment (non-blocking)
+  try {
+    const countyCode = 'PG';
+    const census = await pool.query(
+      "SELECT disadvantage_index FROM census_data WHERE geographic_level = 'county' AND geographic_code = $1",
+      [countyCode]
+    );
+    const di = parseFloat(census.rows[0]?.disadvantage_index) || 0.5;
+    const multiplier = Math.round((1.0 + di * 1.5) * 100) / 100;
+    await pool.query(
+      'UPDATE users SET county_code = $1, disadvantage_index_at_enrollment = $2, disadvantage_index_multiplier = $3 WHERE id = $4',
+      [countyCode, di, multiplier, user.id]
+    );
+  } catch (err) {
+    console.error('[AUTH] Disadvantage index setup failed (non-blocking):', err.message);
+  }
 
   // Generate tokens
   const updatedUser = await pool.query('SELECT * FROM users WHERE id = $1', [user.id]);

@@ -167,6 +167,59 @@ router.post('/test-fixture/disclosure', async (req, res) => {
   }
 });
 
+// ── ARTIFACT VALUATION ──────────────────────────────────────
+
+// GET /api/admin/valuation/:sessionCompletionId — per-session valuation
+router.get('/valuation/:sessionCompletionId', async (req, res) => {
+  try {
+    const valuation = await pool.query(
+      'SELECT * FROM artifact_valuations WHERE session_completion_id = $1 AND is_latest = true',
+      [req.params.sessionCompletionId]
+    );
+    res.json(valuation.rows[0] || null);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/valuation/user/:userId/total — portfolio total
+router.get('/valuation/user/:userId/total', async (req, res) => {
+  try {
+    const total = await pool.query(
+      'SELECT SUM(value_usd) as total_value, COUNT(*) as credential_count FROM artifact_valuations WHERE user_id = $1 AND is_latest = true',
+      [req.params.userId]
+    );
+    res.json(total.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/valuation/jurisdiction/:code/summary — jurisdiction summary
+router.get('/valuation/jurisdiction/:code/summary', async (req, res) => {
+  try {
+    const summary = await pool.query(`
+      SELECT COUNT(*) as total_credentials, SUM(av.value_usd) as total_value,
+             AVG(av.value_usd) as avg_value, MIN(av.value_usd) as min_value, MAX(av.value_usd) as max_value
+      FROM artifact_valuations av JOIN users u ON u.id = av.user_id
+      WHERE u.jurisdiction_code = $1 AND av.is_latest = true
+    `, [req.params.code]);
+    res.json(summary.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/census-data — view census data
+router.get('/census-data', async (req, res) => {
+  try {
+    const data = await pool.query('SELECT * FROM census_data ORDER BY geographic_level, geographic_code');
+    res.json({ data: data.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── PREVENTION IMPACT SCORE ──────────────────────────────────
 
 // GET /api/admin/pis/:userId — view PIS for a user (clinician/admin only)

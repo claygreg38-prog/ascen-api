@@ -799,6 +799,47 @@ try {
   console.warn('[PIS CRON] Could not schedule:', err.message);
 }
 
+// ── ARTIFACT VALUATION REFRESH (2nd of month, 3 AM UTC) ─────
+try {
+  const artifactValuationEngine = require('./src/axis/artifactValuationEngine');
+  cron.schedule('0 3 2 * *', async () => {
+    console.log('[CRON] Running monthly artifact valuation refresh...');
+    const sessions = await pool.query(`
+      SELECT sc.id, sc.user_id FROM session_completions sc
+      WHERE sc.art_ipfs_hash IS NOT NULL
+    `);
+
+    let refreshed = 0;
+    for (const session of sessions.rows) {
+      try {
+        await artifactValuationEngine.computeArtifactValue(session.user_id, session.id, true);
+        refreshed++;
+      } catch (err) {
+        console.error(`[VALUATION] Refresh failed for session ${session.id}:`, err.message);
+        Sentry.captureException(err);
+      }
+    }
+
+    // Check annual portfolio ceilings
+    const portfolios = await pool.query(`
+      SELECT user_id, SUM(value_usd) as total FROM artifact_valuations
+      WHERE is_latest = true AND computed_at > NOW() - INTERVAL '1 year'
+      GROUP BY user_id HAVING SUM(value_usd) > ${artifactValuationEngine.ANNUAL_PORTFOLIO_CEILING}
+    `);
+    for (const p of portfolios.rows) {
+      Sentry.captureMessage(`User ${p.user_id} portfolio exceeds annual ceiling: $${p.total}`, 'warning');
+    }
+
+    console.log(`[CRON] Valuations refreshed: ${refreshed}`);
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[VALUATION CRON] Monthly refresh scheduled: 2nd of month, 3 AM UTC');
+} catch (err) {
+  console.warn('[VALUATION CRON] Could not schedule:', err.message);
+}
+
 // ── BLOCKCHAIN QUEUE PROCESSING (every 30 minutes) ──────────
 try {
   cron.schedule('*/30 * * * *', async () => {

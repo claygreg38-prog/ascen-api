@@ -331,6 +331,20 @@ Updated: March 23, 2026 (v8 Immersive Frontend Pairing)
   - PIS is clinician/admin only — NEVER shown to participants
   - Minimum 5 sessions before PIS computed (returns insufficient_data)
   - Dependencies: simple-statistics (linearRegression, rSquared, mean)
+- Artifact Valuation Engine — AXIS module: defensible dollar value per credential:
+  - artifactValuationEngine.js: base × milestone × NS3Quality × PIS × jurisdiction × disadvantage
+  - $500 per-credential ceiling, $50,000 annual portfolio ceiling (Finding 3.2)
+  - 25% retroactive increase cap per refresh cycle — decreases uncapped (Finding 3.3)
+  - NaN guard on ALL multipliers — defaults to 1.0 + Sentry alert (Finding 3.1)
+  - Census disadvantage data: 9 Maryland counties seeded + DEFAULT fallback (Finding 3.1)
+  - Disadvantage index locked at enrollment, never updated (anti-redlining)
+  - PIS confidence-aware: preliminary caps multiplier at 0.8x
+  - census_data table for Phase 2 zip-code integration (Census ACS API, 60-day deadline) (Finding 3.4)
+  - Migration 039: artifact_valuations, census_data, user columns (county_code, disadvantage_index_at_enrollment, disadvantage_index_multiplier), artifact_value_usd on session_completions
+  - Admin endpoints: GET /api/admin/valuation/:sessionId, GET /api/admin/valuation/user/:id/total, GET /api/admin/valuation/jurisdiction/:code/summary, GET /api/admin/census-data
+  - Monthly valuation refresh cron: 2nd of month, 3 AM UTC (after PIS runs on 1st)
+  - Disadvantage index computed and locked at enrollment in authService.js (both facility and email registration)
+  - Valuation is clinician/admin only — NEVER participant-facing
 
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
@@ -435,6 +449,8 @@ Focus only on the task assigned in the session prompt.
 - src/axis/preventionImpactEngine.js — PIS: manual sigmoid on NS3 trajectory + engagement + capacity
 - migrations/036_notification_queue.sql — notification_queue table for email/SMS retry
 - migrations/038_prevention_impact.sql — base_rates, prevention_impact_scores, PIS user columns
+- src/axis/artifactValuationEngine.js — defensible artifact dollar values with ceilings + NaN guards
+- migrations/039_artifact_valuation.sql — artifact_valuations, census_data, user/session valuation columns
 - public/test.html — throwaway test harness
 
 ## BLE Devices
