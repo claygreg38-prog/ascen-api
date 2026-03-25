@@ -28,6 +28,9 @@ app.get('/test/config', (req, res) => {
 // ── CROWN SVGs — static assets ──────────────────────────────
 app.use('/assets/crowns', express.static(path.join(__dirname, 'src/assets/crowns')));
 
+// ── TTS AUDIO — cached ElevenLabs audio files ───────────────
+app.use('/audio/tts', express.static(path.join(__dirname, 'public/audio/tts')));
+
 // ── V8 IMMERSIVE FRONTEND — canonical participant experience ─
 app.get('/breathe', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index_v8.html'));
@@ -438,6 +441,18 @@ try {
   console.log('[LINEAGE] Routes mounted at /api/lineage');
 } catch (err) {
   console.warn('[LINEAGE] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TTS ROUTES — ElevenLabs Text-to-Speech (Session 26)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const ttsRoutes = require('./src/routes/ttsRoutes');
+  app.use('/api/tts', authenticateOrApiKey('participant'));
+  app.use('/api/tts', ttsRoutes);
+  console.log('[TTS] Routes mounted at /api/tts');
+} catch (err) {
+  console.warn('[TTS] Could not mount:', err.message);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -923,6 +938,22 @@ try {
   console.log('[BLOCKCHAIN CRON] Balance monitor scheduled: daily 9 AM UTC');
 } catch (err) {
   console.warn('[BLOCKCHAIN CRON] Could not schedule balance monitor:', err.message);
+}
+
+// ── TTS INITIALIZATION + CACHE CLEANUP CRON ─────────────────
+try {
+  const ttsService = require('./src/services/ttsService');
+  ttsService.initTTS();
+  // Clean up unused TTS cache entries weekly (Sunday 4 AM UTC)
+  cron.schedule('0 4 * * 0', async () => {
+    await ttsService.cleanupCache();
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[TTS CRON] Cache cleanup scheduled: Sunday 4 AM UTC');
+} catch (err) {
+  console.warn('[TTS] Could not initialize:', err.message);
 }
 
 // ── EMAIL + SMS INITIALIZATION ──────────────────────────────

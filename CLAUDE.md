@@ -451,6 +451,10 @@ Focus only on the task assigned in the session prompt.
 - migrations/038_prevention_impact.sql — base_rates, prevention_impact_scores, PIS user columns
 - src/axis/artifactValuationEngine.js — defensible artifact dollar values with ceilings + NaN guards
 - migrations/039_artifact_valuation.sql — artifact_valuations, census_data, user/session valuation columns
+- src/services/ttsService.js — ElevenLabs TTS with per-variant caching
+- src/routes/ttsRoutes.js — TTS API endpoints (generate, available, prewarm, stats)
+- frontend/src/utils/audioPlayer.js — TTS audio playback utility
+- migrations/043_tts_cache.sql — tts_cache table + ASCEN voice config seed
 - public/test.html — throwaway test harness
 
 ## HOS Family Layer (Session 25)
@@ -503,6 +507,26 @@ Focus only on the task assigned in the session prompt.
 - Weather never storms. Even at Depleted: heavy overcast, grey and still. Never threatening.
 - Voice hooks marked with VOICE_HOOK comments for future ElevenLabs TTS. Drifting words carry the load without voice.
 - Design references: HomeScreen.depth-v5.design.jsx, DescentAnimation.design.jsx (in frontend/src/screens/)
+
+## ElevenLabs TTS Integration (Session 26)
+- ttsService.js — ElevenLabs TTS with per-variant caching. Cache key = SHA-256(text + voice_id + character + phase).
+- GET /api/tts/generate — returns audio_url or null (fallback to text/drifting words)
+- GET /api/tts/available — check if TTS is configured
+- POST /api/tts/prewarm — pre-generate audio for upcoming session
+- GET /api/tts/stats — cache statistics (admin only)
+- tts_cache table (Migration 043) — stores generated audio with use tracking
+- Audio files served from /audio/tts/ (public/audio/tts/ directory)
+- Prewarm fires on context load (fire-and-forget in contextRoute.js, non-blocking)
+- Cache cleanup: weekly cron (Sunday 4 AM UTC) removes unused entries older than 90 days
+- TTS is ENHANCEMENT, not dependency. System works without ELEVENLABS_API_KEY.
+- Per-tenant voice config in tenants.voice_config JSONB: voice_id, stability, similarity_boost, style, speaking_rate
+- Two characters: Luno (grounded guide) and Luna (warm healer)
+- Frontend: audioPlayer.js utility for playback with graceful fallback
+- Three voice moments: arrival (descent start), breathing milestone (conditional), closing affirmation
+- Voice cached per variant. Once generated, same audio serves every participant at that session + phase + tenant.
+- Cost: ~$0.005-0.01 per NEW generation, $0 for cached playback
+- ELEVENLABS_API_KEY env var required. voice_id values set in tenant voice_config after ElevenLabs dashboard setup.
+- Luno's silence rule still applies: no real-time verbal biometric feedback. TTS is for scripted moments only.
 
 ## BLE Devices
 - Polar H10: ECG, gold standard, deviceConfidence = 1.0

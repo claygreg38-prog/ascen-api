@@ -6,6 +6,8 @@ const express = require('express');
 const router = express.Router();
 const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+let ttsService;
+try { ttsService = require('../services/ttsService'); } catch (e) { /* TTS not available */ }
 
 router.get('/context', async (req, res) => {
   try {
@@ -96,6 +98,11 @@ router.get('/context', async (req, res) => {
         nextSession.title = `Session ${nextNum}`;
       }
     } catch {}
+
+    // Fire-and-forget TTS prewarm (don't block the context response)
+    if (ttsService && ttsService.isAvailable() && nextSession.number && user.tenant_id) {
+      ttsService.prewarmSession(nextSession.number, user.tenant_id, 'luno').catch(() => {});
+    }
 
     // Gate state (family only)
     let gateState = null;
