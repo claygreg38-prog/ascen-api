@@ -520,5 +520,6 @@ module.exports = {
   getMessages,
   getUnreadCount,
   classifyDisclosure,
+  routeDisclosure,
   CHAR_LIMITS
 };

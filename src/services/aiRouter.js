@@ -38,7 +38,8 @@ const TASK_ROUTING = {
   therapy_report: 'sonnet',
   curriculum_generation: 'sonnet',
   predictive_analysis: 'sonnet',
-  disclosure_classification: 'sonnet'
+  disclosure_classification: 'sonnet',
+  quilting_session_monitoring: 'sonnet'
 };
 
 const MODEL_MAP = {

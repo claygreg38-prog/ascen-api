@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 25, 2026 (Partnership Module)
+Updated: March 25, 2026 (Quilting Intelligence)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -435,6 +435,37 @@ Updated: March 25, 2026 (Partnership Module)
 - ageFilter middleware applied to /api/partnership routes (adult-only content)
 - Sentry in all catch blocks
 
+## Quilting Intelligence — System Weave (Session 31)
+- quiltingEngine.js: ABI module — 4-session graduated quilt assembly with AXIS evaluation between sessions
+- gateEvaluationEngine.js: AXIS module — 4 biometric-based gates (Network Boot/Stable/Resilient/Woven)
+- asymmetricVulnerabilityCheck.js: AXIS module — 5-check parent readiness evaluation before child speaks
+  - Checks: child-adjacent HP response, capacity trajectory (14d Steady), bridge biometrics, parent-child co-reg, dimension alignment
+  - Hard fail (3+ checks): gate stays closed. Soft fail (1-2): targeted preparation recommended.
+- quiltingMonitor.js: ABI module — Session 3 real-time Sonnet monitoring of parent/elder biometrics during child's sharing
+  - 4 triggers: parent_hrv_crash (>20% for >60s), child_coherence_drop, elder_defensive, any_below_window (>90s = HARD STOP)
+  - Hard stop is non-negotiable. Below_window >90s = session converts to co-breath. No exceptions.
+- isolationPrevention.js: service — post-session check-ins (2h), co-breath priority (48h), distress detection
+  - Distress detection requires 2+ keyword matches to reduce false positives. Single keyword = facilitator review only.
+- quiltingRoutes.js at /api/quilting: 12 endpoints (gates, sessions, monitoring, check-ins, generational activities)
+- Migration 049: gate_evaluations (with UNIQUE constraint for upsert), quilting_sessions, generational_activities, quilting_checkins
+  - co_breath_priority + co_breath_priority_until added to family_units
+- Session 1: Elder → Parent (child not present). Session 2: Parent → Elder (child not present).
+- Session 3: Child → Parent + Elder (Sonnet monitored, highest stakes). Session 4: Full family weave.
+- Gate 2 hp_without_mutual_dysregulation: NO fallback — requires clean HP session (no sustained dysregulation >3 min)
+- Child mirror format respects age brackets: elementary=drawing, middle_school=written (Luno reads), high_school=spoken
+- Abuse disclosure protocol wired into existing disclosureRouter (facilitatedMessaging.js) — NOT reimplemented
+  - Gets existing abuse_recipient blocking, mandatory_reporting_flag, role constraints from migration 035
+  - Quilting-specific additions (immune flag, session conversion) layer on top
+- routeDisclosure exported from facilitatedMessaging.js (was internal-only before)
+- quilting_session_monitoring task added to aiRouter (Sonnet tier)
+- Family NEVER knows gates exist. Luno says "Let's keep building" not "You're not ready."
+- Co-breath bookends every session. Receipt before response. ONE sentence. Not defense.
+- Quilted pattern (Session 4) stored on lineage_profiles.quilted_insight + lineage ledger entry
+- Crest version evaluation triggered on quilt completion
+- Facilitator notified after every quilting session (if facilitator exists)
+- LightBridge warm pattern: TODO — future build (override columns don't exist on lightbridge_devices yet)
+- ns3_mean confirmed as top-level INTEGER column on session_completions (Migration 013) — no JSONB extraction needed
+
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
 - Invisible watermark injection — Session 10+
@@ -560,6 +591,13 @@ Focus only on the task assigned in the session prompt.
 - src/abi/partnershipEngine.js — dyadic co-regulation, pattern detection, relationship account, repair
 - src/routes/partnershipRoutes.js — Partnership API (15 endpoints at /api/partnership)
 - migrations/048_partnership_module.sql — partnership_practices, partnership_sessions, partnership_topics
+- src/abi/quiltingEngine.js — 4-session quilting assembly, disclosure protocol, generational activities
+- src/abi/quiltingMonitor.js — Session 3 Sonnet real-time biometric monitoring
+- src/axis/gateEvaluationEngine.js — 4 biometric gates for quilting readiness
+- src/axis/asymmetricVulnerabilityCheck.js — 5-check parent readiness before child speaks
+- src/services/isolationPrevention.js — post-quilting check-ins, co-breath priority, distress detection
+- src/routes/quiltingRoutes.js — Quilting API (12 endpoints at /api/quilting)
+- migrations/049_quilting_intelligence.sql — gate_evaluations, quilting_sessions, generational_activities, quilting_checkins
 - src/routes/monitorRoutes.js — SSE live stream + session reports (clinician+ facilitator view)
 - public/test.html — throwaway test harness
 

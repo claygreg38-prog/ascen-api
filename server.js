@@ -522,6 +522,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// QUILTING ROUTES — System Weave (Quilting Intelligence)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const quiltingRoutes = require('./src/routes/quiltingRoutes');
+  app.use('/api/quilting', authenticateOrApiKey('participant'));
+  app.use('/api/quilting', quiltingRoutes);
+  console.log('[QUILTING] Routes mounted at /api/quilting');
+} catch (err) {
+  console.warn('[QUILTING] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EXISTING ROUTES
 // ═══════════════════════════════════════════════════════════════
 
