@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 25, 2026 (Quilting Intelligence)
+Updated: March 26, 2026 (Prenatal Module)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -435,6 +435,29 @@ Updated: March 25, 2026 (Quilting Intelligence)
 - ageFilter middleware applied to /api/partnership routes (adult-only content)
 - Sentry in all catch blocks
 
+## Prenatal Module — System Preparation (Session 32)
+- prenatalEngine.js: ABI module — trimester-based content, session adaptations, fetal environment estimation, Heritage/Price focus, birth/loss lifecycle
+- triadBreathEngine.js: ABI module — 3-system sync (parent + partner + unborn child), triad openings, drifting words
+- EXPT persona activates on prenatal enrollment. Features: prenatal_dashboard, triad_breath, trimester_content.
+- Three phases: Foundation (T1 weeks 1-12, 3:5 ratio, 10 min max, gentle somatic only), Deepening (T2 weeks 13-27, 4:6, 15 min, Heritage/Price available), Preparation (T3 weeks 28-40, 4:6, 12 min, birth breath practice)
+- Prenatal Heritage/Price: "Which code do I NOT want to install in this child?" Per-armor: "What would it look like if your child never needed [armor]?"
+- Triad drifting words: "Safe inside." "They feel you." "Already home." Peak coherence = silence.
+- Fetal environment estimation is a REFLECTION tool, NOT medical diagnosis. 4 states: calm, settling, stressed, activated. Language: "Your body is creating..." never "Your baby's cortisol..."
+- Prenatal breath_ratio OVERRIDES determineBreathParams output (breath_ratio_override: true). T1 requires 3:5 regardless of arrival biometrics. A strong arrival does not mean the pregnant body should do 4:7.
+- Overdue pregnancy (week > 42): returns T3 adaptations with overdue: true, facilitator_review_needed: true. No automated messages.
+- Pregnancy loss handled with absolute dignity: enrollment NOT deleted, work honored, all prenatal notifications stopped immediately, human facilitator contact only (not AI), lineage record honors sessions
+- Post-natal transition: enrollment completes, lineage entry records prenatal practice, LightBridge available for nursery
+- Birth breath techniques: extended_exhale_8, visualization_opening, partner_anchor_breath (practiced in T3)
+- Concurrent with solo spine — parent continues individual practice + adds prenatal content
+- computeGestationalWeek(dueDate): 280 days total gestation, week 1-42 clamped
+- session_completion_id on triad_sessions is INTEGER (matches migration 030 fix)
+- Engine functions return data, routes format user-facing messages (e.g., loss dignity message in route layer)
+- trimester_content has UNIQUE constraint (trimester, week_start, category, title) for idempotent seed
+- prenatalRoutes.js at /api/prenatal: 14 endpoints (enroll, status, partner, content, heritage-focus, codes-to-deprecate, triad start/tick/complete, adaptations, birth-plan, birth, loss, dashboard)
+- Migration 050: prenatal_enrollments, trimester_content (10 entries seeded across 3 trimesters), triad_sessions
+- Sentry in all catch blocks
+- 10 trimester content entries seeded: T1 (3), T2 (4), T3 (3)
+
 ## Quilting Intelligence — System Weave (Session 31)
 - quiltingEngine.js: ABI module — 4-session graduated quilt assembly with AXIS evaluation between sessions
 - gateEvaluationEngine.js: AXIS module — 4 biometric-based gates (Network Boot/Stable/Resilient/Woven)
@@ -591,6 +614,10 @@ Focus only on the task assigned in the session prompt.
 - src/abi/partnershipEngine.js — dyadic co-regulation, pattern detection, relationship account, repair
 - src/routes/partnershipRoutes.js — Partnership API (15 endpoints at /api/partnership)
 - migrations/048_partnership_module.sql — partnership_practices, partnership_sessions, partnership_topics
+- src/abi/prenatalEngine.js — trimester phases, fetal environment estimation, Heritage/Price focus, birth/loss lifecycle
+- src/abi/triadBreathEngine.js — three-system sync (parent + partner + unborn child), triad openings, drifting words
+- src/routes/prenatalRoutes.js — Prenatal API (13 endpoints at /api/prenatal)
+- migrations/050_prenatal_module.sql — prenatal_enrollments, trimester_content, triad_sessions
 - src/abi/quiltingEngine.js — 4-session quilting assembly, disclosure protocol, generational activities
 - src/abi/quiltingMonitor.js — Session 3 Sonnet real-time biometric monitoring
 - src/axis/gateEvaluationEngine.js — 4 biometric gates for quilting readiness

@@ -497,6 +497,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// PRENATAL ROUTES — System Preparation (Session 32)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const prenatalRoutes = require('./src/routes/prenatalRoutes');
+  app.use('/api/prenatal', authenticateOrApiKey('participant'));
+  app.use('/api/prenatal', prenatalRoutes);
+  console.log('[PRENATAL] Routes mounted at /api/prenatal');
+} catch (err) {
+  console.warn('[PRENATAL] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // PARTNERSHIP ROUTES — Couples/Intimate Partner Co-Regulation (Session 30)
 // ═══════════════════════════════════════════════════════════════
 try {

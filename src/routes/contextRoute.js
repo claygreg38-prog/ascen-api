@@ -53,13 +53,28 @@ router.get('/context', async (req, res) => {
       if (hasPartnership && persona === 'INDV') persona = 'PRTN';
     } catch {}
 
+    // Check for active prenatal enrollment (EXPT persona)
+    let hasPrenatal = false;
+    try {
+      const prenatalResult = await pool.query(
+        `SELECT id FROM prenatal_enrollments
+         WHERE user_id = $1 AND status = 'active' LIMIT 1`,
+        [user.id]
+      );
+      hasPrenatal = prenatalResult.rows.length > 0;
+      if (hasPrenatal && (persona === 'INDV' || persona === 'PRTN')) persona = 'EXPT';
+    } catch {}
+
     // Feature flags based on persona
     const features = {
       family_hub: persona === 'ELDR' || persona === 'AFAM',
       partner_hub: hasPartnership,
-      co_breath: persona === 'ELDR' || persona === 'AFAM' || hasPartnership,
+      co_breath: persona === 'ELDR' || persona === 'AFAM' || hasPartnership || hasPrenatal,
       lightbridge: persona === 'ELDR',
       facilitator_dashboard: persona === 'FCLT',
+      prenatal_dashboard: hasPrenatal,
+      triad_breath: hasPrenatal,
+      trimester_content: hasPrenatal,
       vault: true,
       gallery: true,
       curriculum: true
