@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 26, 2026 (Prenatal Module)
+Updated: March 26, 2026 (Healing Economy + Anti-Redlining)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -489,6 +489,54 @@ Updated: March 26, 2026 (Prenatal Module)
 - LightBridge warm pattern: TODO — future build (override columns don't exist on lightbridge_devices yet)
 - ns3_mean confirmed as top-level INTEGER column on session_completions (Migration 013) — no JSONB extraction needed
 
+## Healing Economy — LIT/LHX/FCR/FIS (Session 33)
+- litEngine.js: AXIS module — LIT credential value accounting (NOT cryptocurrency — database ledger)
+  - creditCredential: records LIT on session completion with artifact value, updates FCR
+  - recordRevaluation: tracks monthly revaluation deltas from artifact valuation refresh
+  - creditBondBonus: distributes maturation bonuses equally to family members
+  - getPortfolio: balance, credentials, ceiling utilization ($50K annual ceiling from upstream)
+  - Every LIT credit traces to a session_completion_id — full auditability
+- fcrManager.js: AXIS module — Family Capital Reserve (family-level LIT accumulation)
+  - updateFCR: upserts reserve, tracks per-member contributions, auto-routes FACC (5-10%)
+  - FACC auto-contribution is non-negotiable — 5% default of every credential value flows to community capital
+- fisEngine.js: AXIS module — Family Investment Score (0-100, 6 weighted inputs)
+  - Weights: PIS avg (0.25), engagement (0.20), co-regulation (0.20), field tests (0.15), crest (0.10), real world (0.10)
+  - Crest scores: v1.0=20, v1.5=40, v2.0=60, v2.5=70, v3.0=100
+  - NaN guard per component AND final score — Sentry alert on NaN
+  - Confidence tiers: low (<15 sessions), medium (15-50), high (>50)
+  - Pure AXIS math — no AI. Defensible to courts and investors.
+- bondMaturationEngine.js: AXIS module — Breathing Bond maturation (Seed → Growth → Mature → Legacy)
+  - Growth: 30 sessions, 30 days, FIS 25, 5 co-breaths
+  - Mature: 90 sessions, 90 days, FIS 50, 20 co-breaths, 3 field tests, Crest 2.0
+  - Legacy: 250 sessions, 180 days, FIS 75, 50 co-breaths, 10 field tests, Crest 3.0, quilting done
+  - Maturation bonuses: Growth $50, Mature $200, Legacy $500 — split equally among family members
+  - Outcome-based, not time-based. Quality thresholds must be met regardless of speed.
+- healingEconomyRoutes.js at /api/economy: 14 endpoints (portfolio, LIT history, FCR, FIS, bond, recognition)
+- Migration 051: lit_ledger, lhx_recognition_partners, family_capital_reserves (UNIQUE family_unit_id), family_investment_scores, bond_maturation_events
+  - 3 PG County recognition partners seeded (Circuit Court, DOC, MD Workforce Development)
+- LIT credited during monthly valuation refresh (revaluation deltas tracked)
+- Monthly FIS + bond maturation cron: 1st of month, 4 AM UTC (after PIS at 2AM, valuation refresh at 3AM)
+- Family NEVER sees "investment" language — they see "your family's healing record"
+- $500 credential ceiling and $50K annual portfolio ceiling remain enforced upstream (Artifact Valuation)
+
+## Anti-Redlining Architecture — System Equity (Session 33)
+- antiRedliningEngine.js: AXIS module — 5 systemic mechanisms preventing extraction:
+  1. Disadvantage Floor: multiplier 1.0-1.5 based on disadvantage_index. No community receives less than base value.
+  2. Geographic Redistribution: FACC flows to communities below 0.85 equity ratio target.
+  3. Barrier Recognition: +0.05 boost per active barrier (incarceration, foster system, economic hardship, immigration, disability). Max 0.15.
+  4. Extraction Detection: automated alerts when value disparity > 2:1 between communities or recognition gaps.
+  5. Recognition Equity: ensures LHX partners available in all jurisdictions (min 2 per jurisdiction).
+- Barrier boost applied in artifactValuationEngine.js BEFORE $500 credential ceiling — disadvantaged families get higher % of maximum
+- Anti-redlining adjustments recorded in computation_data JSONB for full auditability
+- equityRoutes.js at /api/admin/equity: 8 admin endpoints (scores, alerts, resolve, coverage, scan, config, FACC pool)
+- Migration 052: community_equity_scores, extraction_alerts, equity_config (5 mechanisms seeded with DB-driven config)
+- Weekly extraction scan cron: Monday 5 AM UTC
+- Equity ratio target: 0.85-1.15 across all communities. Below 0.85 triggers high-severity alert.
+- Configuration stored in database (equity_config table), not hardcoded — governance can adjust without deployment
+- Disadvantage index locked at enrollment — NEVER updated. The barrier at entry is permanent recognition.
+- Barrier recognition is NOT charity — it acknowledges harder healing work = higher value.
+- The 5 mechanisms work as a system. Disabling one weakens all. Designed to be permanent.
+
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
 - Invisible watermark injection — Session 10+
@@ -625,6 +673,15 @@ Focus only on the task assigned in the session prompt.
 - src/services/isolationPrevention.js — post-quilting check-ins, co-breath priority, distress detection
 - src/routes/quiltingRoutes.js — Quilting API (12 endpoints at /api/quilting)
 - migrations/049_quilting_intelligence.sql — gate_evaluations, quilting_sessions, generational_activities, quilting_checkins
+- src/axis/litEngine.js — LIT credential value accounting (database ledger, not crypto)
+- src/axis/fcrManager.js — Family Capital Reserve with FACC auto-contribution
+- src/axis/fisEngine.js — Family Investment Score (6 weighted inputs, 0-100)
+- src/axis/bondMaturationEngine.js — Bond maturation (Seed/Growth/Mature/Legacy)
+- src/axis/antiRedliningEngine.js — 5 anti-extraction mechanisms
+- src/routes/healingEconomyRoutes.js — Healing Economy API (14 endpoints at /api/economy)
+- src/routes/equityRoutes.js — Anti-Redlining admin API (8 endpoints at /api/admin/equity)
+- migrations/051_healing_economy.sql — lit_ledger, lhx_recognition_partners, family_capital_reserves, family_investment_scores, bond_maturation_events
+- migrations/052_anti_redlining.sql — community_equity_scores, extraction_alerts, equity_config
 - src/routes/monitorRoutes.js — SSE live stream + session reports (clinician+ facilitator view)
 - public/test.html — throwaway test harness
 

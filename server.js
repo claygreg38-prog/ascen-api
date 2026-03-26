@@ -546,6 +546,30 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// HEALING ECONOMY ROUTES — LIT/FCR/FIS/Bond/LHX
+// ═══════════════════════════════════════════════════════════════
+try {
+  const healingEconomyRoutes = require('./src/routes/healingEconomyRoutes');
+  app.use('/api/economy', authenticateOrApiKey('participant'));
+  app.use('/api/economy', healingEconomyRoutes);
+  console.log('[ECONOMY] Routes mounted at /api/economy');
+} catch (err) {
+  console.warn('[ECONOMY] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EQUITY ROUTES — Anti-Redlining Governance (Admin Only)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const equityRoutes = require('./src/routes/equityRoutes');
+  app.use('/api/admin/equity', authenticateOrApiKey('admin'));
+  app.use('/api/admin/equity', equityRoutes);
+  console.log('[EQUITY] Routes mounted at /api/admin/equity');
+} catch (err) {
+  console.warn('[EQUITY] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EXISTING ROUTES
 // ═══════════════════════════════════════════════════════════════
 
@@ -947,18 +971,34 @@ try {
 // ── ARTIFACT VALUATION REFRESH (2nd of month, 3 AM UTC) ─────
 try {
   const artifactValuationEngine = require('./src/axis/artifactValuationEngine');
+  const litEngineForCron = require('./src/axis/litEngine');
   cron.schedule('0 3 2 * *', async () => {
     console.log('[CRON] Running monthly artifact valuation refresh...');
     const sessions = await pool.query(`
-      SELECT sc.id, sc.user_id FROM session_completions sc
+      SELECT sc.id, sc.user_id, sc.family_unit_id, sc.tenant_id FROM session_completions sc
       WHERE sc.art_ipfs_hash IS NOT NULL
     `);
 
-    let refreshed = 0;
+    let refreshed = 0, litRevaluations = 0;
     for (const session of sessions.rows) {
       try {
-        await artifactValuationEngine.computeArtifactValue(session.user_id, session.id, true);
+        const result = await artifactValuationEngine.computeArtifactValue(session.user_id, session.id, true);
         refreshed++;
+        if (result.previousValue === null && result.value > 0) {
+          // First-time valuation — initial LIT credit
+          await litEngineForCron.creditCredential(
+            session.user_id, session.family_unit_id, session.id,
+            result.value, session.tenant_id
+          );
+          litRevaluations++;
+        } else if (result.revaluationDelta && result.revaluationDelta !== 0) {
+          // Revaluation — record delta
+          await litEngineForCron.recordRevaluation(
+            session.user_id, session.family_unit_id, session.id,
+            result.revaluationDelta, session.tenant_id
+          );
+          litRevaluations++;
+        }
       } catch (err) {
         console.error(`[VALUATION] Refresh failed for session ${session.id}:`, err.message);
         Sentry.captureException(err);
@@ -975,7 +1015,7 @@ try {
       Sentry.captureMessage(`User ${p.user_id} portfolio exceeds annual ceiling: $${p.total}`, 'warning');
     }
 
-    console.log(`[CRON] Valuations refreshed: ${refreshed}`);
+    console.log(`[CRON] Valuations refreshed: ${refreshed}, LIT revaluations: ${litRevaluations}`);
   }, {
     scheduled: true,
     timezone: 'UTC'
@@ -1073,4 +1113,46 @@ try {
   console.log('[NOTIFICATION CRON] Retry scheduled: */5 * * * * UTC');
 } catch (err) {
   console.warn('[NOTIFICATION CRON] Could not schedule:', err.message);
+}
+
+// ── FIS + BOND MATURATION (1st of month, 4 AM UTC — after PIS at 2AM, before valuation at 3AM) ──
+try {
+  const fisEngine = require('./src/axis/fisEngine');
+  const bondMaturationEngine = require('./src/axis/bondMaturationEngine');
+  cron.schedule('0 4 1 * *', async () => {
+    console.log('[CRON] Running monthly FIS computation + bond maturation evaluation...');
+    const families = await pool.query('SELECT DISTINCT family_unit_id FROM family_memberships');
+    let fisComputed = 0, bondsMatured = 0;
+    for (const f of families.rows) {
+      try {
+        await fisEngine.computeFIS(f.family_unit_id);
+        fisComputed++;
+        const evaluation = await bondMaturationEngine.evaluateMaturation(f.family_unit_id);
+        if (evaluation.ready) {
+          await bondMaturationEngine.matureBond(f.family_unit_id);
+          bondsMatured++;
+        }
+      } catch (err) {
+        Sentry.captureException(err);
+      }
+    }
+    console.log(`[CRON] FIS computed: ${fisComputed}, bonds matured: ${bondsMatured}`);
+  }, { scheduled: true, timezone: 'UTC' });
+  console.log('[FIS CRON] Monthly FIS + bond maturation scheduled: 1st of month, 4 AM UTC');
+} catch (err) {
+  console.warn('[FIS CRON] Could not schedule:', err.message);
+}
+
+// ── WEEKLY EXTRACTION SCAN (Monday 5 AM UTC) ─────────────────
+try {
+  const antiRedliningEngine = require('./src/axis/antiRedliningEngine');
+  cron.schedule('0 5 * * 1', async () => {
+    console.log('[CRON] Running weekly extraction scan + equity scores...');
+    const alerts = await antiRedliningEngine.runExtractionScan();
+    const scores = await antiRedliningEngine.computeEquityScores();
+    console.log(`[CRON] Extraction scan: ${alerts.length} alerts, ${scores.length} community scores`);
+  }, { scheduled: true, timezone: 'UTC' });
+  console.log('[EQUITY CRON] Weekly extraction scan scheduled: Monday 5 AM UTC');
+} catch (err) {
+  console.warn('[EQUITY CRON] Could not schedule:', err.message);
 }

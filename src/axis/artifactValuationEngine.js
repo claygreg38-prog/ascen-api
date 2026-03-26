@@ -94,6 +94,17 @@ async function computeArtifactValue(userId, sessionCompletionId, isRefresh = fal
     * multipliers.jurisdictionMultiplier
     * multipliers.contextualMultiplier;
 
+  // ── ANTI-REDLINING: Barrier boost applied BEFORE ceiling ──
+  let barrierBoost = 0;
+  try {
+    const antiRedlining = require('./antiRedliningEngine');
+    const barrierResult = await antiRedlining.computeBarrierBoost(userId);
+    if (barrierResult.applied) {
+      barrierBoost = barrierResult.boost;
+      rawValue = rawValue * (1 + barrierBoost);
+    }
+  } catch (e) { /* Anti-redlining optional — does not block valuation */ }
+
   // ── CREDENTIAL CEILING ($500) ─────────────────────────────
   let ceilingApplied = false;
   if (rawValue > CREDENTIAL_VALUE_CEILING) {
@@ -154,6 +165,7 @@ async function computeArtifactValue(userId, sessionCompletionId, isRefresh = fal
         jurisdictionCode,
         contextualMultiplier: multipliers.contextualMultiplier,
         disadvantageIndex: parseFloat(userData.disadvantage_index_at_enrollment) || null,
+        barrierBoost: barrierBoost || undefined,
         rawBeforeCeiling: ceilingApplied ? rawValue : undefined,
         ceilingApplied,
         retroactiveCap: isRefresh ? RETROACTIVE_INCREASE_CAP : undefined,
