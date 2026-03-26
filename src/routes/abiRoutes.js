@@ -24,6 +24,7 @@ const { analyzeTrends, getDashboardSummary, shouldRunTrendAnalysis } = require('
 const { adaptDrill, getAllDrillsForUser, filterDrillRecommendation } = require('../abi/drillAdapter');
 const { IdentityGate } = require('../abi/identityEngagement');
 const sessionStateManager = require('../services/sessionStateManager');
+const { evaluateRatioSustainability, updateBiometricBuffer, cooldownElapsed, canStepDown, MAX_STEP_DOWNS, STEP_DOWN_PARAMS } = require('../abi/ratioStepDown');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -192,6 +193,9 @@ router.post('/session/arrival-sample', async (req, res) => {
     // Feed orchestrator
     session.abi.onArrivalSample(biometrics);
 
+    // [CP1] Structured log — BLE arrival sample
+    console.log(`[CP1][${new Date().toISOString()}] BLE_READ | HR:${biometrics?.heart_rate || '-'} RMSSD:${biometrics?.hrv || '-'} COH:${biometrics?.coherence || '-'}`);
+
     // Persist sample to DB (sliding window capped at 60)
     await sessionStateManager.pushArrivalSample(sk, {
       ...biometrics,
@@ -253,10 +257,20 @@ router.post('/session/arrival-complete', async (req, res) => {
     const events = drainEvents(session);
     const sk = session.dbSessionKey || key;
 
-    // Persist adapted session and phase transition to DB
+    // Persist adapted session, phase transition, and ratio tracking to DB
+    const assignedRatio = result?.ratio || result?._ratio || '4:6';
     await sessionStateManager.updateSessionState(sk, {
       phase: 'breathing',
-      adaptedSession: result
+      adaptedSession: result,
+      // Ratio step-down tracking
+      current_ratio: assignedRatio,
+      arrival_ratio: assignedRatio,
+      step_down_count: 0,
+      last_step_down_at: null,
+      ratio_history: [],
+      biometric_buffer: [],
+      somatic_reset_triggered: false,
+      somatic_reset_at: null
     });
 
     // Build arrival baseline from DB samples
@@ -305,7 +319,28 @@ router.post('/session/somatic-complete', async (req, res) => {
     const result = await session.abi.onSomaticComplete(exerciseId, hrvPre, hrvPost);
     const events = drainEvents(session);
 
-    res.json({ success: true, result, events });
+    // Check if this was a mid-session somatic reset (ratio floor + distress)
+    const sk = session.dbSessionKey || key;
+    const dbState = await sessionStateManager.getSession(sk);
+    let mid_session_somatic_result = null;
+
+    if (dbState?.somatic_reset_triggered) {
+      // Somatic reset complete — resume at 2:3.
+      // The frontend will resume the pacer. If distress continues
+      // post-somatic, the next tick evaluation will trigger graceful end.
+      await sessionStateManager.updateSessionState(sk, {
+        somatic_reset_completed: true,
+        somatic_reset_completed_at: new Date().toISOString(),
+        post_somatic_monitoring: true
+      });
+      mid_session_somatic_result = {
+        type: 'mid_session_somatic_reset_complete',
+        resume_ratio: '2:3',
+        message: "You showed up. That's the work."
+      };
+    }
+
+    res.json({ success: true, result, events, mid_session_somatic_result });
   } catch (error) {
     Sentry.captureException(error);
     res.status(500).json({ error: error.message });
@@ -316,14 +351,19 @@ router.post('/session/somatic-complete', async (req, res) => {
 // ── BREATHING TICK ──────────────────────────────────────────
 // POST /api/abi/session/tick
 
-router.post('/session/tick', (req, res) => {
+router.post('/session/tick', async (req, res) => {
   try {
     const { key, session } = resolveSession(req);
     if (!session) return res.status(404).json({ error: 'No active session' });
 
     const biometrics = req.body.biometrics;
+    const tickStart = Date.now();
     const result = session.abi.onBreathingTick(biometrics);
     const events = drainEvents(session);
+    const tickLatency = Date.now() - tickStart;
+
+    // [CP2] Structured log — tick processed
+    console.log(`[CP2][${new Date().toISOString()}] TICK | SK:${sk || key} STATUS:${result ? 'ok' : 'empty'} LATENCY:${tickLatency}ms`);
 
     // Persist coherence peak to DB (non-blocking)
     const sk = session.dbSessionKey || key;
@@ -364,7 +404,146 @@ router.post('/session/tick', (req, res) => {
     // Track coherence peak for next tick comparison
     if (currentCoherence > priorPeak) session._priorCoherencePeak = currentCoherence;
 
-    res.json({ success: true, result, events, drifting_word });
+    // ── RATIO STEP-DOWN EVALUATION ──────────────────────────
+    // Evaluates biometric sustainability every tick. Silent system adaptation.
+    let ratio_changed = false;
+    let current_ratio = null;
+    let ratio_step_downs_remaining = MAX_STEP_DOWNS;
+    let somatic_reset = false;
+    let graceful_end = false;
+
+    try {
+      const sk2 = session.dbSessionKey || key;
+      const dbState = await sessionStateManager.getSession(sk2);
+      const sessionState = dbState || {};
+
+      // Only evaluate if ratio tracking is initialized
+      if (sessionState.current_ratio) {
+        current_ratio = sessionState.current_ratio;
+        const stepDownCount = sessionState.step_down_count || 0;
+        ratio_step_downs_remaining = MAX_STEP_DOWNS - stepDownCount;
+
+        // Update rolling biometric buffer with this tick's data
+        const hr = biometrics?.heart_rate || biometrics?.current_hr || null;
+        const rmssd = biometrics?.hrv || biometrics?.rmssd || biometrics?.current_hrv || null;
+        const coherence = biometrics?.coherence || biometrics?.coherence_score || null;
+
+        if (hr != null) {
+          const updatedBuffer = updateBiometricBuffer(
+            sessionState.biometric_buffer || [],
+            { hr, rmssd: rmssd || 0, coherence: coherence || 0, ts: Date.now() }
+          );
+
+          // Build arrival baseline for comparison
+          const samples = sessionState.arrivalSamples || [];
+          const last30 = samples.slice(-30);
+          const arrivalBaseline = {
+            hr: last30.length ? last30.reduce((s, x) => s + (x.heart_rate || 0), 0) / last30.length : 0,
+            rmssd: last30.length ? last30.reduce((s, x) => s + (x.hrv || 0), 0) / last30.length : 0
+          };
+
+          const stateUpdate = { biometric_buffer: updatedBuffer };
+
+          // Evaluate only if cooldown passed and step-downs remain
+          if (canStepDown(stepDownCount) && cooldownElapsed(sessionState.last_step_down_at)) {
+            const stepResult = evaluateRatioSustainability(current_ratio, arrivalBaseline, updatedBuffer);
+
+            if (stepResult.step_down) {
+              // System adapted breath ratio based on biometric feedback
+              const newCount = stepDownCount + 1;
+              const now = Date.now();
+              const historyEntry = {
+                from: stepResult.previous,
+                to: stepResult.new_ratio,
+                reason: stepResult.reason,
+                timestamp: new Date(now).toISOString(),
+                evidence: stepResult.evidence
+              };
+
+              stateUpdate.current_ratio = stepResult.new_ratio;
+              stateUpdate.step_down_count = newCount;
+              stateUpdate.last_step_down_at = now;
+              stateUpdate.ratio_history = [...(sessionState.ratio_history || []), historyEntry];
+
+              ratio_changed = true;
+              current_ratio = stepResult.new_ratio;
+              ratio_step_downs_remaining = MAX_STEP_DOWNS - newCount;
+
+              // [CP6] Structured log — ratio step-down
+              const elapsed = session.startedAt ? Math.round((Date.now() - session.startedAt) / 1000) : 0;
+              console.log(JSON.stringify({
+                cp: 'CP6', type: 'ratio_step_down',
+                session_key: sk2,
+                previous_ratio: stepResult.previous,
+                new_ratio: stepResult.new_ratio,
+                reason: stepResult.reason,
+                evidence: stepResult.evidence,
+                step_down_number: newCount,
+                elapsed_seconds: elapsed,
+                timestamp: new Date().toISOString()
+              }));
+            }
+
+            // Check for somatic reset trigger at floor
+            if (stepResult.at_floor && stepResult.sustained_distress && !sessionState.somatic_reset_triggered) {
+              stateUpdate.somatic_reset_triggered = true;
+              stateUpdate.somatic_reset_at = new Date().toISOString();
+              somatic_reset = true;
+
+              console.log(JSON.stringify({
+                cp: 'CP6', type: 'somatic_reset_at_floor',
+                session_key: sk2,
+                current_ratio: '2:3',
+                reason: 'sustained_distress_at_floor',
+                evidence: stepResult.evidence,
+                timestamp: new Date().toISOString()
+              }));
+            }
+
+            // Post-somatic continued distress → graceful session end
+            // If somatic reset was completed and distress continues at floor, end the session
+            if (stepResult.at_floor && stepResult.sustained_distress
+                && sessionState.somatic_reset_completed && !sessionState.graceful_end_triggered) {
+              stateUpdate.graceful_end_triggered = true;
+              stateUpdate.graceful_end_at = new Date().toISOString();
+              stateUpdate.graceful_end_reason = 'post_somatic_continued_distress';
+              graceful_end = true;
+
+              console.log(JSON.stringify({
+                cp: 'CP6', type: 'graceful_session_end',
+                session_key: sk2,
+                current_ratio: '2:3',
+                reason: 'post_somatic_continued_distress',
+                evidence: stepResult.evidence,
+                timestamp: new Date().toISOString()
+              }));
+            }
+          }
+
+          await sessionStateManager.updateSessionState(sk2, stateUpdate);
+        }
+      }
+    } catch (err) {
+      // Non-blocking — ratio evaluation failure never breaks the tick
+      console.error('[RatioStepDown] Evaluation failed (non-blocking):', err.message);
+      Sentry.captureException(err);
+    }
+
+    // [CP4] Structured log — tick response (weather/ratio sent to frontend)
+    console.log(`[CP4][${new Date().toISOString()}] TICK_RESP | RATIO:${current_ratio || result?.session_update?.breath_ratio || result?.breath_ratio || '-'} NS3:${result?.ns3?.score || '-'} ZONE:${result?.ns3?.zone || '-'} DRIFT:${drifting_word || 'none'} BREATH:${breathCount}`);
+
+    res.json({
+      success: true,
+      result,
+      events,
+      drifting_word,
+      ratio_changed,
+      current_ratio: current_ratio || (result?.session_update?.breath_ratio || result?.breath_ratio || null),
+      ratio_step_downs_remaining,
+      somatic_reset,
+      graceful_end,
+      graceful_end_message: graceful_end ? "You showed up. That's the work." : undefined
+    });
   } catch (error) {
     Sentry.captureException(error);
     res.status(500).json({ error: error.message });

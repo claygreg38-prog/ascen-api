@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 23, 2026 (v8 Immersive Frontend Pairing)
+Updated: March 25, 2026 (Mid-Session Ratio Step-Down)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -346,6 +346,45 @@ Updated: March 23, 2026 (v8 Immersive Frontend Pairing)
   - Disadvantage index computed and locked at enrollment in authService.js (both facility and email registration)
   - Valuation is clinician/admin only — NEVER participant-facing
 
+## Session Monitoring — Phase 1 (Session 27)
+- monitorRoutes.js at /api/monitor: SSE live stream + session reports (clinician+ only)
+- GET /api/monitor/session-stream?session_key=:key — SSE endpoint, emits session_state events every 2s
+  - Auto-flags warnings: BLE gap >5s, NS3 null/stale >30s, coherence outside 0-1, unknown breath ratio, message mid-breath
+  - Events: connected, session_state, session_ended, error
+- GET /api/monitor/session-report/:sessionKey — full session snapshot (active or completed)
+- GET /api/monitor/session-report/latest/:userId — most recent session for a user
+- Active reports: participant, arrival, current biometrics, trajectory, messaging, systems_fired, warnings
+- Completed reports: arrival, landing, journey, session_quality, trajectory, messaging, breath_params, expected_vs_actual, historical_context, systems_fired
+- systems_fired checklist: 30+ boolean/data fields covering full session lifecycle from BLE connect through blockchain queue
+- Structured checkpoint logging (CP1-CP5) in existing code:
+  - CP1: arrival-sample (abiRoutes.js) — BLE_READ | HR, RMSSD, COH
+  - CP2: tick (abiRoutes.js) — TICK | SK, STATUS, LATENCY
+  - CP3: NS3 calculation (sessionOrchestrator.js) — NS3_CALC | SCORE, ZONE, PREV, DEVICE
+  - CP4: tick response (abiRoutes.js) — TICK_RESP | RATIO, NS3, ZONE, DRIFT, BREATH
+  - CP5: coaching trigger (sessionOrchestrator.js) — MSG_TRIGGER | ACTION, THRESHOLD, DECISION, ELAPSED
+- Format: [CPn][ISO_TIMESTAMP] LABEL | KEY:VALUE KEY:VALUE
+- Auth: authenticateOrApiKey('clinician') + requireRole('clinician') — facilitator minimum
+- No dashboard HTML (Phase 2), no Claude integration (Phase 3), no new DB tables
+- **GAP RESOLVED:** Mid-session ratio step-down now implemented (ratioStepDown.js + tick loop integration).
+
+## Mid-Session Ratio Step-Down (Session 28)
+- ratioStepDown.js: ABI module — evaluates biometric sustainability every tick
+- Trigger: HR >15% above arrival + RMSSD <70% of arrival + coherence <0.3 for 60s sustained
+- Ladder: 4:7 -> 4:6 -> 3:5 -> 3:4 -> 2:3 (floor)
+- Max 2 step-downs per session, 90s cooldown between
+- At floor + continued distress -> somatic reset (2 min pause)
+- Post-somatic continued distress -> graceful session end ("You showed up. That's the work.")
+- CP6 structured log on every step-down + somatic reset at floor + graceful end
+- Ratio changes in SSE stream for clinician monitoring (current_ratio, arrival_ratio, ratio_history, step_down_count)
+- Only steps down, never up mid-session
+- No user notification — pacer adjusts silently, facilitator sees in dashboard
+- No step-down without biometric data — device disconnect = maintain current ratio
+- arrival_ratio immutable (preserved for session report comparison), current_ratio tracks active ratio
+- session_state JSONB additions: biometric_buffer, current_ratio, arrival_ratio, step_down_count, last_step_down_at, ratio_history, somatic_reset_triggered, somatic_reset_at, post_somatic_monitoring, graceful_end_triggered
+- Tick response additions: ratio_changed, current_ratio, ratio_step_downs_remaining, somatic_reset, graceful_end, graceful_end_message
+- systems_fired additions: ratio_step_down_evaluated, ratio_step_down_fired, ratio_step_down_count, arrival_ratio, current_ratio, ratio_history, somatic_reset_at_floor, graceful_end_triggered
+- Active + completed session reports include ratio_adaptation section
+
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
 - Invisible watermark injection — Session 10+
@@ -460,6 +499,8 @@ Focus only on the task assigned in the session prompt.
 - src/abi/familyDesignEngine.js — Blueprint + Sandbox + Vision Board (System Design Mode)
 - src/routes/familyDesignRoutes.js — System Design Mode API (17 endpoints at /api/design)
 - migrations/044_family_design.sql — heritage_price_sessions, family_blueprints, sandbox_sessions, vision_board_entries, preset_scenarios
+- src/abi/ratioStepDown.js — mid-session ratio step-down evaluator (biometric sustainability)
+- src/routes/monitorRoutes.js — SSE live stream + session reports (clinician+ facilitator view)
 - public/test.html — throwaway test harness
 
 ## HOS Family Layer (Session 25)
