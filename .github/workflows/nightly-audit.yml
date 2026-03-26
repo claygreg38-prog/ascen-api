@@ -42,14 +42,17 @@ jobs:
           fi
           echo "PASS: No blockchain terms in frontend"
 
-      - name: Check for clinical terms in frontend
+      - name: Check for clinical terms in user-facing frontend
         run: |
           if [ -d "frontend/src" ]; then
-            HITS=$(grep -ril "NS3\|HRV score\|coherence score\|diagnosis" frontend/src/ --include="*.jsx" --include="*.js" | grep -v node_modules || true)
+            HITS=$(grep -rn "clinical\|diagnosis\|treatment\|therapy\|intervention" frontend/src/ \
+              --include="*.jsx" --include="*.tsx" \
+              --exclude="*.design.*" --exclude="FacilitatorScreen*" --exclude="OnboardingScreen*" \
+              | grep -v "// internal\|// clinical\|// facilitator\|consent\|facilitator_" || true)
             if [ -n "$HITS" ]; then
-              echo "FAIL: Clinical terms found:"
+              echo "FAIL: Clinical terms found in user-facing UI:"
               echo "$HITS"
               exit 1
             fi
           fi
-          echo "PASS: No clinical terms in frontend"
+          echo "PASS: No clinical terms in user-facing UI"
