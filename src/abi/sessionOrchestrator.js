@@ -882,6 +882,9 @@ function createOrchestrator(callbacks = {}) {
         });
 
         if (coachAction && coachAction.action !== 'none') {
+          // [CP5] Structured log — message/coaching trigger decision
+          console.log(`[CP5][${new Date().toISOString()}] MSG_TRIGGER | ACTION:${coachAction.action} THRESHOLD:${coachAction.threshold || '-'} DECISION:fire ELAPSED:${elapsed}s`);
+
           switch (coachAction.action) {
             case 'ambient_line':
               // Micro-line delivered during breath pause
@@ -993,6 +996,9 @@ function createOrchestrator(callbacks = {}) {
             arrivalComplete: sessionPhase === 'breathing',
             breathMatchActive: adaptedSession?.adaptive_ratio || false,
           });
+
+          // [CP3] Structured log — NS3 computation
+          console.log(`[CP3][${new Date().toISOString()}] NS3_CALC | SCORE:${ns3Result.ns3Score} ZONE:${ns3Result.zone} PREV:${result.ns3?.score || 'none'} DEVICE:${biometrics.device_type || 'unknown'}`);
 
           result.ns3 = {
             score: ns3Result.ns3Score,

@@ -150,19 +150,12 @@ export default function FamilyScreen() {
       {/* KITCHEN TABLE */}
       {tab === 3 && (
         <div>
-          {topic ? (
-            <div style={S.card}>
-              <span style={S.topicBadge}>{topic.category}</span>
-              <h3 style={{ fontSize: '16px', margin: '8px 0' }}>{topic.title}</h3>
-              <p style={{ color: '#8899aa', fontSize: '14px', lineHeight: 1.5 }}>{topic.prompt_text || topic.description}</p>
-              <button onClick={() => nav('/app/session')} style={{ ...S.btn, marginTop: '12px' }}>Proceed to Breathing</button>
-            </div>
-          ) : (
-            <div style={S.card}>
-              <p style={S.dim}>Loading topic...</p>
-              <button onClick={loadTopic} style={S.btnSec}>Get Topic</button>
-            </div>
-          )}
+          <div style={S.card}>
+            <p style={{ color: '#8899aa', fontSize: '14px', lineHeight: 1.7, marginBottom: 12 }}>
+              The kitchen table is where healing starts. Not by talking about everything at once — but by learning to sit together differently.
+            </p>
+            <button onClick={() => nav('/app/family/kitchen-table')} style={S.btn}>Go to the Table</button>
+          </div>
         </div>
       )}
 

@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 25, 2026 (Mid-Session Ratio Step-Down)
+Updated: March 25, 2026 (Family Crest + Age-Gated Content)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -385,6 +385,36 @@ Updated: March 25, 2026 (Mid-Session Ratio Step-Down)
 - systems_fired additions: ratio_step_down_evaluated, ratio_step_down_fired, ratio_step_down_count, arrival_ratio, current_ratio, ratio_history, somatic_reset_at_floor, graceful_end_triggered
 - Active + completed session reports include ratio_adaptation section
 
+## Family Crest v2 — Living System Document (Session 29)
+- familyCrestEngine.js: ABI module — Crest exists from day one, versions up on behavioral evidence
+- Version ladder: v1.0 (The Inventory, auto after LACE) → v1.5 (First Release, first deprecation) → v2.0 (The Demonstration, 3 evidence types required) → v2.5 (The Expansion, member joins — can happen at ANY version) → v3.0 (The Pattern Break, biometric improvement, AXIS math)
+- v2.5 evaluated in parallel with sequential next version, not gated behind v2.0
+- Four quadrants: Inheritance (LACE domains/armors/carriers), Release (deprecated patterns), Keepers (armor strengths), Promise (blueprint visions)
+- Crest NEVER shrinks — only adds. Members added, never removed. Patterns deprecated, never erased.
+- Absent members: "Honored in absence. Welcomed when ready." Never "missing" or "non-compliant."
+- Version evaluation is AXIS criteria-based, no AI. Ceremony narration via Haiku (AI_007, ~$0.004/ceremony)
+- getCrest(familyUnitId) for display, getCrestById(crestId) for ceremony narration
+- upgradeVersion dynamic SQL: keys from internal updates object, not user input — safe by design
+- Lineage ledger entry on every version change (crest_versioned)
+- crestRoutes.js at /api/crest: 7 endpoints (get, evidence, upgrade, evaluate, absent-member, ceremony, history)
+- Migration 046: family_crests (UUID PK, UNIQUE family_unit_id, 4 quadrant JSONB), crest_version_evidence
+- Wired into LACE completion flow for auto v1.0 creation
+
+## Age-Gated Content System (Session 29)
+- personaEngine.js: computeAgeBracket(dateOfBirth) → elementary/middle_school/high_school/adult
+- ageFilter.js: middleware adds req.ageFilter with bracket, actualAge, sqlValue, display config
+- sqlValue uses user's ACTUAL age from date_of_birth, not bracket ceiling (a 6-year-old filters min_age <= 6, not min_age <= 10)
+- No date_of_birth = adult (safe default — adults see everything, children restricted)
+- Four brackets: elementary (6-10, 5 min max, drawing format, energy_bar display), middle_school (11-13, 12 min, writing, gaming display), high_school (14-17, 12 min, speaking, standard), adult (18+, 20 min, reflective, standard)
+- Kitchen table topics: min_age column (default 18), sensitivity_level (high/medium/low)
+- Firmware templates: min_age column (Cache Clearing all ages, most firmware 14+)
+- content_age_variants table for per-age content overrides
+- capacityDisplay.js: GAMING_DISPLAY (power levels for CHLD-M) + ENERGY_BAR_DISPLAY (stars for CHLD-E)
+- /api/auth/context extended with age_config (bracket, max_session_minutes, content_format, capacity_display, ui_style)
+- ageFilter middleware applied to /api/kitchen-table and /api/firmware routes
+- Age filtering is SERVER-SIDE. Frontend never decides what content a child can see.
+- Migration 047: min_age + sensitivity_level on kitchen_table_topics, min_age on firmware_templates, content_age_variants table
+
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
 - Invisible watermark injection — Session 10+
@@ -500,6 +530,13 @@ Focus only on the task assigned in the session prompt.
 - src/routes/familyDesignRoutes.js — System Design Mode API (17 endpoints at /api/design)
 - migrations/044_family_design.sql — heritage_price_sessions, family_blueprints, sandbox_sessions, vision_board_entries, preset_scenarios
 - src/abi/ratioStepDown.js — mid-session ratio step-down evaluator (biometric sustainability)
+- src/abi/familyCrestEngine.js — Family Crest living document, version evaluation, ceremony narration
+- src/routes/crestRoutes.js — Family Crest API (7 endpoints at /api/crest)
+- src/services/personaEngine.js — age bracket computation from date_of_birth
+- src/middleware/ageFilter.js — server-side age content gating middleware
+- src/utils/capacityDisplay.js — age-appropriate capacity state labels (gaming/energy_bar/standard)
+- migrations/046_family_crest.sql — family_crests + crest_version_evidence tables
+- migrations/047_age_gated_content.sql — min_age columns + content_age_variants table
 - src/routes/monitorRoutes.js — SSE live stream + session reports (clinician+ facilitator view)
 - public/test.html — throwaway test harness
 

@@ -26,6 +26,7 @@ import CurriculumScreen from './screens/CurriculumScreen';
 import HealingMapScreen from './screens/HealingMapScreen';
 import CrisisScreen from './screens/CrisisScreen';
 import FacilitatorScreen from './screens/FacilitatorScreen';
+import KitchenTableScreen from './screens/KitchenTableScreen';
 
 // Shared features context for BottomNav persona-driven tabs
 const FeaturesContext = createContext(null);
@@ -91,6 +92,7 @@ export default function App() {
           <Route path="/app/" element={<Protected><HomeScreen /></Protected>} />
           <Route path="/app/gallery" element={<Protected><GalleryScreen /></Protected>} />
           <Route path="/app/family" element={<Protected><FamilyScreen /></Protected>} />
+          <Route path="/app/family/kitchen-table" element={<Protected nav={false} showHelp={false}><KitchenTableScreen /></Protected>} />
           <Route path="/app/profile" element={<Protected><ProfileScreen /></Protected>} />
 
           {/* Immersive — no nav, no help */}

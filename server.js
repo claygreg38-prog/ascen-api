@@ -69,6 +69,9 @@ const {
 // ── TENANT RESOLVER ─────────────────────────────────────────
 const { tenantResolver } = require('./src/middleware/tenantResolver');
 
+// ── AGE FILTER ──────────────────────────────────────────────
+const { ageFilter } = require('./src/middleware/ageFilter');
+
 // DB resilience — retry transient connection failures
 if (pool) createResilientPool(pool);
 
@@ -355,6 +358,7 @@ try {
 try {
   const kitchenTableRoutes = require('./src/routes/kitchenTableRoutes');
   app.use('/api/kitchen-table', authenticateOrApiKey('participant'));
+  app.use('/api/kitchen-table', ageFilter());
   app.use('/api/kitchen-table', kitchenTableRoutes);
   console.log('[KITCHEN TABLE] Routes mounted at /api/kitchen-table');
 } catch (err) {
@@ -428,6 +432,7 @@ try {
 try {
   const firmwareRoutes = require('./src/routes/firmwareRoutes');
   app.use('/api/firmware', authenticateOrApiKey('participant'));
+  app.use('/api/firmware', ageFilter());
   app.use('/api/firmware', firmwareRoutes);
   console.log('[FIRMWARE] Routes mounted at /api/firmware');
 } catch (err) {
@@ -489,6 +494,18 @@ try {
   console.log('[SUBSCRIPTION] Routes mounted at /api/subscription');
 } catch (err) {
   console.warn('[SUBSCRIPTION] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FAMILY CREST ROUTES — Living System Document (Session 29)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const crestRoutes = require('./src/routes/crestRoutes');
+  app.use('/api/crest', authenticateOrApiKey('participant'));
+  app.use('/api/crest', crestRoutes);
+  console.log('[CREST] Routes mounted at /api/crest');
+} catch (err) {
+  console.warn('[CREST] Could not mount:', err.message);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -673,6 +690,18 @@ try {
   console.log('[NOTIFICATIONS] Routes mounted at /api/notifications');
 } catch (err) {
   console.warn('[NOTIFICATIONS] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SESSION MONITOR ROUTES — SSE + Reports (Phase 1)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const monitorRoutes = require('./src/routes/monitorRoutes');
+  app.use('/api/monitor', authenticateOrApiKey('clinician'));
+  app.use('/api/monitor', monitorRoutes);
+  console.log('[MONITOR] Session monitoring routes mounted at /api/monitor');
+} catch (err) {
+  console.warn('[MONITOR] Could not mount:', err.message);
 }
 
 // ── ADMIN ROUTES — System Audit (Session 23) ─────────────────
