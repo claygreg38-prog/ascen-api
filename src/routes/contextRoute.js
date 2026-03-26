@@ -8,6 +8,8 @@ const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 let ttsService;
 try { ttsService = require('../services/ttsService'); } catch (e) { /* TTS not available */ }
+const { computeAgeBracket, computeAge } = require('../services/personaEngine');
+const { getAgeConfig } = require('../middleware/ageFilter');
 
 router.get('/context', async (req, res) => {
   try {
@@ -17,7 +19,7 @@ router.get('/context', async (req, res) => {
     // Get user profile
     const userResult = await pool.query(
       `SELECT id, user_id, first_name, last_name, role, participant_id,
-              family_unit_id, tenant_id, total_sessions_completed, onboarding_state
+              family_unit_id, tenant_id, total_sessions_completed, onboarding_state, date_of_birth
        FROM users WHERE id = $1 OR user_id = $2`,
       [parseInt(userId) || 0, userId]
     );
@@ -39,11 +41,23 @@ router.get('/context', async (req, res) => {
       persona = familyRole === 'elder' ? 'ELDR' : 'AFAM';
     }
 
+    // Check for active partnership (PRTN persona)
+    let hasPartnership = false;
+    try {
+      const partnershipResult = await pool.query(
+        `SELECT id FROM partnership_practices
+         WHERE (partner_a_id = $1 OR partner_b_id = $1) AND status = 'active' LIMIT 1`,
+        [user.id]
+      );
+      hasPartnership = partnershipResult.rows.length > 0;
+      if (hasPartnership && persona === 'INDV') persona = 'PRTN';
+    } catch {}
+
     // Feature flags based on persona
     const features = {
       family_hub: persona === 'ELDR' || persona === 'AFAM',
-      partner_hub: false,
-      co_breath: persona === 'ELDR' || persona === 'AFAM',
+      partner_hub: hasPartnership,
+      co_breath: persona === 'ELDR' || persona === 'AFAM' || hasPartnership,
       lightbridge: persona === 'ELDR',
       facilitator_dashboard: persona === 'FCLT',
       vault: true,
@@ -161,6 +175,10 @@ router.get('/context', async (req, res) => {
       }
     } catch {}
 
+    // Age bracket + config
+    const ageBracket = computeAgeBracket(user.date_of_birth);
+    const ageConfig = getAgeConfig(ageBracket);
+
     res.json({
       user_id: user.user_id || user.participant_id,
       first_name: user.first_name,
@@ -177,7 +195,14 @@ router.get('/context', async (req, res) => {
       streak,
       total_sessions: user.total_sessions_completed || 0,
       ui_mode: 'participant',
-      tenant
+      tenant,
+      age_config: {
+        bracket: ageBracket,
+        max_session_minutes: ageConfig.maxSessionMinutes,
+        content_format: ageConfig.contentFormat,
+        capacity_display: ageConfig.capacityDisplay,
+        ui_style: ageConfig.uiStyle
+      }
     });
   } catch (err) {
     console.error('[CONTEXT] Error:', err.message);

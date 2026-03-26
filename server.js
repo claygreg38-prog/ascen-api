@@ -497,6 +497,19 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// PARTNERSHIP ROUTES — Couples/Intimate Partner Co-Regulation (Session 30)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const partnershipRoutes = require('./src/routes/partnershipRoutes');
+  app.use('/api/partnership', authenticateOrApiKey('participant'));
+  app.use('/api/partnership', ageFilter());
+  app.use('/api/partnership', partnershipRoutes);
+  console.log('[PARTNERSHIP] Routes mounted at /api/partnership');
+} catch (err) {
+  console.warn('[PARTNERSHIP] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // FAMILY CREST ROUTES — Living System Document (Session 29)
 // ═══════════════════════════════════════════════════════════════
 try {

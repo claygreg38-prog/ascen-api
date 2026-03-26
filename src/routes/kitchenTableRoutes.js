@@ -12,7 +12,9 @@ router.get('/topic', async (req, res) => {
   try {
     const userId = req.user?.participant_id || req.user?.userId || req.user?.sub;
     const familyUnitId = req.user?.familyUnitId || req.query.family_unit_id || null;
-    const result = await kitchenTableEngine.selectTopic(userId, familyUnitId, req.tenantId);
+    // Age-gated: pass sqlValue so engine can filter by min_age
+    const ageLimit = req.ageFilter?.sqlValue || 99;
+    const result = await kitchenTableEngine.selectTopic(userId, familyUnitId, req.tenantId, { ageLimit });
     res.json(result);
   } catch (err) {
     console.error('[KitchenTable] Topic failed:', err.message);

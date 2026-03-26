@@ -21,7 +21,9 @@ router.get('/recommended', async (req, res) => {
     const userRow = await pool.query('SELECT id FROM users WHERE user_id = $1', [userId]);
     if (!userRow.rows.length) return res.status(404).json({ error: 'User not found' });
 
-    const result = await recommendFirmware(userRow.rows[0].id);
+    // Age-gated: pass ageLimit for min_age filtering
+    const ageLimit = req.ageFilter?.sqlValue || 99;
+    const result = await recommendFirmware(userRow.rows[0].id, { ageLimit });
     res.json(result);
   } catch (err) {
     console.error('[FIRMWARE] Recommendation failed:', err.message);

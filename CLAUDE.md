@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 25, 2026 (Family Crest + Age-Gated Content)
+Updated: March 25, 2026 (Partnership Module)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -415,6 +415,26 @@ Updated: March 25, 2026 (Family Crest + Age-Gated Content)
 - Age filtering is SERVER-SIDE. Frontend never decides what content a child can see.
 - Migration 047: min_age + sensitivity_level on kitchen_table_topics, min_age on firmware_templates, content_age_variants table
 
+## Partnership Module — Couples/Intimate Partner Co-Regulation (Session 30)
+- partnershipEngine.js: ABI module — dyadic co-regulation, pattern detection, relationship account, repair protocol
+- Solo before dyad: both partners need 5+ individual sessions before partnership work (ENROLLMENT_THRESHOLD = 5)
+- Relationship Account starts at 30 (must earn into high-sensitivity topics). Range 0-100. Deposits: co-breath +3, kitchen table +5, repair +8, firmware +6. Withdrawals: pursuit-withdrawal -3, mutual escalation -5, stonewalling -8, flooding -10.
+- Below 20: co-breath only (no kitchen table until account rebuilds)
+- Pattern detection uses SUSTAINED WINDOWS (not single-tick): pursuit-withdrawal 30s, mutual escalation 30s, stonewalling 60s, flooding 60s. Rolling dyadic_buffer accumulated in session state.
+- Stonewalling is baseline-relative: RMSSD < 25% of arrival + HR > 110% of arrival (not hardcoded thresholds)
+- System NEVER identifies "problem partner" — role fields (pursuer/withdrawer/stonewaller/flooded) are INTERNAL ONLY for clinician dashboard. Tick response strips them, returns only { pattern, label } with HOS vocabulary.
+- HOS labels: "One system is reaching while the other is retreating" (pursuit-withdrawal), "Both systems are heating up together" (mutual escalation), "One system has gone offline" (stonewalling), "One system is overwhelmed" (flooding)
+- Flooding = immediate session_pause (non-negotiable). Stonewalling = individual_reset (separate, then reconnect).
+- Per-partner ratio step-down during co-breath: each partner has own ratio ladder, cooldown, step-down count (Fix #9, uses ratioStepDown.js)
+- Repair protocol: 5 steps (individual reset → acknowledgment → co-breath reconnect → one sentence each → closing co-breath). Always available — rupture is information.
+- Partnership unique constraint is order-independent: LEAST/GREATEST index. enroll() canonicalizes lower ID as partner_a.
+- 20 partnership topics seeded across 5 categories: connection (balance >= 20), inherited_patterns (40+), repair (45+), future (20+), intimacy (60+)
+- PRTN persona activates when partnership_practices has active row. partner_hub feature flag set.
+- partnershipRoutes.js at /api/partnership: 15 endpoints (enrollment, sessions, kitchen table, repair, account, baseline)
+- Migration 048: partnership_practices, partnership_sessions (session_completion_id INTEGER FK), partnership_topics (with min_age for age-gating)
+- ageFilter middleware applied to /api/partnership routes (adult-only content)
+- Sentry in all catch blocks
+
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
 - Invisible watermark injection — Session 10+
@@ -537,6 +557,9 @@ Focus only on the task assigned in the session prompt.
 - src/utils/capacityDisplay.js — age-appropriate capacity state labels (gaming/energy_bar/standard)
 - migrations/046_family_crest.sql — family_crests + crest_version_evidence tables
 - migrations/047_age_gated_content.sql — min_age columns + content_age_variants table
+- src/abi/partnershipEngine.js — dyadic co-regulation, pattern detection, relationship account, repair
+- src/routes/partnershipRoutes.js — Partnership API (15 endpoints at /api/partnership)
+- migrations/048_partnership_module.sql — partnership_practices, partnership_sessions, partnership_topics
 - src/routes/monitorRoutes.js — SSE live stream + session reports (clinician+ facilitator view)
 - public/test.html — throwaway test harness
 
