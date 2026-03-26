@@ -455,8 +455,10 @@ Focus only on the task assigned in the session prompt.
 - src/routes/ttsRoutes.js — TTS API endpoints (generate, available, prewarm, stats)
 - frontend/src/utils/audioPlayer.js — TTS audio playback utility
 - migrations/043_tts_cache.sql — tts_cache table + ASCEN voice config seed
-- src/abi/familyDesignEngine.js — Heritage/Price + Blueprint + Sandbox + Vision Board
-- src/routes/familyDesignRoutes.js — System Design Mode API (18 endpoints at /api/design)
+- src/abi/heritagePriceEngine.js — Heritage/Price Engine: 8 HOS dimensions, 6 prompt types each, armor-dimension mapping, Haiku guidance
+- src/routes/heritagePriceRoutes.js — Heritage/Price API (9 endpoints at /api/heritage)
+- src/abi/familyDesignEngine.js — Blueprint + Sandbox + Vision Board (System Design Mode)
+- src/routes/familyDesignRoutes.js — System Design Mode API (17 endpoints at /api/design)
 - migrations/044_family_design.sql — heritage_price_sessions, family_blueprints, sandbox_sessions, vision_board_entries, preset_scenarios
 - public/test.html — throwaway test harness
 
@@ -531,13 +533,29 @@ Focus only on the task assigned in the session prompt.
 - ELEVENLABS_API_KEY env var required. voice_id values set in tenant voice_config after ElevenLabs dashboard setup.
 - Luno's silence rule still applies: no real-time verbal biometric feedback. TTS is for scripted moments only.
 
-## Heritage/Price Engine + Family Design Interface (Session 26)
+## Heritage/Price Engine (Session 26)
+- heritagePriceEngine.js — standalone ABI module, maps confirmed armors to 8 HOS heritage dimensions
+- **8 HOS Dimensions:** Body, Heart, Mind, People, Work, Money/Time, Spirit, Home
+- Each dimension has 6 prompt types: heritage_prompt, price_prompt, elder_prompt, parent_prompt, child_prompt, child_elementary (drawing)
+- Heritage = what the armor PROTECTED (strength language). Price = what the armor COST (cost language). Never "trauma assessment."
+- ARMOR_DIMENSION_COSTS: per-armor cost scores across dimensions (e.g., The Sentinel: body 8, heart 6, home 7)
+- startSession requires completed LACE assessment (status='completed')
+- recordDimension stores heritage text, price text, action (keep/modify/deprecate), role, biometric snapshot
+- Breath baselines captured between dimensions (same pattern as LACE clusters)
+- completeSession identifies high_cost_dimensions (modify/deprecate with highest biometric activation)
+- completeSession builds armor_dimension_map (which armor shows up in which dimension)
+- completeSession updates lineage_profiles.heritage_dimensions and records heritage_mapped lineage entry
+- getPrompts returns age-appropriate: elementary=drawing, teen=direct, adult=reflective
+- getPrompts returns role-appropriate: elder/parent/child differ per dimension
+- Haiku transition guidance fires ONLY for unsupervised families (no facilitator)
+- Haiku fallback to static text when API unavailable
+- Family-map endpoint aggregates heritage/price data across all family members
+- Routes mounted at /api/heritage (9 endpoints): start, prompts, dimension, breath, response, complete, current, transition, family-map
+- DIM_TO_DB mapping: body→physical, heart→emotional, mind→educational, people→relational, work→vocational, money_time→financial, spirit→spiritual, home→communal
+
+## Family Design Interface — System Design Mode (Session 26)
 - **Arc position:** LACE → Armor → Heritage/Price → System Design Mode → Firmware → Field Testing
 - **Stages of change:** Blueprint = contemplation→preparation, Sandbox = preparation→action, Vision Board = preparation→maintenance
-- Heritage/Price Engine: maps confirmed armors to 8 heritage dimensions (physical, emotional, relational, financial, spiritual, vocational, educational, communal)
-- ARMOR_DIMENSION_COSTS: per-armor cost scores across dimensions (e.g., The Sentinel: physical 8, emotional 6, communal 7)
-- High-cost dimensions: cost_score >= 7 → deprecate, >= 5 → modify, < 5 → maintain
-- Heritage/Price completion updates lineage_profiles.heritage_dimensions and records heritage_mapped lineage entry
 - familyDesignEngine.js — three modes: Blueprint (imagine), Sandbox (rehearse), Vision Board (manifest)
 - Blueprint: per-dimension visions from 3 generational roles (elder, parent, child), family declaration (elder only)
 - Blueprint prompts filtered to high-cost dimensions only (those marked modify/deprecate in Heritage/Price)
@@ -552,7 +570,7 @@ Focus only on the task assigned in the session prompt.
 - Drawing prompts for elementary children. They draw the future, they don't write it.
 - Child's Contrast role — "Tell us which family you want to live in" — the Mirror speaks truth.
 - All endpoints require family membership. Declaration is elder-only.
-- Migration 044: heritage_price_sessions, family_blueprints, sandbox_sessions, vision_board_entries, preset_scenarios
+- Migration 044: heritage_price_sessions (with lace_assessment_id, dimensions, biometric_snapshots, breath_baselines, armor_dimension_map), family_blueprints, sandbox_sessions, vision_board_entries, preset_scenarios
 - lineage_entries CHECK constraint extended: blueprint_created, sandbox_completed, heritage_price_completed added
 
 ## BLE Devices

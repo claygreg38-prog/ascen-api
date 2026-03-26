@@ -8,18 +8,35 @@ CREATE TABLE IF NOT EXISTS heritage_price_sessions (
   family_unit_id UUID REFERENCES family_units(family_unit_id) NOT NULL,
   user_id INTEGER REFERENCES users(id) NOT NULL,
   tenant_id UUID REFERENCES tenants(id),
+  lace_assessment_id UUID REFERENCES lace_assessments(id),
+
+  -- Per-dimension heritage/price responses
+  dimensions JSONB NOT NULL DEFAULT '{}',
+  -- Format: { "body": { heritage_text, price_text, action, role, recorded_at }, ... }
 
   -- Which dimensions carry the highest cost
   high_cost_dimensions JSONB NOT NULL DEFAULT '[]',
-  -- Format: [{ dimension: "physical", armor: "The Override", action: "deprecate", cost_score: 8 }]
+  -- Format: [{ dimension: "body", armor: "The Override", action: "deprecate", biometric_activation: 72 }]
 
   -- Per-dimension actions: maintain (keep), modify (adjust), deprecate (remove)
   dimension_actions JSONB NOT NULL DEFAULT '{}',
-  -- Format: { "physical": "deprecate", "emotional": "modify", ... }
+  -- Format: { "body": "deprecate", "heart": "modify", ... }
 
   -- Generational responses per dimension
   generational_responses JSONB DEFAULT '{}',
-  -- Format: { "physical": { elder: "text", parent: "text", child: "text" } }
+  -- Format: { "body": { elder: "text", parent: "text", child: "text" } }
+
+  -- Biometric snapshots captured during dimension exploration
+  biometric_snapshots JSONB DEFAULT '[]',
+  -- Format: [{ dimension: "body", hr, hrv, coherence, ns3, timestamp }]
+
+  -- Breath baselines between dimensions (same pattern as LACE)
+  breath_baselines JSONB DEFAULT '[]',
+  -- Format: [{ after_dimension: "body", hr, hrv, coherence, ns3, breath_ratio, timestamp }]
+
+  -- Which armor shows up in which dimension
+  armor_dimension_map JSONB DEFAULT '{}',
+  -- Format: { "body": [{ armor: "The Override", cost: 9 }], ... }
 
   status VARCHAR(20) DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'completed')),
   completed_at TIMESTAMPTZ,
@@ -105,8 +122,9 @@ CREATE INDEX IF NOT EXISTS idx_sandbox_family ON sandbox_sessions(family_unit_id
 CREATE INDEX IF NOT EXISTS idx_sandbox_blueprint ON sandbox_sessions(blueprint_id);
 CREATE INDEX IF NOT EXISTS idx_vision_family ON vision_board_entries(family_unit_id);
 
--- Add family_blueprint column to lineage_profiles
+-- Add family_blueprint and high_cost_dimensions columns to lineage_profiles
 ALTER TABLE lineage_profiles ADD COLUMN IF NOT EXISTS family_blueprint JSONB DEFAULT '{}';
+ALTER TABLE lineage_profiles ADD COLUMN IF NOT EXISTS high_cost_dimensions JSONB DEFAULT '[]';
 
 -- Extend lineage_entries entry_type CHECK to include new types
 ALTER TABLE lineage_entries DROP CONSTRAINT IF EXISTS lineage_entries_entry_type_check;

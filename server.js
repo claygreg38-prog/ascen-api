@@ -444,6 +444,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// HERITAGE/PRICE ROUTES — Heritage Strength & Cost Mapping (Session 26)
+// ═══════════════════════════════════════════════════════════════
+try {
+  const heritagePriceRoutes = require('./src/routes/heritagePriceRoutes');
+  app.use('/api/heritage', authenticateOrApiKey('participant'));
+  app.use('/api/heritage', heritagePriceRoutes);
+  console.log('[HERITAGE] Routes mounted at /api/heritage');
+} catch (err) {
+  console.warn('[HERITAGE] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // FAMILY DESIGN ROUTES — System Design Mode (Session 26)
 // ═══════════════════════════════════════════════════════════════
 try {
