@@ -36,9 +36,7 @@ async function participantLogin(request) {
   if (res.status() !== 200) return { headers: { 'x-api-key': API_KEY }, userId: null };
   const body = await res.json();
   const headers = { Authorization: `Bearer ${body.jwt}` };
-  const verifyRes = await request.get('/api/auth/verify', { headers });
-  const verifyBody = await verifyRes.json();
-  return { headers, userId: verifyBody.user?.userId ?? null };
+  return { headers, userId: body.user?.userId ?? null };
 }
 
 test.describe('Healing Economy — LIT, FCR, FIS, Bond, Anti-Redlining', () => {

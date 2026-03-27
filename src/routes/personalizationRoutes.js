@@ -35,8 +35,8 @@ async function resolveUserId(req) {
   const authId = req.user?.participant_id || req.user?.userId || req.user?.sub;
   if (!authId) return null;
   const result = await pool.query(
-    'SELECT id FROM users WHERE user_id = $1 OR participant_id = $1',
-    [authId]
+    'SELECT id FROM users WHERE user_id = $1 OR participant_id = $1 OR id::text = $1',
+    [String(authId)]
   );
   return result.rows.length ? result.rows[0].id : null;
 }

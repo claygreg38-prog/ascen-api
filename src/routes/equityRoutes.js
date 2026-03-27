@@ -11,8 +11,12 @@
 const express = require('express');
 const router = express.Router();
 const Sentry = require('../instrument');
+const { requireRole } = require('../middleware/auth');
 const antiRedliningEngine = require('../axis/antiRedliningEngine');
 const { getFACCPool } = require('../axis/fcrManager');
+
+// All equity routes require admin role
+router.use(requireRole('admin'));
 
 // GET /api/admin/equity/scores — community equity scores
 router.get('/scores', async (req, res) => {

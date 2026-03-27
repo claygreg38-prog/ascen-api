@@ -34,10 +34,7 @@ async function participantLogin(request) {
   if (res.status() !== 200) return { headers: { 'x-api-key': API_KEY }, userId: null };
   const body = await res.json();
   const headers = { Authorization: `Bearer ${body.jwt}` };
-  const verifyRes = await request.get('/api/auth/verify', { headers });
-  const verifyBody = await verifyRes.json();
-  const userId = verifyBody.user?.userId ?? null;
-  return { headers, userId };
+  return { headers, userId: body.user?.userId ?? null };
 }
 
 test.describe('Quilting Intelligence — 4-Gate Readiness + Disclosure Protocol', () => {

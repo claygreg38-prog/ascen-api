@@ -15,12 +15,16 @@
 const Sentry = require('../instrument');
 const express = require('express');
 const router = express.Router();
+const { requireRole } = require('../middleware/auth');
 const promptImpactEngine = require('../abi/promptImpactEngine');
 const communicationAnalyzer = require('../abi/communicationAnalyzer');
 const coachingEngine = require('../abi/clinicalCoachingEngine');
 const { Pool } = require('pg');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// All clinical routes require clinician+ role
+router.use(requireRole('clinician'));
 
 // Correction #7: Server-side coach-me rate limit tracking
 const coachMeLastRequest = new Map(); // sessionId → timestamp
