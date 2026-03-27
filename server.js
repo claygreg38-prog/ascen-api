@@ -304,6 +304,16 @@ try {
   console.warn('[LEGACY] Could not mount:', err.message);
 }
 
+// ── Vault Recovery (dual-key seed phrase backup) ─────────────
+try {
+  const vaultRecoveryRoutes = require('./src/routes/vaultRecoveryRoutes');
+  app.use('/api/vault/recovery', authenticateOrApiKey('clinician'));
+  app.use('/api/vault/recovery', vaultRecoveryRoutes);
+  console.log('[VAULT_RECOVERY] Routes mounted at /api/vault/recovery');
+} catch (err) {
+  console.warn('[VAULT_RECOVERY] Could not mount:', err.message);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // MERCHANDISE ROUTES — Export, Poster, Verify
 // ═══════════════════════════════════════════════════════════════
@@ -350,6 +360,20 @@ try {
   console.log('[LIGHTBRIDGE] Routes mounted at /api/lightbridge');
 } catch (err) {
   console.warn('[LIGHTBRIDGE] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLINICAL KITCHEN TABLE ROUTES — Clinician-Only Layer
+// Must mount BEFORE family kitchen table routes so /clinical
+// path matches before the broader /api/kitchen-table middleware.
+// ═══════════════════════════════════════════════════════════════
+try {
+  const clinicalKitchenTableRoutes = require('./src/routes/clinicalKitchenTableRoutes');
+  app.use('/api/kitchen-table/clinical', authenticateOrApiKey('clinician'));
+  app.use('/api/kitchen-table/clinical', clinicalKitchenTableRoutes);
+  console.log('[CLINICAL KT] Routes mounted at /api/kitchen-table/clinical');
+} catch (err) {
+  console.warn('[CLINICAL KT] Could not mount:', err.message);
 }
 
 // ═══════════════════════════════════════════════════════════════

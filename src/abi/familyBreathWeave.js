@@ -13,6 +13,13 @@ const { Pool } = require('pg');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+// CLINICAL FLOOR: 2:3 (inhale:exhale) is the minimum physiological ratio.
+// Below this, the breath cycle is too short to produce vagal tone improvement.
+// Matches the individual floor in ratioStepDown.js.
+const RATIO_FLOOR = 2 / 3; // 2:3 = 0.6667 (inhale/exhale)
+const RATIO_FLOOR_INHALE = 2;
+const RATIO_FLOOR_EXHALE = 3;
+
 // ── createWeave ─────────────────────────────────────────────
 
 async function createWeave(familyUnitId, contributingCapsuleIds) {
@@ -46,7 +53,7 @@ async function createWeave(familyUnitId, contributingCapsuleIds) {
   }
 
   // Compute weighted average (weight = coherence_peak score)
-  const composite = computeCompositeCadence(cadences);
+  const composite = computeCompositeCadence(cadences, familyUnitId);
 
   // Store weave
   const result = await pool.query(
@@ -65,11 +72,12 @@ async function createWeave(familyUnitId, contributingCapsuleIds) {
 // ── computeCompositeCadence ─────────────────────────────────
 // Exported for unit testing
 
-function computeCompositeCadence(cadences) {
+function computeCompositeCadence(cadences, familyUnitId) {
   let totalWeight = 0;
   let weightedInhale = 0;
   let weightedExhale = 0;
   const durations = [];
+  const memberRatios = [];
 
   for (const cadence of cadences) {
     const weight = cadence.coherence_peak || 0.5; // default weight if no coherence
@@ -80,21 +88,37 @@ function computeCompositeCadence(cadences) {
     weightedExhale += exhale * weight;
     totalWeight += weight;
     durations.push(cadence.duration_seconds || 480);
+    memberRatios.push(exhale > 0 ? inhale / exhale : RATIO_FLOOR);
   }
 
   let compositeInhale = totalWeight > 0 ? weightedInhale / totalWeight : 4;
   let compositeExhale = totalWeight > 0 ? weightedExhale / totalWeight : 6;
 
-  // CRITICAL FLOOR CLAMP — Enforce 2:3 minimum ratio (matches determineBreathParams.js)
-  const compositeRatio = compositeExhale / (compositeInhale + compositeExhale);
-  if (compositeRatio < 3 / 5) { // 2:3 = inhale:exhale, exhale portion = 3/5
-    compositeInhale = 2;
-    compositeExhale = 3;
-  }
+  // Track raw values before clamp for logging
+  const rawInhale = compositeInhale;
+  const rawExhale = compositeExhale;
 
-  // Also enforce minimum absolute values
-  compositeInhale = Math.max(compositeInhale, 2);
-  compositeExhale = Math.max(compositeExhale, 3);
+  // CRITICAL FLOOR CLAMP — Enforce 2:3 minimum ratio
+  // Below 2:3, the breath cycle is too short to produce vagal tone improvement.
+  // Matches the individual floor in ratioStepDown.js.
+  const rawRatio = compositeExhale > 0 ? compositeInhale / compositeExhale : 0;
+  if (rawRatio < RATIO_FLOOR || compositeInhale < RATIO_FLOOR_INHALE || compositeExhale < RATIO_FLOOR_EXHALE) {
+    compositeInhale = RATIO_FLOOR_INHALE;
+    compositeExhale = RATIO_FLOOR_EXHALE;
+
+    // Log floor hit with capacity track member count
+    const membersOnCapacityTrack = memberRatios.filter(r => r <= RATIO_FLOOR).length;
+    console.log(JSON.stringify({
+      type: 'breath_weave_floor_hit',
+      family_unit_id: familyUnitId || null,
+      raw_composite: `${Math.round(rawInhale * 10) / 10}:${Math.round(rawExhale * 10) / 10}`,
+      raw_ratio: Math.round(rawRatio * 10000) / 10000,
+      clamped_to: '2:3',
+      members_on_capacity_track: membersOnCapacityTrack,
+      total_members: cadences.length,
+      timestamp: new Date().toISOString()
+    }));
+  }
 
   // Compute composite duration (median)
   durations.sort((a, b) => a - b);
@@ -135,8 +159,33 @@ async function getWeaveHistory(familyUnitId) {
   return result.rows;
 }
 
+// ── Ratio conversion helpers ────────────────────────────────
+// Used when ratios are stored as strings (e.g., '4:6')
+
+function ratioToDecimal(ratio) {
+  const [inhale, exhale] = ratio.split(':').map(Number);
+  return exhale > 0 ? inhale / exhale : 0;
+}
+
+function decimalToRatio(decimal) {
+  const LADDER = [
+    { ratio: '4:7', decimal: 4 / 7 },
+    { ratio: '4:6', decimal: 4 / 6 },
+    { ratio: '3:5', decimal: 3 / 5 },
+    { ratio: '3:4', decimal: 3 / 4 },
+    { ratio: '2:3', decimal: 2 / 3 },
+  ];
+  return LADDER.reduce((closest, entry) =>
+    Math.abs(entry.decimal - decimal) < Math.abs(closest.decimal - decimal)
+      ? entry : closest
+  ).ratio;
+}
+
 module.exports = {
   createWeave,
   getWeaveHistory,
-  computeCompositeCadence // exported for unit testing
+  computeCompositeCadence, // exported for unit testing
+  ratioToDecimal,
+  decimalToRatio,
+  RATIO_FLOOR
 };

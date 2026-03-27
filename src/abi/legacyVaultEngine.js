@@ -51,7 +51,10 @@ async function createCapsule(params) {
     releaseType,
     releaseSchedule,
     designees,
-    recoveryOptIn
+    recoveryOptIn,
+    clinicianId,
+    adminId,
+    tenantId
   } = params;
 
   // Validate affirmation
@@ -184,7 +187,25 @@ async function createCapsule(params) {
     );
   }
 
-  // 14. Return capsuleId + mnemonic (displayed ONCE, never stored)
+  // 14. Create recovery backup (safety net — participant never knows)
+  //     Requires clinician + admin IDs. If not provided, backup is skipped
+  //     (will be created via /api/vault/recovery/backup by staff).
+  if (params.clinicianId && params.adminId) {
+    try {
+      const vaultRecoveryService = require('../services/vaultRecoveryService');
+      await vaultRecoveryService.createRecoveryBackup(
+        creatorParticipantId, mnemonic, params.clinicianId, params.adminId, params.tenantId || null
+      );
+    } catch (err) {
+      // Recovery backup failure must NOT block capsule creation.
+      // The participant's capsule is still valid without it.
+      console.error('[LegacyVault] Recovery backup failed (non-blocking):', err.message);
+      const Sentry = require('../instrument');
+      Sentry.captureException(err);
+    }
+  }
+
+  // 15. Return capsuleId + mnemonic (displayed ONCE, never stored)
   return { capsuleId, mnemonic };
 }
 

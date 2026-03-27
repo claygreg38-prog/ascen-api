@@ -19,7 +19,8 @@ router.post('/capsule', async (req, res) => {
   try {
     const {
       creator_participant_id, session_completion_id, personalized_art_id,
-      affirmation, release_type, release_schedule, designees, recovery_opt_in
+      affirmation, release_type, release_schedule, designees, recovery_opt_in,
+      clinician_id, admin_id, tenant_id
     } = req.body;
 
     const participantId = creator_participant_id || req.user?.userId;
@@ -35,7 +36,10 @@ router.post('/capsule', async (req, res) => {
       releaseType: release_type || 'immediate',
       releaseSchedule: release_schedule || null,
       designees: designees || [],
-      recoveryOptIn: recovery_opt_in || false
+      recoveryOptIn: recovery_opt_in || false,
+      clinicianId: clinician_id || null,
+      adminId: admin_id || null,
+      tenantId: tenant_id || null
     });
 
     res.json(result);

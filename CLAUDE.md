@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 26, 2026 (Healing Economy + Anti-Redlining)
+Updated: March 26, 2026 (Clinician Dashboard Frontend)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -53,6 +53,17 @@ Updated: March 26, 2026 (Healing Economy + Anti-Redlining)
 - photoAbstractionService.js: 6x6 palette extraction
 - Crown SVGs served statically at /assets/crowns/
 - Mirror screen art reveal + gallery UI in test harness
+- Migration 055: harmonic_meta JSONB + container_shape on session_completions
+- galleryHarmonicsEngine.js: aesthetic layer over breathArtEngine. Sacred geometry frames, color wash, container shapes, harmonic progression
+- Pipeline: breathArtEngine → galleryHarmonicsEngine → IPFS upload. breathArtEngine is LOCKED — zero modifications
+- 4 lifecycle phases: Seed (1-50), Root (51-150), Branch (151-300), Crown (301+)
+- Color wash encodes NS3 zone + lifecycle. Max opacity 0.40 — thread is always the hero
+- Harmonic progression: golden ratio-based oscillation. Fully deterministic from sessionNumber
+- Container shapes: square/circle/oval/triangle. User selects at mirror screen. Default: circle
+- Sacred geometry frames: Seed of Life → Flower of Life → Metatron's Cube → Sri Yantra
+- harmonicsMeta stored on session_completions. Contains ZERO clinical values — safe unencrypted
+- Anti-extraction: galleryHarmonicsEngine never reads metadataJSON. Thread encryption unchanged
+- Graceful fallback: if harmonics fail, uploads raw thread PNG (existing behavior preserved)
 - Migration 015: personalized_art, showcase_posts, showcase_likes, showcase_reports
 - canvasRoutes.js at /api/canvas: co-creation canvas save/load/update
 - socialRoutes.js at /api/showcase: social gallery feed, like, report, milestones, family
@@ -537,6 +548,71 @@ Updated: March 26, 2026 (Healing Economy + Anti-Redlining)
 - Barrier recognition is NOT charity — it acknowledges harder healing work = higher value.
 - The 5 mechanisms work as a system. Disabling one weakens all. Designed to be permanent.
 
+## Clinical Kitchen Table Layer (Session 34)
+- **Clinical Layer:** clinician-facing features on top of Session 17's kitchen table. Family NEVER sees any of this.
+- clinicalCoachingEngine.js — Sonnet trigger-based coaching (dysregulation, cascade, breakthrough, withdrawal, co-regulation, coach-me)
+- promptImpactEngine.js — 60-second tick-based biometric impact window per topic, per member (stored in session_state, not setTimeout)
+- communicationAnalyzer.js — per-session communication pattern metrics (speaking %, listening quality, interruptions, co-regulation events)
+- clinicalKitchenTableRoutes.js — 6 endpoints at /api/kitchen-table/clinical/* (clinician role required)
+- 3 new tables: kitchen_table_prompt_impacts, kitchen_table_communication, kitchen_table_coaching_logs
+- impact_monitoring JSONB column added to kitchen_table_sessions for tick-based monitoring state
+- WebSocket engagement event logging added to coBreathWebSocket.js (logEngagementEvent, getEngagementEvents, clearEngagementEvents)
+- WebSocket role-based filtering: clinician gets full biometrics, family gets capacity state only
+- Coaching card format: OBSERVED (biometric fact) → LIKELY (interpretation) → CONSIDER (dialogue suggestion)
+- AI routing: clinical_biometric_classification (Haiku), clinical_coaching_card (Sonnet) added to aiRouter.js
+- Sonnet cooldown: 30 seconds between Sonnet calls per member per session (cost protection)
+- Coach Me server-side rate limit: 30 seconds between requests per session (429 if exceeded)
+- Cost: Haiku for continuous classification (~$0.04-0.06/session), Sonnet for triggered coaching (~$0.06-0.10/session). Total <$0.20/session.
+- All clinical data is clinician-only. Family members never access reports, coaching logs, or raw biometrics.
+- Communication analysis runs at session completion (non-blocking). If it fails, session still completes.
+- Sentry in all catch blocks across all clinical layer files
+- Migration 053: 3 tables + indexes + impact_monitoring column
+
+## Clinician Dashboard Frontend (Session 6)
+- /app/clinician/session/:id — Live kitchen table session dashboard
+- Requires clinician role. ClinicianOnly wrapper in App.jsx redirects non-clinicians.
+- 4-zone CSS grid: NS Map (top-left), Prompt+Engagement (top-right 340px), Timeline (bottom-left), Alerts+Coaching (bottom-right 340px)
+- Background: linear-gradient(135deg, #0A1220, #0E1828, #0A1420). Header bar fixed 40px.
+- BioRing component: capacity-state color, pulse speed from RR, thickness from coherence, HR/HRV badges, tap for detail panel
+- SessionTimeline: ref-based canvas, HRV traces per member, event markers (topic/dysregulation/co-breath/coaching), playhead
+- WebSocket connection to co-breath room with clinician JWT for full biometric payload (hr, hrv, coherence, rr, ns3, capacity_state)
+- Real-time engagement tracking per member (reflecting/listening/disengaged), withdrawn highlight
+- Session controls: Co-Breath (teal), Next Prompt (amber), Pause (orange) — immediate, no confirmation
+- Coaching cards: 3 visual types (coaching=amber, co-regulation=teal, dysregulation=orange), OBSERVED/LIKELY/CONSIDER format
+- Coach Me button: on-demand Sonnet analysis via POST /api/kitchen-table/clinical/coach-me, 30s client-side rate limit
+- Dismiss logs was_seen via POST /api/kitchen-table/clinical/coaching/feedback
+- Auto-reconnect WebSocket with exponential backoff, reconnection indicator
+- Ring animations use CSS animation (not requestAnimationFrame) for tablet CPU efficiency
+- No family-facing routes link to /app/clinician/*
+- frontend/src/screens/ClinicianDashboardScreen.jsx — main 4-zone dashboard
+- frontend/src/components/BioRing.jsx — biometric ring + detail panel
+- frontend/src/components/SessionTimeline.jsx — ref-based canvas HRV timeline
+
+## Recovery Designee — Dual-Key Seed Phrase Backup (Session 35)
+- vaultRecoveryService.js: dual-key encryption (clinician + admin), AES-256-GCM, HKDF key derivation
+- Participant NEVER knows the backup exists. It is a safety net for facility transfers, confiscation, lost phrases.
+- Neither approver can decrypt alone. Dual key = HMAC(concat(HMAC(RECOVERY_KEY, clinician_id), HMAC(RECOVERY_KEY, admin_id)))
+- Recovery requires BOTH original approvers. Approver mismatch throws error + Sentry warning.
+- Every recovery event logged permanently in vault_recovery_events (who, why, when, IP). Seed phrase NEVER in logs.
+- Seed phrase displayed ONCE during recovery, then cleared from client memory. Never cached.
+- Approver rotation: re-encrypts backup with new approver pair when staff leaves.
+- vaultRecoveryRoutes.js at /api/vault/recovery: 5 endpoints (backup, recover, history, revoke, rotate)
+- Migration 054: vault_recovery_backups, vault_recovery_events tables + 5 indexes
+- Auto-backup wired into legacyVaultEngine.js createCapsule (non-blocking — failure does not block capsule creation)
+- legacyRoutes.js updated: passes clinician_id, admin_id, tenant_id to createCapsule
+- Routes mounted with authenticateOrApiKey('clinician') — clinician or admin role required
+- RECOVERY_ENCRYPTION_KEY env var is root of trust. Rotate with key rotation script from Session 12.
+- Recovery reasons constrained: facility_transfer, lost_phrase, confiscated, damaged, facility_policy, other
+- Sentry warning-level alert on every recovery event and every backup revocation
+
+## Family Breath Weave Ratio Floor Enhancement (Session 35)
+- familyBreathWeave.js: RATIO_FLOOR constant (2/3 = 0.6667) matches ratioStepDown.js individual floor
+- Structured JSON logging when floor is hit: family_unit_id, raw_composite, clamped_to, members_on_capacity_track
+- ratioToDecimal() and decimalToRatio() helper functions for string ratio conversion
+- Floor clamp runs AFTER weighted average computation, not before. Individual members can be at 2:3.
+- Below 2:3 is physiologically meaningless for vagal tone improvement. No exceptions.
+- Log helps facilitator understand why the family's composite is clamped (capacity track member count).
+
 ## Do NOT Build Unless Assigned
 - Screenshot protection (dummyArtEngine.js) — Session 10+
 - Invisible watermark injection — Session 10+
@@ -683,7 +759,18 @@ Focus only on the task assigned in the session prompt.
 - migrations/051_healing_economy.sql — lit_ledger, lhx_recognition_partners, family_capital_reserves, family_investment_scores, bond_maturation_events
 - migrations/052_anti_redlining.sql — community_equity_scores, extraction_alerts, equity_config
 - src/routes/monitorRoutes.js — SSE live stream + session reports (clinician+ facilitator view)
+- src/abi/promptImpactEngine.js — tick-based prompt impact scoring (60s window)
+- src/abi/communicationAnalyzer.js — per-session communication pattern metrics
+- src/abi/clinicalCoachingEngine.js — Sonnet coaching trigger engine (dysregulation/cascade/breakthrough/withdrawal/co-regulation)
+- src/routes/clinicalKitchenTableRoutes.js — clinical kitchen table API (6 endpoints at /api/kitchen-table/clinical)
+- migrations/053_clinical_kitchen_table.sql — prompt_impacts, communication, coaching_logs tables
+- frontend/src/screens/ClinicianDashboardScreen.jsx — live kitchen table clinician dashboard (4-zone grid)
+- frontend/src/components/BioRing.jsx — biometric ring + detail panel (clinician only)
+- frontend/src/components/SessionTimeline.jsx — ref-based canvas HRV timeline (clinician only)
 - public/test.html — throwaway test harness
+- src/services/vaultRecoveryService.js — dual-key seed phrase backup/recovery (AES-256-GCM)
+- src/routes/vaultRecoveryRoutes.js — vault recovery API (5 endpoints at /api/vault/recovery)
+- migrations/054_recovery_designee.sql — vault_recovery_backups, vault_recovery_events
 
 ## HOS Family Layer (Session 25)
 - **HOS vocabulary enforced** across all user-facing strings. Clinical terms in code comments only.
