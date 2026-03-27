@@ -127,7 +127,7 @@ function authenticate(req, res, next) {
  * Usage: router.get('/path', authenticate, requireRole('clinician'), handler)
  */
 function requireRole(...roles) {
-  const ROLE_LEVEL = { participant: 1, clinician: 2, admin: 3 };
+  const ROLE_LEVEL = { participant: 1, facilitator: 2, clinician: 2, admin: 3 };
 
   // Find the minimum required level
   const minLevel = Math.min(...roles.map(r => ROLE_LEVEL[r] || 99));

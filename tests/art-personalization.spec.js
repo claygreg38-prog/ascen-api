@@ -36,23 +36,20 @@ test.describe('Art Personalization — Gallery Harmonics, Preferences, Breath Ar
     const headers = await authHeaders(request);
     const res = await request.get('/api/art/presets', { headers });
 
-    expect([200, 500]).toContain(res.status());
-    if (res.status() === 200) {
-      const body = await res.json();
-      expect(body).toBeTruthy();
-      // Should include personalization options
-      if (body.filters) expect(Array.isArray(body.filters)).toBe(true);
-      if (body.frames) expect(Array.isArray(body.frames)).toBe(true);
-      if (body.overlays) expect(Array.isArray(body.overlays)).toBe(true);
-      if (body.containers) expect(Array.isArray(body.containers)).toBe(true);
-    }
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.filters)).toBe(true);
+    expect(Array.isArray(body.frames)).toBe(true);
+    expect(Array.isArray(body.overlays)).toBe(true);
+    expect(Array.isArray(body.containers)).toBe(true);
   });
 
   test('GET /api/art/preferences returns user default preferences (or null)', async ({ request }) => {
     const headers = await authHeaders(request);
     const res = await request.get('/api/art/preferences', { headers });
 
-    expect([200, 404, 500]).toContain(res.status());
+    // Endpoint returns 200 with { auto_apply: false } when no prefs saved
+    expect([200, 500]).toContain(res.status());
   });
 
   test('POST /api/art/preferences saves default preferences', async ({ request }) => {
@@ -61,10 +58,10 @@ test.describe('Art Personalization — Gallery Harmonics, Preferences, Breath Ar
       headers,
       data: {
         hue_shift: 30,
-        filter: 'warm',
-        frame: 'minimal',
-        overlay: 'linen',
-        container: 'circle',
+        filter_preset: 'warm',
+        frame_override: 'minimal',
+        overlay_texture: 'linen',
+        container_override: 'circle',
       },
     });
 
@@ -78,7 +75,7 @@ test.describe('Art Personalization — Gallery Harmonics, Preferences, Breath Ar
       data: {
         session_completion_id: 1,
         hue_shift: 45,
-        filter: 'cool',
+        filter_preset: 'cool',
       },
     });
 
