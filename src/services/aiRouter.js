@@ -39,7 +39,11 @@ const TASK_ROUTING = {
   curriculum_generation: 'sonnet',
   predictive_analysis: 'sonnet',
   disclosure_classification: 'sonnet',
-  quilting_session_monitoring: 'sonnet'
+  quilting_session_monitoring: 'sonnet',
+
+  // Clinical Kitchen Table — coaching engine
+  clinical_biometric_classification: 'haiku',
+  clinical_coaching_card: 'sonnet'
 };
 
 const MODEL_MAP = {

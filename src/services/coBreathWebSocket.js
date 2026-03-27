@@ -11,6 +11,33 @@ const WebSocket = require('ws');
 
 const rooms = new Map(); // roomCode → { initiator, partner, state, breathParams, lastActivity }
 
+// ── ENGAGEMENT EVENT LOG — Clinical Kitchen Table (Correction #4) ──
+// Stores engagement events per session for communication analysis.
+// In-memory per server instance; clinical analysis runs at session completion
+// before the data would be lost. For horizontal scaling, move to Redis/DB.
+const engagementEvents = new Map(); // sessionId → [{ user_id, status, timestamp, ... }]
+
+function logEngagementEvent(sessionId, event) {
+  if (!engagementEvents.has(sessionId)) {
+    engagementEvents.set(sessionId, []);
+  }
+  engagementEvents.get(sessionId).push(event);
+
+  // Cap at 1000 events per session to bound memory
+  const events = engagementEvents.get(sessionId);
+  if (events.length > 1000) {
+    engagementEvents.set(sessionId, events.slice(-500));
+  }
+}
+
+function getEngagementEvents(sessionId) {
+  return engagementEvents.get(sessionId) || [];
+}
+
+function clearEngagementEvents(sessionId) {
+  engagementEvents.delete(sessionId);
+}
+
 function initCoBreathWS(server) {
   const wss = new WebSocket.Server({ server, path: '/ws/cobreath' });
 
@@ -178,4 +205,4 @@ function broadcast(room, data) {
   if (room.partner?.readyState === WebSocket.OPEN) room.partner.send(msg);
 }
 
-module.exports = { initCoBreathWS };
+module.exports = { initCoBreathWS, logEngagementEvent, getEngagementEvents, clearEngagementEvents };

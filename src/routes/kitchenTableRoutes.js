@@ -7,6 +7,7 @@ const Sentry = require('../instrument');
 const express = require('express');
 const router = express.Router();
 const kitchenTableEngine = require('../abi/kitchenTableEngine');
+const promptImpactEngine = require('../abi/promptImpactEngine');
 
 router.get('/topic', async (req, res) => {
   try {
@@ -41,6 +42,12 @@ router.post('/tick', async (req, res) => {
   try {
     const { session_id, hrv_reading } = req.body;
     const result = await kitchenTableEngine.recordBiometricTick(session_id, hrv_reading);
+
+    // Clinical layer: tick-based impact monitoring (Correction #3)
+    try {
+      await promptImpactEngine.evaluateOnTick(session_id);
+    } catch (e) { /* non-blocking clinical evaluation */ }
+
     res.json(result);
   } catch (err) {
     console.error('[KitchenTable] Tick failed:', err.message);
@@ -54,6 +61,31 @@ router.post('/complete', async (req, res) => {
     const { session_id, journal_entry } = req.body;
     const result = await kitchenTableEngine.completeSession(session_id, journal_entry);
     if (result.error) return res.status(400).json(result);
+
+    // Clinical layer: communication analysis at session completion (non-blocking)
+    try {
+      const { Pool } = require('pg');
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      const communicationAnalyzer = require('../abi/communicationAnalyzer');
+      const membersResult = await pool.query(
+        'SELECT DISTINCT user_id FROM kitchen_table_sessions WHERE family_unit_id = (SELECT family_unit_id FROM kitchen_table_sessions WHERE id = $1) AND family_unit_id IS NOT NULL',
+        [session_id]
+      );
+      if (membersResult.rows.length > 0) {
+        const memberIds = membersResult.rows.map(r => r.user_id);
+        await communicationAnalyzer.analyzeSessionCommunication(session_id, memberIds);
+      }
+    } catch (err) {
+      console.error('[CLINICAL] Communication analysis failed (non-blocking):', err.message);
+      Sentry.captureException(err);
+    }
+
+    // Clean up engagement events for this session
+    try {
+      const coBreathWS = require('../services/coBreathWebSocket');
+      if (coBreathWS.clearEngagementEvents) coBreathWS.clearEngagementEvents(session_id);
+    } catch (e) { /* non-blocking */ }
+
     res.json(result);
   } catch (err) {
     console.error('[KitchenTable] Complete failed:', err.message);

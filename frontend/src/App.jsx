@@ -27,6 +27,7 @@ import HealingMapScreen from './screens/HealingMapScreen';
 import CrisisScreen from './screens/CrisisScreen';
 import FacilitatorScreen from './screens/FacilitatorScreen';
 import KitchenTableScreen from './screens/KitchenTableScreen';
+import ClinicianDashboardScreen from './screens/ClinicianDashboardScreen';
 
 // Shared features context for BottomNav persona-driven tabs
 const FeaturesContext = createContext(null);
@@ -69,6 +70,13 @@ function FacilitatorOnly({ children }) {
   return <>{children}<BottomNav features={features} /></>;
 }
 
+function ClinicianOnly({ children }) {
+  const user = getUser();
+  if (!isAuthenticated()) return <Navigate to="/app/login" />;
+  if (!user || !['admin', 'clinician'].includes(user.role)) return <Navigate to="/app/" />;
+  return <>{children}</>;
+}
+
 export default function App() {
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
@@ -108,6 +116,9 @@ export default function App() {
           <Route path="/app/curriculum" element={<Protected><CurriculumScreen /></Protected>} />
           <Route path="/app/healing-map" element={<Protected><HealingMapScreen /></Protected>} />
           <Route path="/app/crisis" element={<Protected nav={false} showHelp={false}><CrisisScreen /></Protected>} />
+
+          {/* Clinician — role-gated, immersive (no nav, no help) */}
+          <Route path="/app/clinician/session/:id" element={<ClinicianOnly><ClinicianDashboardScreen /></ClinicianOnly>} />
 
           {/* Facilitator — role-gated */}
           <Route path="/app/facilitator" element={<FacilitatorOnly><FacilitatorScreen /></FacilitatorOnly>} />

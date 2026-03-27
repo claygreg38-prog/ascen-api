@@ -65,6 +65,7 @@ const familyIntelligence = require('./familyIntelligence');
 const familyUnitEngine = require('./familyUnitEngine');
 const capacityCurrency = require('./capacityCurrency');
 const lightBridgeEngine = require('./lightBridgeEngine');
+const galleryHarmonicsEngine = require('./galleryHarmonicsEngine');
 const lineageService = require('../services/lineageService');
 const Sentry = require('../instrument');
 
@@ -1377,6 +1378,29 @@ function createOrchestrator(callbacks = {}) {
         // Render SVG to PNG
         const pngBuffer = await breathArtEngine.renderToPNG(svgString);
 
+        // Apply gallery harmonics (aesthetic layer — sacred geometry frame, color wash, container shape)
+        let uploadBuffer = pngBuffer;
+        let harmonicsMeta = null;
+        try {
+          const harmonicsResult = await galleryHarmonicsEngine.applyHarmonics(
+            { svgString, pngBuffer, metadataJSON },
+            {
+              sessionNumber: sessCountForArt,
+              ns3Zone: ns3Summary?.ns3Zone || ns3Summary?.clinical?.zone || 'regulated',
+              coherencePeak: rawMetrics.coherence_peak || 0,
+              containerShape: rawMetrics.containerShape || 'circle',
+              isFamilySession: !!user.family_unit_id,
+              participantCount: rawMetrics.participant_count || 1,
+              packetHash: sessionPacket.packetHash,
+            }
+          );
+          uploadBuffer = harmonicsResult.compositePngBuffer;
+          harmonicsMeta = harmonicsResult.harmonicsMeta;
+        } catch (harmonicsErr) {
+          console.error('[GalleryHarmonics] Failed (falling back to raw thread):', harmonicsErr.message);
+          Sentry.captureException(harmonicsErr);
+        }
+
         // Build clinical payload for encryption
         const clinicalPayload = {
           ns3_mean: ns3Summary?.ns3?.mean ?? null,
@@ -1389,17 +1413,18 @@ function createOrchestrator(callbacks = {}) {
           track: user.breath_track || 'standard',
         };
 
-        // Upload to IPFS
+        // Upload composite to IPFS (falls back to raw pngBuffer if harmonics failed)
         const { imageHash, metadataHash } = await ipfsService.upload(
-          pngBuffer, metadataJSON, clinicalPayload,
+          uploadBuffer, metadataJSON, clinicalPayload,
           { sessionNumber: rawSession.session_number || 0, firstName: user.first_name || 'Participant' }
         );
 
-        // Store art_ipfs_hash in session_completions
+        // Store art_ipfs_hash + harmonic metadata in session_completions
         await pool.query(
-          `UPDATE session_completions SET art_ipfs_hash = $1, art_encoding_version = 1
+          `UPDATE session_completions SET art_ipfs_hash = $1, art_encoding_version = 1,
+           harmonic_meta = $4, container_shape = $5
            WHERE user_id = $2 AND session_id = $3`,
-          [metadataHash, userId, sessionId]
+          [metadataHash, userId, sessionId, harmonicsMeta ? JSON.stringify(harmonicsMeta) : null, rawMetrics.containerShape || 'circle']
         );
 
         artResult = { svgString, imageHash, metadataHash };
