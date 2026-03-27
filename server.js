@@ -47,6 +47,13 @@ const pool = process.env.DATABASE_URL ? new Pool({
   ssl: { rejectUnauthorized: false }
 }) : null;
 
+// Prevent unhandled Pool errors from crashing the process
+if (pool) {
+  pool.on('error', (err) => {
+    console.error('[DB POOL] Unexpected error on idle client:', err.message);
+  });
+}
+
 // ── HARDENING MIDDLEWARE ────────────────────────────────────
 const abiHardening = require('./src/middleware/abiHardening');
 // rateLimiter is a factory — must be invoked to get middleware
@@ -1061,9 +1068,13 @@ try {
 // ── BLOCKCHAIN QUEUE PROCESSING (every 30 minutes) ──────────
 try {
   cron.schedule('*/30 * * * *', async () => {
-    const result = await verificationService.processQueue();
-    if (result.processed > 0) {
-      console.log(`[BLOCKCHAIN CRON] Processed ${result.processed} attestations`);
+    try {
+      const result = await verificationService.processQueue();
+      if (result.processed > 0) {
+        console.log(`[BLOCKCHAIN CRON] Processed ${result.processed} attestations`);
+      }
+    } catch (err) {
+      console.error('[BLOCKCHAIN CRON] Queue processing failed:', err.message);
     }
   }, {
     scheduled: true,
@@ -1079,8 +1090,12 @@ try {
   const { BlockchainRetry } = require('./src/blockchain/blockchainRetry');
   const blockchainRetry = new BlockchainRetry(pool);
   cron.schedule('*/15 * * * *', async () => {
-    await blockchainRetry.processRetries();
-    await blockchainRetry.processGasDeferred();
+    try {
+      await blockchainRetry.processRetries();
+      await blockchainRetry.processGasDeferred();
+    } catch (err) {
+      console.error('[BLOCKCHAIN CRON] Retry processing failed:', err.message);
+    }
   }, {
     scheduled: true,
     timezone: 'UTC'
@@ -1093,7 +1108,11 @@ try {
 // ── BLOCKCHAIN BALANCE MONITOR (daily 9 AM UTC) ─────────────
 try {
   cron.schedule('0 9 * * *', async () => {
-    await verificationService.checkSignerBalance();
+    try {
+      await verificationService.checkSignerBalance();
+    } catch (err) {
+      console.error('[BLOCKCHAIN CRON] Balance monitor failed:', err.message);
+    }
   }, {
     scheduled: true,
     timezone: 'UTC'
