@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" fill="none" stroke="#5ffce0" stroke-width="0.75" opacity="0.35">
+  <!-- Double Ring: concentric circles -->
+  <circle cx="400" cy="400" r="370"/>
+  <circle cx="400" cy="400" r="340"/>
+</svg>

@@ -66,6 +66,7 @@ const familyUnitEngine = require('./familyUnitEngine');
 const capacityCurrency = require('./capacityCurrency');
 const lightBridgeEngine = require('./lightBridgeEngine');
 const galleryHarmonicsEngine = require('./galleryHarmonicsEngine');
+const userPersonalizationLayer = require('./userPersonalizationLayer');
 const lineageService = require('../services/lineageService');
 const Sentry = require('../instrument');
 
@@ -1399,6 +1400,30 @@ function createOrchestrator(callbacks = {}) {
         } catch (harmonicsErr) {
           console.error('[GalleryHarmonics] Failed (falling back to raw thread):', harmonicsErr.message);
           Sentry.captureException(harmonicsErr);
+        }
+
+        // Auto-apply user personalization preferences if enabled
+        try {
+          const prefs = await userPersonalizationLayer.getPreferences(userId);
+          if (prefs && prefs.auto_apply) {
+            const personalizedPng = await userPersonalizationLayer.applyPersonalization(
+              uploadBuffer,
+              {
+                hue_shift: prefs.default_hue_shift,
+                saturation_adjust: prefs.default_saturation,
+                brightness_adjust: prefs.default_brightness,
+                filter_preset: prefs.default_filter,
+                frame_override: prefs.default_frame,
+                overlay_texture: prefs.default_overlay,
+                container_override: prefs.default_container,
+              }
+            );
+            uploadBuffer = personalizedPng;
+            console.log(`[Personalization] Auto-applied preferences for user ${userId}`);
+          }
+        } catch (persErr) {
+          console.error('[Personalization] Auto-apply failed (using harmonics output):', persErr.message);
+          Sentry.captureException(persErr);
         }
 
         // Build clinical payload for encryption

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" fill="none" stroke="#5ffce0" stroke-width="0.8" opacity="0.35">
+  <!-- Organic Flow: smooth flowing curves -->
+  <path d="M 400 30 C 600 80, 770 200, 770 400 C 770 600, 600 720, 400 770 C 200 720, 30 600, 30 400 C 30 200, 200 80, 400 30 Z"/>
+  <path d="M 400 80 C 560 120, 720 240, 720 400 C 720 560, 560 680, 400 720 C 240 680, 80 560, 80 400 C 80 240, 240 120, 400 80 Z"/>
+</svg>

@@ -268,6 +268,15 @@ try {
   console.warn('[ART] Could not mount:', err.message);
 }
 
+try {
+  const personalizationRoutes = require('./src/routes/personalizationRoutes');
+  // Auth already applied at /api/art above
+  app.use('/api/art', personalizationRoutes);
+  console.log('[ART] Personalization routes mounted at /api/art');
+} catch (err) {
+  console.warn('[ART] Personalization routes could not mount:', err.message);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // CANVAS ROUTES — Co-Creation Canvas
 // ═══════════════════════════════════════════════════════════════

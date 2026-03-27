@@ -64,6 +64,19 @@ Updated: March 26, 2026 (Clinician Dashboard Frontend)
 - harmonicsMeta stored on session_completions. Contains ZERO clinical values — safe unencrypted
 - Anti-extraction: galleryHarmonicsEngine never reads metadataJSON. Thread encryption unchanged
 - Graceful fallback: if harmonics fail, uploads raw thread PNG (existing behavior preserved)
+- Migration 056: art_personalizations + art_preferences tables (personalization layer)
+- userPersonalizationLayer.js: Stage 3 of art pipeline. NON-DESTRUCTIVE compositing
+- Pipeline: breathArtEngine (LOCKED) → galleryHarmonicsEngine (LOCKED) → userPersonalizationLayer
+- Hue shift (-180 to 180), saturation (0-2x), brightness (0.5-1.5x)
+- 9 filter presets: warm, cool, midnight, golden, muted, vivid, sepia, frost
+- Frame overrides: sacred geometry defaults + minimal, double_ring, organic
+- 7 overlay textures: linen, grain, watercolor, silk, stone, paper (max opacity 0.12)
+- 6 container shapes: circle, square, oval, triangle + hexagon, diamond (personalization-only)
+- Auto-apply: user saves default preferences, new art automatically gets them in orchestrator
+- Revert always available — original harmonics PNG recoverable via IPFS hash
+- Preview endpoint at GET /api/art/preview — rate-limited (10/min/user), no IPFS upload
+- personalizationRoutes.js at /api/art: personalize, revert, personalizations, preferences, presets, preview
+- Placeholder textures in src/assets/textures/ and frames in src/assets/frames/ — replace with production assets
 - Migration 015: personalized_art, showcase_posts, showcase_likes, showcase_reports
 - canvasRoutes.js at /api/canvas: co-creation canvas save/load/update
 - socialRoutes.js at /api/showcase: social gallery feed, like, report, milestones, family
