@@ -218,7 +218,7 @@ router.get('/session-report/:sessionKey', async (req, res) => {
 
     // Try completed session
     const completed = await pool.query(
-      `SELECT sc.*, u.first_name, u.breath_track
+      `SELECT sc.*, u.first_name
        FROM session_completions sc
        LEFT JOIN users u ON sc.user_id = u.user_id
        WHERE sc.session_key = $1
@@ -263,7 +263,7 @@ router.get('/session-report/latest/:userId', async (req, res) => {
 
     // Most recent completed session
     const completed = await pool.query(
-      `SELECT sc.*, u.first_name, u.breath_track
+      `SELECT sc.*, u.first_name
        FROM session_completions sc
        LEFT JOIN users u ON sc.user_id = u.user_id
        WHERE sc.user_id = $1
