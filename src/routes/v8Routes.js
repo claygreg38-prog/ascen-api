@@ -36,6 +36,25 @@ function decryptVault(encryptedString, key) {
   return decrypted;
 }
 
+// ── Resolve user_id (participant_id string OR integer) to users.id ──
+// session_completions.user_id is INTEGER after migration 030.
+// Callers may send participant_id ('PUZZ8304') or integer user id.
+async function resolveUserId(rawId) {
+  // Already an integer — return as-is
+  if (typeof rawId === 'number' || /^\d+$/.test(rawId)) {
+    return parseInt(rawId, 10);
+  }
+  // Look up by participant_id
+  const result = await pool.query(
+    'SELECT id FROM users WHERE participant_id = $1 OR user_id = $1 LIMIT 1',
+    [rawId]
+  );
+  if (!result.rows.length) {
+    throw new Error(`User not found: ${rawId}`);
+  }
+  return result.rows[0].id;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // POST /api/fr/progress — Save session progress
 // ═══════════════════════════════════════════════════════════════
@@ -48,6 +67,8 @@ router.post('/progress', async (req, res) => {
       return res.status(400).json({ error: 'user_id and session_number required' });
     }
 
+    const internalUserId = await resolveUserId(user_id);
+
     const t = tenantInsert(req.tenantId, 5);
 
     await pool.query(`
@@ -59,7 +80,7 @@ router.post('/progress', async (req, res) => {
         active_duration_seconds = COALESCE($4, session_completions.active_duration_seconds),
         exit_type = COALESCE($5, session_completions.exit_type),
         completed_at = CASE WHEN $6 = true THEN NOW() ELSE session_completions.completed_at END
-    `, [user_id, session_number, coherence_score || null, duration_seconds || null, completed ? 'completed' : 'in_progress', ...t.params, completed || false]);
+    `, [internalUserId, session_number, coherence_score || null, duration_seconds || null, completed ? 'completed' : 'in_progress', ...t.params, completed || false]);
 
     res.json({ success: true, session_number });
   } catch (error) {
@@ -80,6 +101,8 @@ router.post('/vault', async (req, res) => {
       return res.status(400).json({ error: 'user_id, session_number, and vault_response required' });
     }
 
+    const internalUserId = await resolveUserId(user_id);
+
     const encryptionKey = process.env.ART_ENCRYPTION_KEY;
     if (!encryptionKey) {
       return res.status(500).json({ error: 'Encryption key not configured' });
@@ -96,7 +119,7 @@ router.post('/vault', async (req, res) => {
       UPDATE session_completions
       SET vault_response_encrypted = $1
       WHERE user_id = $2 AND session_number = $3${t.clause}
-    `, [encrypted, user_id, session_number, ...t.params]);
+    `, [encrypted, internalUserId, session_number, ...t.params]);
 
     res.json({ sealed: true });
   } catch (error) {
@@ -117,12 +140,13 @@ router.get('/vault/:sessionNumber', async (req, res) => {
     }
 
     const sessionNumber = parseInt(req.params.sessionNumber, 10);
-    const userId = req.query.user_id || req.user.userId;
+    const rawUserId = req.query.user_id || req.user.userId;
+    const internalUserId = await resolveUserId(rawUserId);
 
     const t = tenantWhere(req.tenantId, 2);
     const result = await pool.query(
       `SELECT vault_response_encrypted FROM session_completions WHERE user_id = $1 AND session_number = $2${t.clause}`,
-      [userId, sessionNumber, ...t.params]
+      [internalUserId, sessionNumber, ...t.params]
     );
 
     if (!result.rows.length || !result.rows[0].vault_response_encrypted) {
