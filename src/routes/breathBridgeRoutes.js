@@ -31,8 +31,8 @@ router.post('/enroll', authenticate, async (req, res) => {
 
     // Look up user
     const userResult = await pool.query(
-      'SELECT id, date_of_birth, family_unit_id FROM users WHERE id = $1 OR user_id = $1',
-      [userId]
+      'SELECT id, date_of_birth, family_unit_id FROM users WHERE id = $1 OR user_id = $2',
+      [parseInt(userId) || 0, userId]
     );
     const user = userResult.rows[0];
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -77,8 +77,8 @@ router.get('/status', authenticate, async (req, res) => {
     const { userId } = req.user;
 
     const userResult = await pool.query(
-      'SELECT id, family_unit_id FROM users WHERE id = $1 OR user_id = $1',
-      [userId]
+      'SELECT id, family_unit_id FROM users WHERE id = $1 OR user_id = $2',
+      [parseInt(userId) || 0, userId]
     );
     const user = userResult.rows[0];
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -131,8 +131,8 @@ router.get('/messages', authenticate, async (req, res) => {
     const { userId } = req.user;
 
     const userResult = await pool.query(
-      'SELECT id, date_of_birth, family_unit_id FROM users WHERE id = $1 OR user_id = $1',
-      [userId]
+      'SELECT id, date_of_birth, family_unit_id FROM users WHERE id = $1 OR user_id = $2',
+      [parseInt(userId) || 0, userId]
     );
     const user = userResult.rows[0];
     if (!user) return res.status(404).json({ error: 'User not found' });

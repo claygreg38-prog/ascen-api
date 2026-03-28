@@ -45,8 +45,8 @@ router.post('/', authenticate, async (req, res) => {
 
     // ── Look up participant ──
     const userResult = await pool.query(
-      'SELECT id, date_of_birth, family_unit_id FROM users WHERE id = $1 OR user_id = $1',
-      [userId]
+      'SELECT id, date_of_birth, family_unit_id FROM users WHERE id = $1 OR user_id = $2',
+      [parseInt(userId) || 0, userId]
     );
     const user = userResult.rows[0];
     if (!user) {
