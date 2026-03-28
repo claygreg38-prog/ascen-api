@@ -69,8 +69,7 @@ test.describe('Session Monitoring — SSE + Reports', () => {
     });
 
     // May return 200 (has sessions) or 404 (no sessions yet)
-    // TODO: Fix session-report/latest 500 — additional bad column reference after breath_track fix
-    expect([200, 404, 500]).toContain(res.status());
+    expect([200, 404]).toContain(res.status());
     if (res.status() === 200) {
       const body = await res.json();
       expect(body).toBeTruthy();
