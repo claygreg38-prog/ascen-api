@@ -149,6 +149,38 @@ async function routeDisclosure(classification, messageId, messageText, senderId,
   return { disclosureId, routedTo, mandatory: disclosureRecord.mandatory_reporting_flag };
 }
 
+// ── DISCLOSURE HOLD GATE (CHANNEL-LEVEL SUSPENSION) ─────────
+// Structural query — runs BEFORE Sonnet classification.
+// If an unresolved abuse_recipient disclosure exists for this family,
+// any message where the alleged abuser is sender OR recipient is held.
+// This prevents follow-up "normal" messages from flowing after a disclosure.
+
+async function checkDisclosureHold(senderId, recipientId, familyUnitId) {
+  try {
+    const result = await pool.query(
+      `SELECT alleged_recipient_id FROM clinical_disclosures
+       WHERE family_unit_id = $1
+         AND disclosure_type = 'abuse_recipient'
+         AND (review_status IS NULL OR review_status != 'resolved')
+       LIMIT 1`,
+      [familyUnitId]
+    );
+    if (result.rows.length === 0) return null; // No active disclosure — pass through
+
+    const allegedAbuserId = result.rows[0].alleged_recipient_id;
+    if (allegedAbuserId && (allegedAbuserId === senderId || allegedAbuserId === recipientId)) {
+      console.log(`[DISCLOSURE_HOLD] Message held: sender=${senderId} recipient=${recipientId} allegedAbuser=${allegedAbuserId} family=${familyUnitId}`);
+      return allegedAbuserId;
+    }
+    return null; // Disclosure exists but neither party is the alleged abuser
+  } catch (err) {
+    // On error, FAIL CLOSED — hold the message. Safety over delivery.
+    console.error('[DISCLOSURE_HOLD] Query failed, failing closed:', err.message);
+    Sentry.captureException(err);
+    return 'error_fail_closed';
+  }
+}
+
 // ── EVALUATE OUTBOUND (Parent/Partner/Coparent → Recipient) ──
 
 async function evaluateOutbound(senderId, recipientId, messageText, channelType, familyContext) {
@@ -159,6 +191,18 @@ async function evaluateOutbound(senderId, recipientId, messageText, channelType,
     const charLimit = getCharLimit(familyContext.senderType || 'parent', familyContext.senderAge);
     if (messageText.length > charLimit) {
       return { error: true, message: `Message exceeds ${charLimit} character limit` };
+    }
+
+    // STEP 0: DISCLOSURE HOLD GATE — structural check, runs before Sonnet
+    const holdAbuserId = await checkDisclosureHold(senderId, recipientId, familyContext.familyUnitId);
+    if (holdAbuserId) {
+      return {
+        messageId: null,
+        decision: 'disclosure_hold',
+        disclosure: 'abuse_recipient',
+        delivered: false,
+        held: true
+      };
     }
 
     // Step 1: DISCLOSURE CHECK (CRITICAL — runs before all other evaluation)
@@ -292,6 +336,18 @@ async function evaluateInbound(senderId, recipientId, messageText, channelType, 
     const charLimit = getCharLimit('child', familyContext.senderAge);
     if (messageText.length > charLimit) {
       return { error: true, message: `Message exceeds ${charLimit} character limit` };
+    }
+
+    // STEP 0: DISCLOSURE HOLD GATE — structural check, runs before Sonnet
+    const holdAbuserId = await checkDisclosureHold(senderId, recipientId, familyContext.familyUnitId);
+    if (holdAbuserId) {
+      return {
+        messageId: null,
+        decision: 'disclosure_hold',
+        disclosure: 'abuse_recipient',
+        delivered: false,
+        held: true
+      };
     }
 
     // DISCLOSURE CHECK FIRST (CRITICAL)
@@ -470,6 +526,12 @@ async function getMessages(familyUnitId, channelType, limit = 50) {
        WHERE fm.family_unit_id = $1 AND fm.channel_type = $2
          AND fm.delivered_at IS NOT NULL
          AND (fm.disclosure_classification IS NULL OR fm.disclosure_classification != 'abuse_recipient')
+         AND fm.sender_id NOT IN (
+           SELECT alleged_recipient_id FROM clinical_disclosures
+           WHERE family_unit_id = $1 AND disclosure_type = 'abuse_recipient'
+             AND (review_status IS NULL OR review_status != 'resolved')
+             AND alleged_recipient_id IS NOT NULL
+         )
        ORDER BY fm.created_at DESC LIMIT $3`,
       [familyUnitId, channelType, limit]
     );
@@ -486,9 +548,15 @@ async function getUnreadCount(userId) {
   try {
     const result = await pool.query(
       `SELECT channel_type, COUNT(*) as count
-       FROM facilitated_messages
-       WHERE recipient_id = $1 AND delivered_at IS NOT NULL AND read_at IS NULL
-         AND (disclosure_classification IS NULL OR disclosure_classification != 'abuse_recipient')
+       FROM facilitated_messages fm
+       WHERE fm.recipient_id = $1 AND fm.delivered_at IS NOT NULL AND fm.read_at IS NULL
+         AND (fm.disclosure_classification IS NULL OR fm.disclosure_classification != 'abuse_recipient')
+         AND fm.sender_id NOT IN (
+           SELECT cd.alleged_recipient_id FROM clinical_disclosures cd
+           WHERE cd.family_unit_id = fm.family_unit_id AND cd.disclosure_type = 'abuse_recipient'
+             AND (cd.review_status IS NULL OR cd.review_status != 'resolved')
+             AND cd.alleged_recipient_id IS NOT NULL
+         )
        GROUP BY channel_type`,
       [userId]
     );
@@ -521,5 +589,6 @@ module.exports = {
   getUnreadCount,
   classifyDisclosure,
   routeDisclosure,
+  checkDisclosureHold,
   CHAR_LIMITS
 };
