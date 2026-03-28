@@ -115,11 +115,29 @@ async function startSession(userId, familyUnitId, topicId, hrvAtStart) {
     const userRow = await pool.query('SELECT id, tenant_id FROM users WHERE user_id = $1 OR participant_id = $1', [userId]);
     if (userRow.rows.length === 0) return { error: true, message: 'User not found' };
 
+    const dbUserId = userRow.rows[0].id;
+
+    // Solo-before-co-present gate: family sessions require at least one completed solo session
+    if (familyUnitId) {
+      const soloCount = await pool.query(
+        `SELECT COUNT(*) as count FROM kitchen_table_sessions
+         WHERE user_id = $1 AND family_unit_id IS NULL AND completed_at IS NOT NULL`,
+        [dbUserId]
+      );
+      if (parseInt(soloCount.rows[0].count) === 0) {
+        return {
+          error: true,
+          message: 'Solo practice required before family conversations. Your individual practice builds the foundation.',
+          gate: 'solo_before_co_present'
+        };
+      }
+    }
+
     const result = await pool.query(
       `INSERT INTO kitchen_table_sessions (user_id, family_unit_id, tenant_id, topic_id, hrv_at_start)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id`,
-      [userRow.rows[0].id, familyUnitId, userRow.rows[0].tenant_id, topicId, hrvAtStart || null]
+      [dbUserId, familyUnitId, userRow.rows[0].tenant_id, topicId, hrvAtStart || null]
     );
 
     const topic = await pool.query('SELECT title, prompt_text, journal_prompt, estimated_minutes FROM kitchen_table_topics WHERE id = $1', [topicId]);

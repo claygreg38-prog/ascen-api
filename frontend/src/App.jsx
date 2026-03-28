@@ -29,24 +29,33 @@ import FacilitatorScreen from './screens/FacilitatorScreen';
 import KitchenTableScreen from './screens/KitchenTableScreen';
 import ClinicianDashboardScreen from './screens/ClinicianDashboardScreen';
 import ChildBreathScreen from './screens/ChildBreathScreen';
+import ChildHomeScreen from './screens/ChildHomeScreen';
 
-// Shared features context for BottomNav persona-driven tabs
+// Shared features + age context for BottomNav and age-aware routing
 const FeaturesContext = createContext(null);
+const AgeBracketContext = createContext(null);
 export function useFeatures() { return useContext(FeaturesContext); }
+export function useAgeBracket() { return useContext(AgeBracketContext); }
 
 function FeaturesProvider({ children }) {
   const [features, setFeatures] = useState(null);
+  const [ageBracket, setAgeBracket] = useState(null);
 
   useEffect(() => {
     if (!isAuthenticated()) return;
     api.get('/api/auth/context')
-      .then(res => setFeatures(res.data?.features || null))
+      .then(res => {
+        setFeatures(res.data?.features || null);
+        setAgeBracket(res.data?.age_config?.bracket || 'adult');
+      })
       .catch(() => {});
   }, []);
 
   return (
     <FeaturesContext.Provider value={features}>
-      {children}
+      <AgeBracketContext.Provider value={ageBracket}>
+        {children}
+      </AgeBracketContext.Provider>
     </FeaturesContext.Provider>
   );
 }
@@ -69,6 +78,12 @@ function FacilitatorOnly({ children }) {
   if (!isAuthenticated()) return <Navigate to="/app/login" />;
   if (!user || !['admin', 'clinician', 'facilitator'].includes(user.role)) return <Navigate to="/app/" />;
   return <>{children}<BottomNav features={features} /></>;
+}
+
+function AgeAwareHome() {
+  const bracket = useAgeBracket();
+  if (bracket === 'elementary' || bracket === 'middle_school') return <ChildHomeScreen />;
+  return <HomeScreen />;
 }
 
 function ClinicianOnly({ children }) {
@@ -96,9 +111,10 @@ export default function App() {
           <Route path="/app/register" element={<RegisterScreen />} />
           <Route path="/app/onboarding" element={<OnboardingScreen />} />
 
-          {/* Core — with nav */}
-          <Route path="/app" element={<Protected><HomeScreen /></Protected>} />
-          <Route path="/app/" element={<Protected><HomeScreen /></Protected>} />
+          {/* Core — with nav (age-aware home) */}
+          <Route path="/app" element={<Protected><AgeAwareHome /></Protected>} />
+          <Route path="/app/" element={<Protected><AgeAwareHome /></Protected>} />
+          <Route path="/app/child-home" element={<Protected><ChildHomeScreen /></Protected>} />
           <Route path="/app/gallery" element={<Protected><GalleryScreen /></Protected>} />
           <Route path="/app/family" element={<Protected><FamilyScreen /></Protected>} />
           <Route path="/app/family/kitchen-table" element={<Protected nav={false} showHelp={false}><KitchenTableScreen /></Protected>} />

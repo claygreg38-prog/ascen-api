@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 27, 2026 (Child Breath Screen — Air Dancer)
+Updated: March 28, 2026 (Solo-Before-Co-Present Gate + Phase 2 Builds)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -195,6 +195,7 @@ Updated: March 27, 2026 (Child Breath Screen — Air Dancer)
 - coBreathWebSocket.js: WebSocket server at /ws/cobreath — real-time breath sync, regulation state only (never raw HRV)
 - kitchenTableRoutes.js at /api/kitchen-table: topic, start, tick, complete, skip, history
 - coBreathRoutes.js at /api/cobreath: initiate, join, room, complete, history, recommend
+- Solo-before-co-present gate: family kitchen table sessions require 1+ completed solo session. Gate in kitchenTableEngine.startSession(). HOS vocabulary: "Your individual practice builds the foundation."
 - Kitchen table feeds topic_response patterns to Family Intelligence
 - Co-breath feeds dyadic patterns to Family Intelligence
 - Capacity Currency: +2 for KT completion, -3 for KT dysregulation, co-breath deposits for both participants
@@ -423,6 +424,18 @@ Updated: March 27, 2026 (Child Breath Screen — Air Dancer)
 - crestRoutes.js at /api/crest: 7 endpoints (get, evidence, upgrade, evaluate, absent-member, ceremony, history)
 - Migration 046: family_crests (UUID PK, UNIQUE family_unit_id, 4 quadrant JSONB), crest_version_evidence
 - Wired into LACE completion flow for auto v1.0 creation
+
+## Child Home Screen (Session 36)
+- frontend/src/screens/ChildHomeScreen.jsx: Bright surface home for elementary and middle school children
+- Age-aware routing: AgeAwareHome in App.jsx checks age bracket, renders ChildHomeScreen or HomeScreen
+- Route: /app/child-home (direct), /app/ (auto-routed via AgeAwareHome)
+- Energy bar wraps deployed capacityDisplay.js output (ENERGY_BAR_DISPLAY for CHLD-E, GAMING_DISPLAY for CHLD-M)
+- PlayfulLuno: 80px canvas character, mood-reactive (bounce/stretch/sit), glow matches energy color
+- Speech bubble on first load: "Hey! Ready to breathe?" — disappears after 3s
+- LightBridge card: ALWAYS POSITIVE. Parent breathed = "Your light is on." Not breathed = "Your family is thinking of you."
+- Fun stats: total breaths, balloons filled (breaths / 3), best streak
+- No clinical terms, no depth metaphor, no NS3/HRV/coherence visible
+- Missing a day: "Welcome back!" not "You missed yesterday"
 
 ## Child Breath Screen — Air Dancer (Session 36)
 - frontend/src/screens/ChildBreathScreen.jsx: Air Dancer breathing for CHLD-E and CHLD-M personas
