@@ -4,7 +4,7 @@ import api from '../services/api';
 
 // ═══════════════════════════════════════════════════════════════
 // ChildBreathScreen — Air Dancer Breathing
-// Bright sky, no depth metaphor, no clinical terms.
+// Bright sky, no depth metaphor, child-safe language only.
 // Color picker, belly-first inflation teaching, progressive
 // encouragement. For CHLD-E (elementary) and CHLD-M (middle school).
 //

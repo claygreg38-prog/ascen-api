@@ -34,7 +34,7 @@ export default function ProfileScreen() {
       {/* Crisis help */}
       <div style={S.card}>
         <button onClick={selfReport} style={S.helpBtn}>I need help</button>
-        <p style={S.helpSub}>This notifies your clinical team. No questions asked.</p>
+        <p style={S.helpSub}>This notifies your support team. No questions asked.</p>
       </div>
 
       {/* Capacity */}

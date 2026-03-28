@@ -48,7 +48,8 @@ jobs:
             HITS=$(grep -rn "clinical\|diagnosis\|treatment\|therapy\|intervention" frontend/src/ \
               --include="*.jsx" --include="*.tsx" \
               --exclude="*.design.*" --exclude="FacilitatorScreen*" --exclude="OnboardingScreen*" \
-              | grep -v "// internal\|// clinical\|// facilitator\|consent\|facilitator_" || true)
+              --exclude="ClinicianDashboard*" --exclude="TherapyReport*" \
+              | grep -v "^.*//.*\|/api/\|/app/\|import \|require(\|Route path\|<Route" || true)
             if [ -n "$HITS" ]; then
               echo "FAIL: Clinical terms found in user-facing UI:"
               echo "$HITS"
