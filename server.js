@@ -815,6 +815,24 @@ try {
   console.warn('[ADMIN] Could not mount:', err.message);
 }
 
+// ── CHILD SESSION ROUTES — Breath Bridge Phase 1 ─────────────
+try {
+  const childSessionRoutes = require('./src/routes/childSessionRoutes');
+  app.use('/api/child-session', childSessionRoutes);
+  console.log('[CHILD_SESSION] Routes mounted at /api/child-session');
+} catch (err) {
+  console.warn('[CHILD_SESSION] Could not mount:', err.message);
+}
+
+// ── BREATH BRIDGE ROUTES — Phase 2 ──────────────────────────
+try {
+  const breathBridgeRoutes = require('./src/routes/breathBridgeRoutes');
+  app.use('/api/breath-bridge', breathBridgeRoutes);
+  console.log('[BREATH_BRIDGE] Routes mounted at /api/breath-bridge');
+} catch (err) {
+  console.warn('[BREATH_BRIDGE] Could not mount:', err.message);
+}
+
 // ── AI USAGE DASHBOARD (admin) ─────────────────────────────
 app.get('/api/admin/ai-usage', authenticateOrApiKey('admin'), async (req, res) => {
   try {
@@ -1207,4 +1225,42 @@ try {
   console.log('[EQUITY CRON] Weekly extraction scan scheduled: Monday 5 AM UTC');
 } catch (err) {
   console.warn('[EQUITY CRON] Could not schedule:', err.message);
+}
+
+// ── BREATH BRIDGE SCHEDULER (Mon/Wed/Fri 10 AM ET) ──────────
+try {
+  const breathBridgeService = require('./src/services/breathBridgeService');
+  cron.schedule('0 10 * * 1,3,5', async () => {
+    try {
+      await breathBridgeService.runSchedulerCron();
+    } catch (err) {
+      console.error('[BREATH_BRIDGE CRON] Scheduler failed:', err.message);
+      Sentry.captureException(err);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'America/New_York'
+  });
+  console.log('[BREATH_BRIDGE CRON] Scheduler: Mon/Wed/Fri 10 AM America/New_York');
+} catch (err) {
+  console.warn('[BREATH_BRIDGE CRON] Could not schedule scheduler:', err.message);
+}
+
+// ── BREATH BRIDGE DELIVERY (every 30 minutes) ────────────────
+try {
+  const breathBridgeService = require('./src/services/breathBridgeService');
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      await breathBridgeService.runDeliveryCron();
+    } catch (err) {
+      console.error('[BREATH_BRIDGE CRON] Delivery failed:', err.message);
+      Sentry.captureException(err);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'UTC'
+  });
+  console.log('[BREATH_BRIDGE CRON] Delivery: */30 * * * * UTC');
+} catch (err) {
+  console.warn('[BREATH_BRIDGE CRON] Could not schedule delivery:', err.message);
 }

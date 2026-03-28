@@ -318,6 +318,76 @@ export default function ClinicianDashboardScreen() {
     }
   }
 
+  // ── Family Engagement (child Air Dancer data) ──
+  const [familyEngagement, setFamilyEngagement] = useState(null);
+  const [familyEngagementLoading, setFamilyEngagementLoading] = useState(false);
+
+  // Load child engagement when session info is available
+  useEffect(() => {
+    if (!sessionInfo?.family_unit_id) return;
+    setFamilyEngagementLoading(true);
+    api.get(`/api/child-session/family/${sessionInfo.family_unit_id}`)
+      .then(({ data }) => setFamilyEngagement(data))
+      .catch(() => setFamilyEngagement(null))
+      .finally(() => setFamilyEngagementLoading(false));
+  }, [sessionInfo?.family_unit_id]);
+
+  const trendIndicator = (t) => {
+    if (t === 'increasing') return '\u2191';
+    if (t === 'decreasing') return '\u2193';
+    if (t === 'steady') return '\u2192';
+    return '\uD83C\uDF31'; // seedling for 'new'
+  };
+
+  // ── Breath Bridge status ──
+  const [breathBridge, setBreathBridge] = useState(null);
+  const [bbPauseInput, setBbPauseInput] = useState('');
+  const [bbPausing, setBbPausing] = useState(false);
+
+  useEffect(() => {
+    if (!sessionInfo?.family_unit_id) return;
+    api.get(`/api/breath-bridge/family/${sessionInfo.family_unit_id}`)
+      .then(({ data }) => setBreathBridge(data))
+      .catch(() => setBreathBridge(null));
+  }, [sessionInfo?.family_unit_id]);
+
+  async function handleBbPause() {
+    if (!bbPauseInput.trim() || !sessionInfo?.family_unit_id) return;
+    setBbPausing(true);
+    try {
+      await api.post(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/pause`, { reason: bbPauseInput.trim() });
+      setBbPauseInput('');
+      const { data } = await api.get(`/api/breath-bridge/family/${sessionInfo.family_unit_id}`);
+      setBreathBridge(data);
+    } catch (err) {
+      console.error('[Dashboard] BB pause failed:', err.message);
+    } finally {
+      setBbPausing(false);
+    }
+  }
+
+  async function handleBbResume() {
+    if (!sessionInfo?.family_unit_id) return;
+    try {
+      await api.post(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/resume`);
+      const { data } = await api.get(`/api/breath-bridge/family/${sessionInfo.family_unit_id}`);
+      setBreathBridge(data);
+    } catch (err) {
+      console.error('[Dashboard] BB resume failed:', err.message);
+    }
+  }
+
+  async function handleBbCadence(cap) {
+    if (!sessionInfo?.family_unit_id) return;
+    try {
+      await api.put(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/cadence`, { weekly_message_cap: cap });
+      const { data } = await api.get(`/api/breath-bridge/family/${sessionInfo.family_unit_id}`);
+      setBreathBridge(data);
+    } catch (err) {
+      console.error('[Dashboard] BB cadence failed:', err.message);
+    }
+  }
+
   // ── Dismiss alert ──
   async function dismissAlert(alertId) {
     setAlerts(prev => prev.filter(a => a.id !== alertId));
@@ -423,6 +493,92 @@ export default function ClinicianDashboardScreen() {
               );
             })}
           </div>
+
+          {/* Family Engagement — child Air Dancer data */}
+          {familyEngagement && (
+            <div style={S.famEngPanel}>
+              <div style={S.famEngTitle}>FAMILY ENGAGEMENT</div>
+              {familyEngagement.summary.total_sessions === 0 ? (
+                <div style={S.famEngEmpty}>Not yet started</div>
+              ) : (
+                <div style={S.famEngGrid}>
+                  <div style={S.famEngStat}>
+                    <span style={S.famEngValue}>{familyEngagement.summary.sessions_this_week}</span>
+                    <span style={S.famEngLabel}>This Week</span>
+                  </div>
+                  <div style={S.famEngStat}>
+                    <span style={S.famEngValue}>{trendIndicator(familyEngagement.summary.trend)}</span>
+                    <span style={S.famEngLabel}>Engagement Rhythm</span>
+                  </div>
+                  <div style={S.famEngStat}>
+                    <span style={S.famEngValue}>{familyEngagement.summary.avg_breaths_completed}</span>
+                    <span style={S.famEngLabel}>Avg Breaths</span>
+                  </div>
+                  <div style={S.famEngStat}>
+                    <span style={S.famEngValue}>{Math.round(familyEngagement.summary.early_quit_rate * 100)}%</span>
+                    <span style={S.famEngLabel}>Early Quit</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {familyEngagementLoading && (
+            <div style={S.famEngEmpty}>Loading engagement rhythm...</div>
+          )}
+
+          {/* Breath Bridge status */}
+          {breathBridge && breathBridge.config && (
+            <div style={S.bbPanel}>
+              <div style={S.bbTitle}>BREATH BRIDGE</div>
+              <div style={S.bbStatusRow}>
+                <span style={{ fontSize: 10, color: breathBridge.config.paused_at ? 'rgba(224,152,120,0.7)' : breathBridge.config.active ? 'rgba(74,222,128,0.7)' : 'rgba(160,180,210,0.3)' }}>
+                  {breathBridge.config.paused_at ? 'Paused' : breathBridge.config.active ? 'Active' : 'Not Enrolled'}
+                </span>
+                <span style={{ fontSize: 9, color: 'rgba(200,210,225,0.3)' }}>
+                  {breathBridge.deliveredThisWeek}/{breathBridge.config.weekly_message_cap} this week
+                </span>
+              </div>
+              <div style={{ fontSize: 9, color: 'rgba(200,210,225,0.25)', marginBottom: 4 }}>
+                Guardian consent: {breathBridge.config.guardian_consent_at ? '\u2705 Recorded' : '\u26A0\uFE0F Pending'}
+              </div>
+              {/* Cadence control */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                <span style={{ fontSize: 8, color: 'rgba(200,210,225,0.25)' }}>Cadence:</span>
+                {[1, 2, 3, 4, 5].map(n => (
+                  <button key={n} onClick={() => handleBbCadence(n)} style={{
+                    width: 18, height: 18, borderRadius: 4, border: 'none', cursor: 'pointer',
+                    background: n <= breathBridge.config.weekly_message_cap ? 'rgba(92,224,208,0.15)' : 'rgba(14,28,50,0.5)',
+                    color: n <= breathBridge.config.weekly_message_cap ? 'rgba(92,224,208,0.7)' : 'rgba(160,180,210,0.15)',
+                    fontSize: 8, fontFamily: 'Outfit, sans-serif',
+                  }}>{n}</button>
+                ))}
+              </div>
+              {/* Pause/Resume */}
+              {breathBridge.config.paused_at ? (
+                <button onClick={handleBbResume} style={S.btnTeal}>Resume Channel</button>
+              ) : (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <input value={bbPauseInput} onChange={e => setBbPauseInput(e.target.value)} placeholder="Pause reason..." style={S.bbInput} />
+                  <button onClick={handleBbPause} disabled={bbPausing || !bbPauseInput.trim()} style={S.btnOrange}>Pause</button>
+                </div>
+              )}
+              {/* Message log */}
+              {breathBridge.messages?.length > 0 && (
+                <div style={{ marginTop: 6, maxHeight: 80, overflowY: 'auto' }}>
+                  {breathBridge.messages.slice(0, 10).map(m => (
+                    <div key={m.id} style={{
+                      fontSize: 9, padding: '3px 6px', marginBottom: 2, borderRadius: 4,
+                      background: m.delivery_status === 'held' ? 'rgba(224,152,120,0.06)' : 'rgba(255,255,255,0.02)',
+                      color: m.delivery_status === 'held' ? 'rgba(224,152,120,0.5)' : 'rgba(200,210,225,0.35)',
+                    }}>
+                      {m.delivery_status === 'held' && <span style={{ color: 'rgba(224,152,120,0.6)', marginRight: 4 }}>[{m.held_reason}]</span>}
+                      {m.content?.slice(0, 60)}{m.content?.length > 60 ? '...' : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Session controls */}
           <div style={S.controlRow}>
@@ -602,4 +758,35 @@ const S = {
   },
 
   placeholder: { fontSize: 11, color: 'rgba(200,210,225,0.2)', textAlign: 'center', padding: 20 },
+
+  // Family Engagement panel
+  famEngPanel: {
+    marginTop: 10, padding: '8px 10px', borderRadius: 8,
+    background: 'rgba(92,224,208,0.04)', border: '1px solid rgba(92,224,208,0.15)',
+  },
+  famEngTitle: {
+    fontSize: 8, fontWeight: 600, letterSpacing: 2, color: 'rgba(92,224,208,0.6)',
+    textTransform: 'uppercase', marginBottom: 6,
+  },
+  famEngGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 },
+  famEngStat: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 },
+  famEngValue: { fontSize: 16, fontWeight: 600, color: 'rgba(200,210,225,0.85)' },
+  famEngLabel: { fontSize: 8, color: 'rgba(200,210,225,0.35)', textTransform: 'uppercase' },
+  famEngEmpty: { fontSize: 10, color: 'rgba(200,210,225,0.25)', textAlign: 'center', padding: 8 },
+
+  // Breath Bridge panel
+  bbPanel: {
+    marginTop: 10, padding: '8px 10px', borderRadius: 8,
+    background: 'rgba(232,190,106,0.03)', border: '1px solid rgba(232,190,106,0.1)',
+  },
+  bbTitle: {
+    fontSize: 8, fontWeight: 600, letterSpacing: 2, color: 'rgba(232,190,106,0.5)',
+    textTransform: 'uppercase', marginBottom: 4,
+  },
+  bbStatusRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  bbInput: {
+    flex: 1, padding: '4px 8px', fontSize: 9, borderRadius: 6,
+    background: 'rgba(14,28,50,0.5)', border: '1px solid rgba(160,180,210,0.08)',
+    color: 'rgba(200,210,225,0.6)', fontFamily: 'Outfit, sans-serif', outline: 'none',
+  },
 };

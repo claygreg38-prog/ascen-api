@@ -116,6 +116,7 @@ export default function ChildBreathScreen() {
           // Check if done
           if (breathRef.current.count >= c.maxBreaths) {
             breathRef.current.running = false;
+            logChildSession(breathRef.current.count);
             setPhase('done');
           } else {
             // Small pause then next cycle
@@ -129,6 +130,7 @@ export default function ChildBreathScreen() {
 
   function startBreathing() {
     breathRef.current = { count: 0, running: true, inflate: 0, exhaleStart: null };
+    sessionStartRef.current = Date.now();
     setBreathCount(0);
     setPhase('breathe');
     runBreathCycle();
@@ -136,12 +138,36 @@ export default function ChildBreathScreen() {
 
   function stopBreathing() {
     breathRef.current.running = false;
+    logChildSession(breathRef.current.count);
     setPhase('done');
   }
 
   useEffect(() => {
     return () => { breathRef.current.running = false; };
   }, []);
+
+  // Log session to server (fire-and-forget — never block the celebration)
+  const sessionStartRef = useRef(null);
+
+  function logChildSession(finalBreathCount) {
+    const c = configRef.current;
+    if (!c) return;
+    const durationSeconds = sessionStartRef.current
+      ? Math.round((Date.now() - sessionStartRef.current) / 1000)
+      : 0;
+    (async () => {
+      try {
+        await api.post('/api/child-session', {
+          breaths_completed: finalBreathCount,
+          breaths_available: c.maxBreaths,
+          duration_seconds: durationSeconds,
+        });
+      } catch (err) {
+        console.warn('[ChildSession] Log failed:', err.message);
+        // Silent failure — never interrupt the child's celebration
+      }
+    })();
+  }
 
   function handleFinish() {
     navigate('/app/', { state: { sessionCompleted: true } });

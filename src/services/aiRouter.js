@@ -43,7 +43,13 @@ const TASK_ROUTING = {
 
   // Clinical Kitchen Table — coaching engine
   clinical_biometric_classification: 'haiku',
-  clinical_coaching_card: 'sonnet'
+  clinical_coaching_card: 'sonnet',
+
+  // Breath Bridge — parent→child warmth messages
+  breath_bridge_message: 'haiku',
+
+  // Breath Bridge — presence channel messages
+  breath_bridge_message: 'haiku'
 };
 
 const MODEL_MAP = {
