@@ -28,6 +28,7 @@ import CrisisScreen from './screens/CrisisScreen';
 import FacilitatorScreen from './screens/FacilitatorScreen';
 import KitchenTableScreen from './screens/KitchenTableScreen';
 import ClinicianDashboardScreen from './screens/ClinicianDashboardScreen';
+import ChildBreathScreen from './screens/ChildBreathScreen';
 
 // Shared features context for BottomNav persona-driven tabs
 const FeaturesContext = createContext(null);
@@ -105,6 +106,7 @@ export default function App() {
 
           {/* Immersive — no nav, no help */}
           <Route path="/app/session" element={<Protected nav={false} showHelp={false}><SessionScreen /></Protected>} />
+          <Route path="/app/child-breathe" element={<Protected nav={false} showHelp={false}><ChildBreathScreen /></Protected>} />
           <Route path="/app/cobreath/:roomCode" element={<Protected nav={false} showHelp={false}><CoBreathScreen /></Protected>} />
 
           {/* Feature screens — with nav */}

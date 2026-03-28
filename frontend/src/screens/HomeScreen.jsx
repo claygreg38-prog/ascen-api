@@ -117,6 +117,12 @@ export default function HomeScreen() {
   }
 
   function handleDiveIn() {
+    // Children get the Air Dancer instead of the adult descent/session flow
+    const bracket = context?.age_config?.bracket;
+    if (bracket === 'elementary' || bracket === 'middle_school') {
+      navigate('/app/child-breathe');
+      return;
+    }
     if (context?.next_session?.number) {
       navigate(`/app/session?s=${context.next_session.number}`);
     } else {

@@ -1,5 +1,5 @@
 # CLAUDE.md — ASCEN BreathWorx
-Updated: March 26, 2026 (Clinician Dashboard Frontend)
+Updated: March 27, 2026 (Child Breath Screen — Air Dancer)
 
 ## Rules
 - All logic flows through ABI orchestrator. No bypasses.
@@ -424,6 +424,23 @@ Updated: March 26, 2026 (Clinician Dashboard Frontend)
 - Migration 046: family_crests (UUID PK, UNIQUE family_unit_id, 4 quadrant JSONB), crest_version_evidence
 - Wired into LACE completion flow for auto v1.0 creation
 
+## Child Breath Screen — Air Dancer (Session 36)
+- frontend/src/screens/ChildBreathScreen.jsx: Air Dancer breathing for CHLD-E and CHLD-M personas
+- Bright sky background, green ground, NO depth metaphor, NO clinical terms, NO ocean/descent
+- 4 phases: color picker → belly breathing teach → active breathing with Air Dancer → done
+- Air Dancer: SVG tube man that inflates/deflates with breath cycle, sways, arms wave higher when full
+- 6 color choices (red/blue/green/purple/orange/pink), selected before session starts
+- Breath ratios from age_config: elementary 3:5 (inhale:exhale ms), middle_school 4:5
+- Max breaths capped: elementary 30 (~4 min), middle_school 50 (~7.5 min) — keeps it engaging
+- Progressive encouragement every 3 breaths (elementary) or 5 breaths (middle_school)
+- Elementary language: exclamation-heavy, emoji teaching ("Make your belly push your hand out!")
+- Middle school language: chill, understated ("Nice rhythm.", "Steady.", "You got this.")
+- Route: /app/child-breathe — immersive (no nav, no help), same pattern as SessionScreen
+- HomeScreen handleDiveIn: if age_config.bracket is elementary or middle_school → /app/child-breathe
+- High school and adult: existing descent/session flow unchanged
+- No biometric integration (children don't wear BLE sensors in pilot)
+- No blockchain, no NS3, no vault — just breathing with a fun character
+
 ## Age-Gated Content System (Session 29)
 - personaEngine.js: computeAgeBracket(dateOfBirth) → elementary/middle_school/high_school/adult
 - ageFilter.js: middleware adds req.ageFilter with bracket, actualAge, sqlValue, display config
@@ -598,6 +615,7 @@ Updated: March 26, 2026 (Clinician Dashboard Frontend)
 - Ring animations use CSS animation (not requestAnimationFrame) for tablet CPU efficiency
 - No family-facing routes link to /app/clinician/*
 - frontend/src/screens/ClinicianDashboardScreen.jsx — main 4-zone dashboard
+- frontend/src/screens/ChildBreathScreen.jsx — Air Dancer breathing for CHLD-E/CHLD-M children
 - frontend/src/components/BioRing.jsx — biometric ring + detail panel
 - frontend/src/components/SessionTimeline.jsx — ref-based canvas HRV timeline
 
