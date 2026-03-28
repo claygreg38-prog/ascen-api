@@ -48,7 +48,7 @@ function FeaturesProvider({ children }) {
         setFeatures(res.data?.features || null);
         setAgeBracket(res.data?.age_config?.bracket || 'adult');
       })
-      .catch(() => {});
+      .catch(() => { setAgeBracket('adult'); }); // Safe default — adults see everything, children restricted server-side
   }, []);
 
   return (
@@ -82,6 +82,9 @@ function FacilitatorOnly({ children }) {
 
 function AgeAwareHome() {
   const bracket = useAgeBracket();
+  // null = context still loading or failed. Don't flash adult descent to a child.
+  // Both HomeScreen and ChildHomeScreen handle their own loading states.
+  if (bracket === null) return <HomeScreen />; // HomeScreen has its own context load + age check in handleDiveIn
   if (bracket === 'elementary' || bracket === 'middle_school') return <ChildHomeScreen />;
   return <HomeScreen />;
 }

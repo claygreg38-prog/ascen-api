@@ -127,7 +127,7 @@ async function startSession(userId, familyUnitId, topicId, hrvAtStart) {
       if (parseInt(soloCount.rows[0].count) === 0) {
         return {
           error: true,
-          message: 'Solo practice required before family conversations. Your individual practice builds the foundation.',
+          message: 'Your individual practice builds the foundation. Start there first, and the family table will be ready when you are.',
           gate: 'solo_before_co_present'
         };
       }
