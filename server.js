@@ -851,14 +851,20 @@ app.get('/api/admin/ai-usage', authenticateOrApiKey('admin'), async (req, res) =
 Sentry.setupExpressErrorHandler(app);
 
 // ═══════════════════════════════════════════════════════════════
-// SERVER START + CRON
+// MIGRATIONS + SERVER START + CRON
 // ═══════════════════════════════════════════════════════════════
 
-const server = app.listen(PORT, () => {
-  console.log('Server running on port', PORT);
-  console.log('ABI: 21/21 systems wired | AXIS: active | Auth: JWT + API key | Premium: Guided Bridge + Family Compass');
-  console.log('Hardening: rate_limit + validation + audit + cfr_guard');
-});
+const { runPendingMigrations } = require('./src/services/migrationRunner');
+
+// Run pending migrations before accepting traffic, but never block startup
+runPendingMigrations()
+  .catch(err => console.error('[MIGRATE] Startup migration failed:', err.message))
+  .finally(() => {
+    const server = app.listen(PORT, () => {
+      console.log('Server running on port', PORT);
+      console.log('ABI: 21/21 systems wired | AXIS: active | Auth: JWT + API key | Premium: Guided Bridge + Family Compass');
+      console.log('Hardening: rate_limit + validation + audit + cfr_guard');
+    });
 
 // ── CO-BREATH WEBSOCKET ────────────────────────────────────
 try {
@@ -1264,3 +1270,5 @@ try {
 } catch (err) {
   console.warn('[BREATH_BRIDGE CRON] Could not schedule delivery:', err.message);
 }
+
+  }); // end runPendingMigrations().finally()
