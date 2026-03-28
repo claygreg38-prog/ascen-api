@@ -7,6 +7,9 @@ import api from '../services/api';
 // Bright sky, no depth metaphor, no clinical terms.
 // Color picker, belly-first inflation teaching, progressive
 // encouragement. For CHLD-E (elementary) and CHLD-M (middle school).
+//
+// Animation: single RAF loop, inflation in ref (no per-frame re-render).
+// React re-render throttled to ~5fps for UI label updates only.
 // ═══════════════════════════════════════════════════════════════
 
 const SKY_GRADIENT = 'linear-gradient(180deg, #87CEEB 0%, #B0E0FF 40%, #E0F4FF 100%)';
@@ -36,11 +39,11 @@ const ENCOURAGE = {
 
 function getBracketConfig(ageConfig) {
   const bracket = ageConfig?.bracket || 'elementary';
-  if (bracket === 'middle_school') {
-    return { inhaleMs: 4000, exhaleMs: 5000, maxBreaths: 50, bracket };
-  }
-  // elementary (default)
-  return { inhaleMs: 3000, exhaleMs: 5000, maxBreaths: 30, bracket };
+  // Read from age_config if server provides breath timing, fallback to defaults
+  const inhaleMs = ageConfig?.inhale_ms || (bracket === 'middle_school' ? 4000 : 3000);
+  const exhaleMs = ageConfig?.exhale_ms || 5000;
+  const maxBreaths = bracket === 'middle_school' ? 50 : 30;
+  return { inhaleMs, exhaleMs, maxBreaths, bracket };
 }
 
 export default function ChildBreathScreen() {
@@ -50,11 +53,9 @@ export default function ChildBreathScreen() {
   const [ageConfig, setAgeConfig] = useState(null);
   const [breathCount, setBreathCount] = useState(0);
   const [breathPhase, setBreathPhase] = useState('idle');  // idle, inhale, exhale
-  const [inflate, setInflate] = useState(0);       // 0-1 inflation amount
   const [encourageText, setEncourageText] = useState('');
   const [encourageOpacity, setEncourageOpacity] = useState(0);
   const [teachStep, setTeachStep] = useState(0);
-  const animRef = useRef(null);
   const breathRef = useRef({ count: 0, running: false });
   const configRef = useRef(null);
 
@@ -68,65 +69,66 @@ export default function ChildBreathScreen() {
   const cfg = ageConfig ? getBracketConfig(ageConfig) : null;
   configRef.current = cfg;
 
-  // Breathing loop
+  // Breathing loop — clock-driven, inflate lives in ref, React updated at breath boundaries only
   const runBreathCycle = useCallback(() => {
     const c = configRef.current;
     if (!c || !breathRef.current.running) return;
 
-    // Inhale
     setBreathPhase('inhale');
-    setInflate(0);
     const inhaleStart = Date.now();
 
-    function animateInhale() {
+    function tick() {
       if (!breathRef.current.running) return;
-      const elapsed = Date.now() - inhaleStart;
-      const progress = Math.min(elapsed / c.inhaleMs, 1);
-      setInflate(progress);
-      if (progress < 1) {
-        animRef.current = requestAnimationFrame(animateInhale);
-      } else {
-        // Start exhale
+      const now = Date.now();
+      const inhaleElapsed = now - inhaleStart;
+
+      if (inhaleElapsed < c.inhaleMs) {
+        // Still inhaling
+        breathRef.current.inflate = Math.min(inhaleElapsed / c.inhaleMs, 1);
+        requestAnimationFrame(tick);
+      } else if (!breathRef.current.exhaleStart) {
+        // Transition to exhale
+        breathRef.current.inflate = 1;
+        breathRef.current.exhaleStart = now;
         setBreathPhase('exhale');
-        const exhaleStart = Date.now();
-        function animateExhale() {
-          if (!breathRef.current.running) return;
-          const elapsed = Date.now() - exhaleStart;
-          const progress = Math.min(elapsed / c.exhaleMs, 1);
-          setInflate(1 - progress);
-          if (progress < 1) {
-            animRef.current = requestAnimationFrame(animateExhale);
+        requestAnimationFrame(tick);
+      } else {
+        // Exhaling
+        const exhaleElapsed = now - breathRef.current.exhaleStart;
+        if (exhaleElapsed < c.exhaleMs) {
+          breathRef.current.inflate = 1 - Math.min(exhaleElapsed / c.exhaleMs, 1);
+          requestAnimationFrame(tick);
+        } else {
+          // Breath complete
+          breathRef.current.inflate = 0;
+          breathRef.current.exhaleStart = null;
+          breathRef.current.count++;
+          setBreathCount(breathRef.current.count);
+
+          // Show encouragement every 3 breaths (elementary) or 5 breaths (middle school)
+          if (breathRef.current.count % (c.bracket === 'elementary' ? 3 : 5) === 0) {
+            const msgs = ENCOURAGE[c.bracket] || ENCOURAGE.elementary;
+            setEncourageText(msgs[Math.floor(Math.random() * msgs.length)]);
+            setEncourageOpacity(1);
+            setTimeout(() => setEncourageOpacity(0), 1800);
+          }
+
+          // Check if done
+          if (breathRef.current.count >= c.maxBreaths) {
+            breathRef.current.running = false;
+            setPhase('done');
           } else {
-            // Breath complete
-            breathRef.current.count++;
-            setBreathCount(breathRef.current.count);
-
-            // Show encouragement every 3-5 breaths
-            if (breathRef.current.count % (c.bracket === 'elementary' ? 3 : 5) === 0) {
-              const msgs = ENCOURAGE[c.bracket] || ENCOURAGE.elementary;
-              setEncourageText(msgs[Math.floor(Math.random() * msgs.length)]);
-              setEncourageOpacity(1);
-              setTimeout(() => setEncourageOpacity(0), 1800);
-            }
-
-            // Check if done
-            if (breathRef.current.count >= c.maxBreaths) {
-              breathRef.current.running = false;
-              setPhase('done');
-            } else {
-              // Small pause then next cycle
-              setTimeout(() => runBreathCycle(), 300);
-            }
+            // Small pause then next cycle
+            setTimeout(() => runBreathCycle(), 300);
           }
         }
-        animRef.current = requestAnimationFrame(animateExhale);
       }
     }
-    animRef.current = requestAnimationFrame(animateInhale);
+    requestAnimationFrame(tick);
   }, []);
 
   function startBreathing() {
-    breathRef.current = { count: 0, running: true };
+    breathRef.current = { count: 0, running: true, inflate: 0, exhaleStart: null };
     setBreathCount(0);
     setPhase('breathe');
     runBreathCycle();
@@ -134,15 +136,11 @@ export default function ChildBreathScreen() {
 
   function stopBreathing() {
     breathRef.current.running = false;
-    if (animRef.current) cancelAnimationFrame(animRef.current);
     setPhase('done');
   }
 
   useEffect(() => {
-    return () => {
-      breathRef.current.running = false;
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-    };
+    return () => { breathRef.current.running = false; };
   }, []);
 
   function handleFinish() {
@@ -174,7 +172,7 @@ export default function ChildBreathScreen() {
               </button>
             ))}
           </div>
-          <AirDancer color={color} inflate={0.3} size={120} />
+          <AirDancer color={color} inflateRef={{ current: 0.3 }} size={120} />
           <button onClick={() => setPhase('teach')} style={S.bigBtn}>
             {cfg?.bracket === 'middle_school' ? "Let's Go" : "That's My Dancer!"}
           </button>
@@ -187,20 +185,23 @@ export default function ChildBreathScreen() {
   // Teach belly breathing
   if (phase === 'teach') {
     const steps = cfg?.bracket === 'middle_school' ? [
-      { text: "Breathe in through your nose — fill your belly first.", icon: '🫁' },
-      { text: "Now breathe out slowly through your mouth.", icon: '💨' },
-      { text: "Your dancer fills up when you breathe in, and shrinks when you breathe out.", icon: '🎈' },
+      { text: "Breathe in through your nose — fill your belly first.", icon: '\u{1FAC1}' },
+      { text: "Now breathe out slowly through your mouth.", icon: '\u{1F4A8}' },
+      { text: "Your dancer fills up when you breathe in, and shrinks when you breathe out.", icon: '\u{1F388}' },
     ] : [
-      { text: "Put your hand on your belly!", icon: '✋' },
-      { text: "Breathe in BIG — make your belly push your hand out!", icon: '🎈' },
-      { text: "Now breathe out slooowly — like blowing a bubble!", icon: '🫧' },
-      { text: "Watch your dancer do it with you!", icon: '🤩' },
+      { text: "Put your hand on your belly!", icon: '\u270B' },
+      { text: "Breathe in BIG — make your belly push your hand out!", icon: '\u{1F388}' },
+      { text: "Now breathe out slooowly — like blowing a bubble!", icon: '\u{1FAE7}' },
+      { text: "Watch your dancer do it with you!", icon: '\u{1F929}' },
     ];
+
+    const teachInflate = useRef(teachStep >= 1 ? 0.8 : 0.2);
+    teachInflate.current = teachStep >= 1 ? 0.8 : 0.2;
 
     return (
       <div style={S.container}>
         <div style={S.sky}>
-          <AirDancer color={color} inflate={teachStep >= 1 ? 0.8 : 0.2} size={160} />
+          <AirDancer color={color} inflateRef={teachInflate} size={160} />
           <div style={S.teachCard}>
             <span style={{ fontSize: 40 }}>{steps[teachStep].icon}</span>
             <p style={S.teachText}>{steps[teachStep].text}</p>
@@ -221,7 +222,7 @@ export default function ChildBreathScreen() {
     );
   }
 
-  // Active breathing
+  // Active breathing — inflate read from ref by AirDancer's own RAF loop
   if (phase === 'breathe') {
     const total = cfg?.maxBreaths || 30;
     const progress = breathCount / total;
@@ -230,12 +231,11 @@ export default function ChildBreathScreen() {
     return (
       <div style={S.container}>
         <div style={S.sky}>
-          {/* Progress clouds */}
           <div style={S.progressBar}>
             <div style={{ ...S.progressFill, width: `${progress * 100}%` }} />
           </div>
           <p style={S.breathLabel}>{label}</p>
-          <AirDancer color={color} inflate={inflate} size={220} />
+          <AirDancer color={color} inflateRef={breathRef} size={220} />
 
           {/* Encouragement */}
           <p style={{ ...S.encourage, opacity: encourageOpacity }}>{encourageText}</p>
@@ -260,7 +260,7 @@ export default function ChildBreathScreen() {
     return (
       <div style={S.container}>
         <div style={S.sky}>
-          <AirDancer color={color} inflate={0.5} size={180} />
+          <AirDancer color={color} inflateRef={{ current: 0.5 }} size={180} />
           <h1 style={S.doneTitle}>
             {cfg?.bracket === 'middle_school' ? 'Nice.' : 'Amazing Job!'}
           </h1>
@@ -283,104 +283,206 @@ export default function ChildBreathScreen() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AIR DANCER COMPONENT — Tube man with breath-driven inflation
+// AIR DANCER COMPONENT
+//
+// Single RAF loop reads inflate from ref (no React re-render per frame).
+// Progressive inflation: belly → chest → arms → head (diaphragmatic teaching).
+// Sway DECREASES with inflation (dancer stabilizes when full).
+// Streamers appear at peak inflation (visual reward).
+// Face appears progressively (eyes at 30% head, smile at 60% head).
 // ═══════════════════════════════════════════════════════════════
 
-function AirDancer({ color, inflate = 0, size = 200 }) {
-  const w = size;
-  const h = size * 1.8;
-  const cx = w / 2;
-  const baseY = h * 0.92;
+function AirDancer({ color, inflateRef, size = 200 }) {
+  const canvasRef = useRef(null);
+  const rafRef = useRef(null);
 
-  // Body inflation: wider + taller when inflated
-  const bodyWidth = 20 + inflate * 30;
-  const bodyHeight = h * 0.45 + inflate * (h * 0.15);
-  const bodyTop = baseY - bodyHeight;
-
-  // Arms wave with inflation
-  const armAngle = -30 - inflate * 60;  // arms go higher when inflated
-  const armLen = size * 0.28 + inflate * (size * 0.08);
-
-  // Head bobs up
-  const headR = size * 0.09 + inflate * (size * 0.02);
-  const headY = bodyTop - headR - 2;
-
-  // Gentle sway
-  const sway = Math.sin(Date.now() / 400) * (3 + inflate * 5);
-
-  // Re-render for sway animation
-  const [, setTick] = useState(0);
   useEffect(() => {
-    let running = true;
-    function loop() {
-      if (!running) return;
-      setTick(t => t + 1);
-      requestAnimationFrame(loop);
-    }
-    loop();
-    return () => { running = false; };
-  }, []);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = size;
+    const h = size * 1.8;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.scale(dpr, dpr);
 
-  const armLX = cx - bodyWidth * 0.4;
-  const armRX = cx + bodyWidth * 0.4;
-  const armY = bodyTop + bodyHeight * 0.15;
+    const cx = w / 2;
+    const baseY = h * 0.88;
+
+    // Pre-parse color for gradient use
+    function hexToRgb(hex) {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return { r, g, b };
+    }
+
+    const bodyRgb = hexToRgb(color.body);
+    const accentRgb = hexToRgb(color.accent);
+
+    function draw() {
+      const now = Date.now();
+      const inf = typeof inflateRef.current === 'object'
+        ? (inflateRef.current.inflate || 0)
+        : (inflateRef.current || 0);
+
+      ctx.clearRect(0, 0, w, h);
+
+      // ── Progressive inflation zones (belly-first teaching) ──
+      const bellyInf = Math.min(1, inf * 2.5);           // belly fills 0–40%
+      const chestInf = Math.max(0, Math.min(1, (inf - 0.3) * 2.5));  // chest fills 30–70%
+      const armInf = Math.max(0, Math.min(1, (inf - 0.4) * 2.5));    // arms fill 40–80%
+      const headInf = Math.max(0, Math.min(1, (inf - 0.5) * 2));     // head fills 50–100%
+
+      // ── Sway (decreases with inflation — stabilize when full) ──
+      const sway = (1 - inf) * Math.sin(now / 500 * 1.8) * 8;
+
+      // Dimensions
+      const bodyW = 18 + bellyInf * 28;
+      const chestW = 14 + chestInf * 16;
+      const bodyH = h * 0.42 + inf * (h * 0.12);
+      const bodyTop = baseY - bodyH;
+      const headR = size * 0.08 + headInf * (size * 0.03);
+      const headY = bodyTop - headR - 2;
+      const armLen = size * 0.22 + armInf * (size * 0.14);
+      const armAngle = -20 - armInf * 70;
+
+      ctx.save();
+      ctx.translate(cx, baseY);
+      ctx.rotate(sway * Math.PI / 180);
+      ctx.translate(-cx, -baseY);
+
+      // ── Base / blower ──
+      ctx.fillStyle = '#999';
+      ctx.beginPath();
+      ctx.ellipse(cx, baseY + 5, 20, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(cx - 12, baseY - 1, 24, 8);
+
+      // Air lines during inhale
+      if (inf > 0.05 && inf < 0.95) {
+        ctx.strokeStyle = `rgba(200,200,200,${0.3 + inf * 0.3})`;
+        ctx.lineWidth = 1;
+        for (let i = -1; i <= 1; i++) {
+          const lineX = cx + i * 6;
+          ctx.beginPath();
+          ctx.moveTo(lineX, baseY - 2);
+          ctx.lineTo(lineX + Math.sin(now / 200 + i) * 3, baseY - 12 - inf * 8);
+          ctx.stroke();
+        }
+      }
+
+      // ── Body — tapered tube with belly bulge ──
+      ctx.fillStyle = color.body;
+      ctx.beginPath();
+      ctx.moveTo(cx - 10, baseY);
+      // Left side — belly bulges more than chest
+      ctx.quadraticCurveTo(cx - bodyW * 0.6, baseY - bodyH * 0.3, cx - bodyW * 0.5, baseY - bodyH * 0.5);
+      ctx.quadraticCurveTo(cx - chestW * 0.6, baseY - bodyH * 0.7, cx - chestW * 0.35, bodyTop);
+      // Top
+      ctx.lineTo(cx + chestW * 0.35, bodyTop);
+      // Right side
+      ctx.quadraticCurveTo(cx + chestW * 0.6, baseY - bodyH * 0.7, cx + bodyW * 0.5, baseY - bodyH * 0.5);
+      ctx.quadraticCurveTo(cx + bodyW * 0.6, baseY - bodyH * 0.3, cx + 10, baseY);
+      ctx.closePath();
+      ctx.fill();
+
+      // ── Belly highlight (grows with bellyInf) ──
+      const bellyY = baseY - bodyH * 0.35;
+      const bellyRx = bodyW * 0.22 + bellyInf * bodyW * 0.08;
+      const bellyRy = bodyH * 0.08 + bellyInf * bodyH * 0.06;
+      ctx.fillStyle = `rgba(${accentRgb.r},${accentRgb.g},${accentRgb.b},0.45)`;
+      ctx.beginPath();
+      ctx.ellipse(cx, bellyY, bellyRx, bellyRy, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // ── Arms ──
+      const armY = bodyTop + bodyH * 0.15;
+      const armLX = cx - chestW * 0.35;
+      const armRX = cx + chestW * 0.35;
+      ctx.strokeStyle = color.body;
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+
+      // Left arm
+      const lAngle = (armAngle - 15) * Math.PI / 180;
+      ctx.beginPath();
+      ctx.moveTo(armLX, armY);
+      ctx.lineTo(armLX + Math.cos(lAngle) * armLen, armY + Math.sin(lAngle) * armLen);
+      ctx.stroke();
+
+      // Right arm
+      const rAngle = (180 - armAngle + 15) * Math.PI / 180;
+      ctx.beginPath();
+      ctx.moveTo(armRX, armY);
+      ctx.lineTo(armRX + Math.cos(rAngle) * armLen, armY + Math.sin(rAngle) * armLen);
+      ctx.stroke();
+
+      // ── Head ──
+      ctx.fillStyle = color.body;
+      ctx.beginPath();
+      ctx.arc(cx, headY, headR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eyes — appear at headInf > 0.3
+      if (headInf > 0.3) {
+        const eyeOpacity = Math.min(1, (headInf - 0.3) * 3);
+        ctx.fillStyle = `rgba(255,255,255,${eyeOpacity})`;
+        const eyeR = headR * 0.15;
+        ctx.beginPath();
+        ctx.arc(cx - headR * 0.32, headY - headR * 0.08, eyeR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx + headR * 0.32, headY - headR * 0.08, eyeR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Smile — appears at headInf > 0.6
+      if (headInf > 0.6) {
+        const smileOpacity = Math.min(1, (headInf - 0.6) * 2.5);
+        ctx.strokeStyle = `rgba(255,255,255,${smileOpacity})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(cx, headY + headR * 0.05, headR * 0.3, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+      }
+
+      // ── Streamers at peak inflation (inf > 0.85) ──
+      if (inf > 0.85) {
+        const streamerOpacity = Math.min(1, (inf - 0.85) * 6);
+        for (let i = 0; i < 3; i++) {
+          const sx = cx + (i - 1) * headR * 0.6;
+          const sPhase = now / 300 + i * 2.1;
+          ctx.strokeStyle = `rgba(${accentRgb.r},${accentRgb.g},${accentRgb.b},${streamerOpacity * 0.7})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(sx, headY - headR);
+          for (let j = 1; j <= 4; j++) {
+            const sy = headY - headR - j * 6;
+            const swx = Math.sin(sPhase + j * 0.8) * 5;
+            ctx.lineTo(sx + swx, sy);
+          }
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+
+      rafRef.current = requestAnimationFrame(draw);
+    }
+
+    rafRef.current = requestAnimationFrame(draw);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [color, size, inflateRef]);
 
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block', margin: '0 auto' }}>
-      {/* Base / fan */}
-      <ellipse cx={cx} cy={baseY + 4} rx={bodyWidth * 0.8} ry={8} fill="#888" />
-      <rect x={cx - bodyWidth * 0.5} y={baseY - 2} width={bodyWidth} height={10} rx={3} fill="#999" />
-
-      {/* Body — tapered tube */}
-      <g transform={`rotate(${sway}, ${cx}, ${baseY})`}>
-        <path
-          d={`
-            M ${cx - bodyWidth * 0.5} ${baseY}
-            Q ${cx - bodyWidth * 0.6} ${bodyTop + bodyHeight * 0.5}
-              ${cx - bodyWidth * 0.3} ${bodyTop}
-            L ${cx + bodyWidth * 0.3} ${bodyTop}
-            Q ${cx + bodyWidth * 0.6} ${bodyTop + bodyHeight * 0.5}
-              ${cx + bodyWidth * 0.5} ${baseY}
-            Z
-          `}
-          fill={color.body}
-        />
-
-        {/* Belly stripe */}
-        <ellipse
-          cx={cx} cy={bodyTop + bodyHeight * 0.55}
-          rx={bodyWidth * 0.25} ry={bodyHeight * 0.12 + inflate * bodyHeight * 0.06}
-          fill={color.accent} opacity={0.5}
-        />
-
-        {/* Left arm */}
-        <line
-          x1={armLX} y1={armY}
-          x2={armLX + Math.cos((armAngle - 20) * Math.PI / 180) * armLen}
-          y2={armY + Math.sin((armAngle - 20) * Math.PI / 180) * armLen}
-          stroke={color.body} strokeWidth={5} strokeLinecap="round"
-        />
-
-        {/* Right arm */}
-        <line
-          x1={armRX} y1={armY}
-          x2={armRX + Math.cos((180 - armAngle + 20) * Math.PI / 180) * armLen}
-          y2={armY + Math.sin((180 - armAngle + 20) * Math.PI / 180) * armLen}
-          stroke={color.body} strokeWidth={5} strokeLinecap="round"
-        />
-
-        {/* Head */}
-        <circle cx={cx} cy={headY} r={headR} fill={color.body} />
-        {/* Eyes */}
-        <circle cx={cx - headR * 0.35} cy={headY - headR * 0.1} r={headR * 0.15} fill="#fff" />
-        <circle cx={cx + headR * 0.35} cy={headY - headR * 0.1} r={headR * 0.15} fill="#fff" />
-        {/* Smile */}
-        <path
-          d={`M ${cx - headR * 0.3} ${headY + headR * 0.2} Q ${cx} ${headY + headR * 0.5} ${cx + headR * 0.3} ${headY + headR * 0.2}`}
-          fill="none" stroke="#fff" strokeWidth={1.5} strokeLinecap="round"
-        />
-      </g>
-    </svg>
+    <canvas
+      ref={canvasRef}
+      style={{ display: 'block', margin: '0 auto' }}
+    />
   );
 }
 
