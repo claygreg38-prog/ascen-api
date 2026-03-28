@@ -1271,4 +1271,23 @@ try {
   console.warn('[BREATH_BRIDGE CRON] Could not schedule delivery:', err.message);
 }
 
+// ── BREATH BRIDGE MONTHLY WARMTH SUMMARY (1st of month, 8 AM ET) ──
+try {
+  const breathBridgeSummary = require('./src/services/breathBridgeService');
+  cron.schedule('0 8 1 * *', async () => {
+    try {
+      await breathBridgeSummary.runMonthlySummaryCron();
+    } catch (err) {
+      console.error('[BREATH_BRIDGE CRON] Monthly summary failed:', err.message);
+      Sentry.captureException(err);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'America/New_York'
+  });
+  console.log('[BREATH_BRIDGE CRON] Monthly summary: 1st of month 8 AM America/New_York');
+} catch (err) {
+  console.warn('[BREATH_BRIDGE CRON] Could not schedule monthly summary:', err.message);
+}
+
   }); // end runPendingMigrations().finally()

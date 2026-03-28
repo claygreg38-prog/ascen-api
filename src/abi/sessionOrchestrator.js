@@ -1546,6 +1546,23 @@ function createOrchestrator(callbacks = {}) {
       Sentry.captureException(err);
     }
 
+    // ── BREATH BRIDGE COACHING (Phase 3) ─────────────────
+    // Deliver one coaching moment after session completion
+    try {
+      const breathBridgeService = require('../services/breathBridgeService');
+      const internalUser = await pool.query('SELECT id, family_unit_id FROM users WHERE user_id = $1', [userId]);
+      if (internalUser.rows[0]?.family_unit_id) {
+        await breathBridgeService.deliverCoaching(
+          internalUser.rows[0].id,
+          sessionRow?.id || null,
+          internalUser.rows[0].family_unit_id
+        );
+      }
+    } catch (err) {
+      // Non-blocking — coaching failure never blocks session completion
+      console.error('[BreathBridge] Coaching delivery failed (non-blocking):', err.message);
+    }
+
     // ── LINEAGE LEDGER: FIRMWARE TRACKING ──────────────────
     // If session has firmware_number, record in lineage ledger
     if (rawSession.firmware_number) {

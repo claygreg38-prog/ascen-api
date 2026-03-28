@@ -388,6 +388,52 @@ export default function ClinicianDashboardScreen() {
     }
   }
 
+  // ── Coaching progress ──
+  const [coachingProgress, setCoachingProgress] = useState(null);
+
+  useEffect(() => {
+    if (!sessionInfo?.family_unit_id) return;
+    api.get(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/coaching-progress`)
+      .then(({ data }) => setCoachingProgress(data))
+      .catch(() => setCoachingProgress(null));
+  }, [sessionInfo?.family_unit_id]);
+
+  async function handleGateOverride(gate) {
+    if (!sessionInfo?.family_unit_id) return;
+    try {
+      await api.post(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/gate-override`, { gate });
+      const { data } = await api.get(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/coaching-progress`);
+      setCoachingProgress(data);
+    } catch (err) { console.error('[Dashboard] Gate override failed:', err.message); }
+  }
+
+  async function handleEmphasis(domain) {
+    if (!sessionInfo?.family_unit_id) return;
+    try {
+      await api.put(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/emphasis`, { domain: domain || null });
+      const { data } = await api.get(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/coaching-progress`);
+      setCoachingProgress(data);
+    } catch (err) { console.error('[Dashboard] Emphasis update failed:', err.message); }
+  }
+
+  async function handlePostRelease() {
+    if (!sessionInfo?.family_unit_id) return;
+    try {
+      await api.post(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/post-release`);
+      const { data } = await api.get(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/coaching-progress`);
+      setCoachingProgress(data);
+    } catch (err) { console.error('[Dashboard] Post-release failed:', err.message); }
+  }
+
+  async function handleEnableCoaching() {
+    if (!sessionInfo?.family_unit_id) return;
+    try {
+      await api.post(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/enable-coaching`);
+      const { data } = await api.get(`/api/breath-bridge/family/${sessionInfo.family_unit_id}/coaching-progress`);
+      setCoachingProgress(data);
+    } catch (err) { console.error('[Dashboard] Enable coaching failed:', err.message); }
+  }
+
   // ── Dismiss alert ──
   async function dismissAlert(alertId) {
     setAlerts(prev => prev.filter(a => a.id !== alertId));
@@ -577,6 +623,68 @@ export default function ClinicianDashboardScreen() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Coaching Progress (Phase 3) */}
+          {coachingProgress && (
+            <div style={S.bbPanel}>
+              <div style={S.bbTitle}>COACHING FIRMWARE</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 10, color: 'rgba(200,210,225,0.6)' }}>
+                  Gate: <span style={{ color: 'rgba(92,224,208,0.7)' }}>{coachingProgress.current_gate?.replace('_', ' ')}</span>
+                </span>
+                <span style={{ fontSize: 9, color: 'rgba(200,210,225,0.3)' }}>
+                  {coachingProgress.entries_delivered} delivered
+                </span>
+              </div>
+              {/* Domains covered */}
+              <div style={{ display: 'flex', gap: 3, marginBottom: 4, flexWrap: 'wrap' }}>
+                {['showing_up', 'emotional_vocabulary', 'co_regulation', 'letting_go', 'repair'].map(d => (
+                  <span key={d} style={{
+                    fontSize: 7, padding: '2px 5px', borderRadius: 4,
+                    background: coachingProgress.domains_covered?.includes(d) ? 'rgba(92,224,208,0.1)' : 'rgba(14,28,50,0.5)',
+                    color: coachingProgress.domains_covered?.includes(d) ? 'rgba(92,224,208,0.6)' : 'rgba(160,180,210,0.15)',
+                    border: `1px solid ${coachingProgress.domains_covered?.includes(d) ? 'rgba(92,224,208,0.15)' : 'rgba(160,180,210,0.04)'}`,
+                  }}>{d.replace(/_/g, ' ')}</span>
+                ))}
+              </div>
+              {/* Gate override */}
+              <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
+                <span style={{ fontSize: 8, color: 'rgba(200,210,225,0.2)' }}>Gate:</span>
+                {['gate_1', 'gate_2', 'gate_3', 'gate_4'].map(g => (
+                  <button key={g} onClick={() => handleGateOverride(g)} style={{
+                    padding: '2px 6px', fontSize: 7, borderRadius: 4, border: 'none', cursor: 'pointer',
+                    background: g === coachingProgress.current_gate ? 'rgba(92,224,208,0.15)' : 'rgba(14,28,50,0.5)',
+                    color: g === coachingProgress.current_gate ? 'rgba(92,224,208,0.7)' : 'rgba(160,180,210,0.15)',
+                    fontFamily: 'Outfit, sans-serif',
+                  }}>{g.replace('gate_', '')}</button>
+                ))}
+              </div>
+              {/* Emphasis selector */}
+              <div style={{ display: 'flex', gap: 3, marginBottom: 4, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 8, color: 'rgba(200,210,225,0.2)' }}>Emphasis:</span>
+                {['none', 'showing_up', 'emotional_vocabulary', 'co_regulation', 'letting_go', 'repair'].map(d => (
+                  <button key={d} onClick={() => handleEmphasis(d === 'none' ? null : d)} style={{
+                    padding: '2px 5px', fontSize: 6, borderRadius: 3, border: 'none', cursor: 'pointer',
+                    background: (d === 'none' && !coachingProgress.clinician_emphasis_domain) || d === coachingProgress.clinician_emphasis_domain ? 'rgba(232,190,106,0.12)' : 'rgba(14,28,50,0.4)',
+                    color: (d === 'none' && !coachingProgress.clinician_emphasis_domain) || d === coachingProgress.clinician_emphasis_domain ? 'rgba(232,190,106,0.7)' : 'rgba(160,180,210,0.15)',
+                    fontFamily: 'Outfit, sans-serif',
+                  }}>{d === 'none' ? 'auto' : d.replace(/_/g, ' ')}</button>
+                ))}
+              </div>
+              {/* Enable coaching / Post-release */}
+              <div style={{ display: 'flex', gap: 4 }}>
+                {!coachingProgress.coaching_active && (
+                  <button onClick={handleEnableCoaching} style={S.btnTeal}>Enable Coaching</button>
+                )}
+                {!coachingProgress.post_release_mode && (
+                  <button onClick={handlePostRelease} style={S.btnAmber}>Post-Release Transition</button>
+                )}
+                {coachingProgress.post_release_mode && (
+                  <span style={{ fontSize: 9, color: 'rgba(74,222,128,0.5)', padding: '4px 0' }}>Post-release active</span>
+                )}
+              </div>
             </div>
           )}
 
