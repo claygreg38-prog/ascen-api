@@ -431,7 +431,7 @@ class VerificationService {
                 sc.completed_at, u.wallet_address
          FROM attestation_queue aq
          JOIN session_completions sc ON sc.id = aq.session_completion_id
-         JOIN users u ON u.user_id = aq.user_id OR u.id::text = aq.user_id
+         JOIN users u ON u.id = aq.user_id
          WHERE aq.status IN ('ready', 'awaiting_facilitator')
            AND aq.retry_count < ${MAX_RETRIES}
          ORDER BY aq.created_at ASC
