@@ -54,6 +54,16 @@ function generateJWT(user) {
   }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRY });
 }
 
+function generateLimitedJWT(user) {
+  return jwt.sign({
+    sub: user.id || user.user_id,
+    userId: user.id,
+    user_id: user.user_id,
+    role: user.role || 'participant',
+    scope: 'change_password'
+  }, process.env.JWT_SECRET, { expiresIn: '15m' });
+}
+
 async function generateRefreshToken(userDbId, deviceInfo) {
   const raw = crypto.randomBytes(48).toString('hex');
   const hash = crypto.createHash('sha256').update(raw).digest('hex');
@@ -144,8 +154,8 @@ async function registerWithFacilityCode(code, pin, firstName, req) {
   // Create user
   const userResult = await pool.query(
     `INSERT INTO users (user_id, first_name, pin_hash, auth_method, tenant_id, role, is_active, is_verified, participant_id,
-                        onboarding_state, created_at)
-     VALUES ($1, $2, $3, 'facility_code', $4, 'participant', true, true, $5, $6, NOW())
+                        onboarding_state, password_changed, created_at)
+     VALUES ($1, $2, $3, 'facility_code', $4, 'participant', true, true, $5, $6, false, NOW())
      RETURNING *`,
     [
       participantId, firstName, pinHash, enrollment.tenant_id, participantId,
@@ -333,10 +343,16 @@ async function loginWithFacilityPin(participantId, pin, req) {
 
   await resetFailedLogins(user.id);
   await pool.query('UPDATE users SET last_login_at = NOW(), login_count = COALESCE(login_count, 0) + 1 WHERE id = $1', [user.id]);
+  await logAuthEvent(user.id, 'login', req, { auth_method: 'facility_pin' });
+
+  // Check forced password change
+  if (user.password_changed === false) {
+    const limitedToken = generateLimitedJWT(user);
+    return { authenticated: true, must_change_password: true, jwt: limitedToken, user: { userId: user.user_id, firstName: user.first_name, role: user.role } };
+  }
 
   const accessToken = generateJWT(user);
   const refreshToken = await generateRefreshToken(user.id, req?.headers?.['user-agent']);
-  await logAuthEvent(user.id, 'login', req, { auth_method: 'facility_pin' });
 
   return { jwt: accessToken, refreshToken, user: { userId: user.user_id, firstName: user.first_name, role: user.role } };
 }
@@ -362,10 +378,16 @@ async function loginWithEmail(email, password, req) {
 
   await resetFailedLogins(user.id);
   await pool.query('UPDATE users SET last_login_at = NOW(), login_count = COALESCE(login_count, 0) + 1 WHERE id = $1', [user.id]);
+  await logAuthEvent(user.id, 'login', req, { auth_method: 'email' });
+
+  // Check forced password change
+  if (user.password_changed === false) {
+    const limitedToken = generateLimitedJWT(user);
+    return { authenticated: true, must_change_password: true, jwt: limitedToken, user: { userId: user.user_id, firstName: user.first_name, role: user.role } };
+  }
 
   const accessToken = generateJWT(user);
   const refreshToken = await generateRefreshToken(user.id, req?.headers?.['user-agent']);
-  await logAuthEvent(user.id, 'login', req, { auth_method: 'email' });
 
   return { jwt: accessToken, refreshToken, user: { userId: user.user_id, firstName: user.first_name, role: user.role } };
 }
@@ -535,6 +557,46 @@ async function getCurrentUser(userDbId) {
   return u;
 }
 
+// ── CHANGE PASSWORD (forced change gate) ────────────────────
+
+async function changePassword(userId, currentPassword, newPassword, req) {
+  const userRow = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+  if (userRow.rows.length === 0) return { error: true, message: 'User not found.' };
+  const user = userRow.rows[0];
+
+  // Validate current password (check both password_hash and pin_hash)
+  let match = false;
+  if (user.password_hash) {
+    match = await bcrypt.compare(currentPassword, user.password_hash);
+  }
+  if (!match && user.pin_hash) {
+    match = await bcrypt.compare(currentPassword, user.pin_hash);
+  }
+  if (!match) return { error: true, message: 'Current password is incorrect.' };
+
+  // Validate new password
+  if (!newPassword || newPassword.length < 8) {
+    return { error: true, message: 'New password must be at least 8 characters.' };
+  }
+
+  const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+  // Update password_hash and mark password_changed = true
+  await pool.query(
+    'UPDATE users SET password_hash = $1, password_changed = true WHERE id = $2',
+    [newHash, user.id]
+  );
+
+  await logAuthEvent(user.id, 'password_changed', req, { forced: true });
+
+  // Return full-scope JWT
+  const updatedUser = await pool.query('SELECT * FROM users WHERE id = $1', [user.id]);
+  const accessToken = generateJWT(updatedUser.rows[0]);
+  const refreshToken = await generateRefreshToken(user.id, req?.headers?.['user-agent']);
+
+  return { jwt: accessToken, refreshToken, user: { userId: user.user_id, firstName: user.first_name, role: user.role } };
+}
+
 module.exports = {
   registerWithFacilityCode,
   registerWithEmail,
@@ -548,6 +610,7 @@ module.exports = {
   logout,
   resetPassword,
   completePasswordReset,
+  changePassword,
   generateCodes,
   listCodes,
   revokeCode,

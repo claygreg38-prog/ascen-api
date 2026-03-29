@@ -9,6 +9,7 @@
 const express = require('express');
 const router = express.Router();
 const authService = require('../services/authService');
+const { authenticate } = require('../middleware/auth');
 const { Pool } = require('pg');
 const Sentry = require('../instrument');
 
@@ -145,6 +146,33 @@ router.post('/login/phone/verify', async (req, res) => {
     console.error('[Auth] Phone verify failed:', err.message);
     Sentry.captureException(err);
     res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+// ── Change Password (forced change gate) ────────────────────
+
+router.post('/change-password', authenticate, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: 'current_password and new_password required' });
+    }
+
+    const userId = req.user.userId;
+    // Resolve integer DB id from JWT sub (may be string participant code)
+    const userRow = await pool.query(
+      'SELECT id FROM users WHERE id = $1 OR user_id = $2',
+      [parseInt(userId) || 0, userId]
+    );
+    if (!userRow.rows[0]) return res.status(404).json({ error: 'User not found' });
+
+    const result = await authService.changePassword(userRow.rows[0].id, current_password, new_password, req);
+    if (result.error) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    console.error('[Auth] Change password failed:', err.message);
+    Sentry.captureException(err);
+    res.status(500).json({ error: 'Password change failed' });
   }
 });
 

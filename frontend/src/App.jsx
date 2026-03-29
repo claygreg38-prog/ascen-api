@@ -31,6 +31,7 @@ import ClinicianDashboardScreen from './screens/ClinicianDashboardScreen';
 import ChildBreathScreen from './screens/ChildBreathScreen';
 import ChildHomeScreen from './screens/ChildHomeScreen';
 import CrestViewerScreen from './screens/CrestViewerScreen';
+import ChangePasswordScreen from './screens/ChangePasswordScreen';
 import WearableSyncScreen from './screens/WearableSyncScreen';
 
 // Shared features + age context for BottomNav and age-aware routing
@@ -115,6 +116,7 @@ export default function App() {
           <Route path="/app/login" element={<LoginScreen />} />
           <Route path="/app/register" element={<RegisterScreen />} />
           <Route path="/app/onboarding" element={<OnboardingScreen />} />
+          <Route path="/app/change-password" element={<ChangePasswordScreen />} />
 
           {/* Core — with nav (age-aware home) */}
           <Route path="/app" element={<Protected><AgeAwareHome /></Protected>} />

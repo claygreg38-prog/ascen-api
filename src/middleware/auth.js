@@ -103,7 +103,8 @@ function authenticate(req, res, next) {
     req.user = {
       userId: decoded.sub,
       role: decoded.role,
-      facilityId: decoded.facility_id || null
+      facilityId: decoded.facility_id || null,
+      scope: decoded.scope || null
     };
     next();
   } catch (err) {
@@ -115,6 +116,22 @@ function authenticate(req, res, next) {
     }
     return res.status(401).json({ error: 'Authentication failed' });
   }
+}
+
+/**
+ * requireFullScope — Rejects limited-scope JWTs (e.g., change_password).
+ * Use on routes that should not be accessible with a limited token.
+ * The change-password endpoint is the only route that accepts limited-scope tokens.
+ */
+function requireFullScope(req, res, next) {
+  if (req.user?.scope) {
+    return res.status(403).json({
+      error: 'Password change required',
+      code: 'MUST_CHANGE_PASSWORD',
+      must_change_password: true
+    });
+  }
+  next();
 }
 
 /**
@@ -174,8 +191,17 @@ function authenticateOrApiKey(defaultRole = 'clinician') {
           userId: decoded.sub,
           role: decoded.role,
           facilityId: decoded.facility_id || null,
-          authMethod: 'jwt'
+          authMethod: 'jwt',
+          scope: decoded.scope || null
         };
+        // Block limited-scope tokens on general routes
+        if (decoded.scope) {
+          return res.status(403).json({
+            error: 'Password change required',
+            code: 'MUST_CHANGE_PASSWORD',
+            must_change_password: true
+          });
+        }
         return next();
       } catch (err) {
         // JWT present but invalid — don't fall through to API key
@@ -320,6 +346,7 @@ module.exports = {
   // Middleware
   authenticate,
   requireRole,
+  requireFullScope,
   authenticateOrApiKey,
   optionalAuth,
 

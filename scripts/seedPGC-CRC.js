@@ -1,17 +1,14 @@
 #!/usr/bin/env node
 // ============================================================
-// Seed PGC-CRC Clinician Accounts
+// Seed PGC-CRC Staff Accounts
 // Site: Prince George's County Community Resource Center
 //
-// DO NOT RUN until Clay provides credentials for:
-//   1. Jenae (Clinical Director, LCPC) — clinician role
-//   2. Dr. Astrada (Medical Director, MD) — clinician role
+// Accounts:
+//   1. Demere Coker (LGPC) — clinician role
+//   2. Quinten Carter — clinician role
+//   3. Clay Gregory (COO) — admin role
 //
-// Required per account: full name, email, temporary password
-// Then: generate bcrypt hashes and fill in the placeholders below.
-//
-// Generate hashes:
-//   node -e "require('bcryptjs').hash('PASSWORD', 12).then(h => console.log(h))"
+// Run: DATABASE_URL=$DATABASE_URL node scripts/seedPGC-CRC.js
 // ============================================================
 
 const { Pool } = require('pg');
@@ -21,23 +18,30 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejec
 
 const BCRYPT_ROUNDS = 12;
 
-// ── FILL THESE IN WHEN CLAY PROVIDES CREDENTIALS ─────────────
 const ACCOUNTS = [
   {
-    label: 'Jenae — Clinical Director, LCPC',
-    firstName: null,   // e.g. 'Jenae'
-    lastName: null,     // e.g. 'LastName'
-    email: null,        // e.g. 'jenae@pgc-crc.org'
-    password: null,     // e.g. 'TempPassword123!'
+    label: 'Demere Coker — LGPC, Clinician',
+    firstName: 'Demere',
+    lastName: 'Coker',
+    email: 'dcoker@mettle-works.com',
+    password: 'Mettleworks123',
     role: 'clinician',
   },
   {
-    label: 'Dr. Astrada — Medical Director, MD',
-    firstName: null,   // e.g. 'FirstName'
-    lastName: null,     // e.g. 'Astrada'
-    email: null,        // e.g. 'astrada@pgc-crc.org'
-    password: null,     // e.g. 'TempPassword123!'
+    label: 'Quinten Carter — Clinician',
+    firstName: 'Quinten',
+    lastName: 'Carter',
+    email: 'qcarter@mettle-works.com',
+    password: 'Mettleworks123',
     role: 'clinician',
+  },
+  {
+    label: 'Clay Gregory — COO, Admin',
+    firstName: 'Clay',
+    lastName: 'Gregory',
+    email: 'clayg@mettle-works.com',
+    password: 'Mettleworks123',
+    role: 'admin',
   },
 ];
 // ──────────────────────────────────────────────────────────────
@@ -90,8 +94,8 @@ async function seed() {
         const result = await client.query(
           `INSERT INTO users (user_id, first_name, last_name, email, password_hash,
                               auth_method, role, is_active, is_verified,
-                              tenant_id, onboarding_state, jurisdiction_code, county_code, created_at)
-           VALUES ($1, $2, $3, $4, $5, 'email', $6, true, true, $7, $8, 'MD-PG', 'PG', NOW())
+                              tenant_id, onboarding_state, jurisdiction_code, county_code, password_changed, created_at)
+           VALUES ($1, $2, $3, $4, $5, 'email', $6, true, true, $7, $8, 'MD-PG', 'PG', false, NOW())
            RETURNING id, user_id, email, role`,
           [userId, acct.firstName, acct.lastName, acct.email.toLowerCase(), hash,
            acct.role, tenantId, onboardingComplete]

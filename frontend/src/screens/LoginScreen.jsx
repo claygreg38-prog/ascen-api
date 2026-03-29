@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginWithPin } from '../services/auth';
+import { loginWithPin, loginWithEmail } from '../services/auth';
 
 export default function LoginScreen() {
   const [participantId, setParticipantId] = useState('');
@@ -12,14 +12,29 @@ export default function LoginScreen() {
   const addDigit = d => { if (pin.length < 6) setPin(pin + d); };
   const backspace = () => setPin(pin.slice(0, -1));
 
+  // Email login state
+  const [mode, setMode] = useState('pin'); // 'pin' | 'email'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
   const submit = async () => {
-    if (!participantId || pin.length !== 6) return;
     setLoading(true); setError('');
     try {
-      await loginWithPin(participantId, pin);
-      nav('/app/');
+      let result;
+      if (mode === 'email') {
+        if (!email || !password) { setError('Email and password required.'); setLoading(false); return; }
+        result = await loginWithEmail(email, password);
+      } else {
+        if (!participantId || pin.length !== 6) { setLoading(false); return; }
+        result = await loginWithPin(participantId, pin);
+      }
+      if (result.must_change_password) {
+        nav('/app/change-password');
+      } else {
+        nav('/app/');
+      }
     } catch (e) {
-      setError(e.response?.data?.error || "That didn't match. Try again.");
+      setError(e.response?.data?.error || e.response?.data?.message || "That didn't match. Try again.");
       setPin('');
     }
     setLoading(false);
@@ -59,6 +74,21 @@ export default function LoginScreen() {
         ))}
       </div>
 
+      {mode === 'email' && (
+        <>
+          <input type="email" placeholder="Email" value={email}
+            onChange={e => setEmail(e.target.value)} style={S.input} />
+          <input type="password" placeholder="Password" value={password}
+            onChange={e => setPassword(e.target.value)} style={S.input} />
+          <button onClick={submit} disabled={loading} style={{ ...S.key, width: '100%', maxWidth: 280, background: '#0a2540', marginTop: 8 }}>
+            {loading ? '...' : 'Sign In'}
+          </button>
+        </>
+      )}
+
+      <button onClick={() => { setMode(mode === 'pin' ? 'email' : 'pin'); setError(''); }} style={S.link}>
+        {mode === 'pin' ? 'Sign in with email instead' : 'Sign in with participant ID'}
+      </button>
       <button onClick={() => nav('/app/register')} style={S.link}>
         I have an enrollment code
       </button>
