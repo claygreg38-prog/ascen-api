@@ -59,8 +59,13 @@ export default function LoginScreen() {
           <div style={S.passwordWrap}>
             <input type={showPassword ? 'text' : 'password'} placeholder="Password" value={password}
               onChange={e => setPassword(e.target.value)} style={S.passwordInput} />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} style={S.eyeBtn}>
-              {showPassword ? '\u{1F441}' : '\u{1F441}\u{FE0F}\u{200D}\u{1F5E8}\u{FE0F}'}
+            <button type="button" onClick={() => setShowPassword(!showPassword)} style={S.eyeBtn}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5ffce0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+                {!showPassword && <line x1="1" y1="1" x2="23" y2="23" />}
+              </svg>
             </button>
           </div>
           <button onClick={submit} disabled={loading} style={{ ...S.key, width: '100%', maxWidth: 280, background: '#0a2540', marginTop: 8 }}>
