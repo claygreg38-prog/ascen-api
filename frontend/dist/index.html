@@ -12,9 +12,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600&display=swap" rel="stylesheet" />
     <title>ASCEN BreathWorx</title>
     <style>body{background:#061a2a}</style>
-    <script type="module" crossorigin src="/app/assets/index-CdyV9VVf.js"></script>
+    <script type="module" crossorigin src="/app/assets/index-CBe_I4eq.js"></script>
     <link rel="stylesheet" crossorigin href="/app/assets/index-CGkUZ6ge.css">
   </head>
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/app/sw.js', { scope: '/app/' })
+          .catch(() => {});
+      });
+    }
+  </script>
   <body>
     <div id="root"></div>
   </body>

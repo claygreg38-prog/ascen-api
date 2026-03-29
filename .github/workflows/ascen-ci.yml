@@ -6,6 +6,34 @@ on:
     branches: [main]
 
 jobs:
+  frontend-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Build frontend PWA
+        run: cd frontend && npm run build
+        env:
+          VITE_API_URL: https://hearty-optimism-production-2eb6.up.railway.app
+
+      - name: Verify build output
+        run: |
+          test -f frontend/dist/index.html && echo "index.html OK"
+          test -d frontend/dist/assets && echo "assets/ OK"
+          ls -lh frontend/dist/
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15

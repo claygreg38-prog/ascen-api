@@ -211,14 +211,14 @@ export default function ChildBreathScreen() {
   // Teach belly breathing
   if (phase === 'teach') {
     const steps = cfg?.bracket === 'middle_school' ? [
-      { text: "Breathe in through your nose — fill your belly first.", icon: '\u{1FAC1}' },
-      { text: "Now breathe out slowly through your mouth.", icon: '\u{1F4A8}' },
-      { text: "Your dancer fills up when you breathe in, and shrinks when you breathe out.", icon: '\u{1F388}' },
+      { text: "Breathe in through your nose — fill your belly first.", icon: '🫁' },
+      { text: "Now breathe out slowly through your mouth.", icon: '💨' },
+      { text: "Your dancer fills up when you breathe in, and shrinks when you breathe out.", icon: '🎈' },
     ] : [
       { text: "Put your hand on your belly!", icon: '\u270B' },
-      { text: "Breathe in BIG — make your belly push your hand out!", icon: '\u{1F388}' },
-      { text: "Now breathe out slooowly — like blowing a bubble!", icon: '\u{1FAE7}' },
-      { text: "Watch your dancer do it with you!", icon: '\u{1F929}' },
+      { text: "Breathe in BIG — make your belly push your hand out!", icon: '🎈' },
+      { text: "Now breathe out slooowly — like blowing a bubble!", icon: '🫧' },
+      { text: "Watch your dancer do it with you!", icon: '🤩' },
     ];
 
     const teachInflate = useRef(teachStep >= 1 ? 0.8 : 0.2);

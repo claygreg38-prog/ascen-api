@@ -13,18 +13,18 @@ const SKY = 'linear-gradient(180deg, #87CEEB 0%, #B0E0FF 50%, #E0F4FF 100%)';
 // Maps capacity_state + capacity_display type to child-friendly config
 const ENERGY = {
   energy_bar: { // CHLD-E (elementary)
-    full:         { label: 'Full Energy!',   pct: 100, color: '#5CE0D0', emoji: '\u{1F4AA}', lunoMood: 'bounce' },
-    steady:       { label: 'Good Energy',    pct: 75,  color: '#A8CCE8', emoji: '\u{1F60A}', lunoMood: 'bounce' },
-    drawing_down: { label: 'Getting Tired',  pct: 50,  color: '#E8BE6A', emoji: '\u{1F634}', lunoMood: 'stretch' },
-    low:          { label: 'Need Rest',      pct: 25,  color: '#E09878', emoji: '\u{1FAC2}', lunoMood: 'sit' },
-    depleted:     { label: 'Resting',        pct: 10,  color: '#D88AA0', emoji: '\u{1FAC2}', lunoMood: 'sit' },
+    full:         { label: 'Full Energy!',   pct: 100, color: '#5CE0D0', emoji: '💪', lunoMood: 'bounce' },
+    steady:       { label: 'Good Energy',    pct: 75,  color: '#A8CCE8', emoji: '😊', lunoMood: 'bounce' },
+    drawing_down: { label: 'Getting Tired',  pct: 50,  color: '#E8BE6A', emoji: '😴', lunoMood: 'stretch' },
+    low:          { label: 'Need Rest',      pct: 25,  color: '#E09878', emoji: '🫂', lunoMood: 'sit' },
+    depleted:     { label: 'Resting',        pct: 10,  color: '#D88AA0', emoji: '🫂', lunoMood: 'sit' },
   },
   gaming: { // CHLD-M (middle school)
-    full:         { label: 'Maxed Out!',     pct: 100, color: '#5CE0D0', emoji: '\u{1F4AA}', lunoMood: 'bounce' },
-    steady:       { label: 'Powered Up',     pct: 75,  color: '#A8CCE8', emoji: '\u{1F60A}', lunoMood: 'bounce' },
-    drawing_down: { label: 'Using Energy',   pct: 50,  color: '#E8BE6A', emoji: '\u{1F634}', lunoMood: 'stretch' },
-    low:          { label: 'Recharging',     pct: 25,  color: '#E09878', emoji: '\u{1FAC2}', lunoMood: 'sit' },
-    depleted:     { label: 'Rest Mode',      pct: 10,  color: '#D88AA0', emoji: '\u{1FAC2}', lunoMood: 'sit' },
+    full:         { label: 'Maxed Out!',     pct: 100, color: '#5CE0D0', emoji: '💪', lunoMood: 'bounce' },
+    steady:       { label: 'Powered Up',     pct: 75,  color: '#A8CCE8', emoji: '😊', lunoMood: 'bounce' },
+    drawing_down: { label: 'Using Energy',   pct: 50,  color: '#E8BE6A', emoji: '😴', lunoMood: 'stretch' },
+    low:          { label: 'Recharging',     pct: 25,  color: '#E09878', emoji: '🫂', lunoMood: 'sit' },
+    depleted:     { label: 'Rest Mode',      pct: 10,  color: '#D88AA0', emoji: '🫂', lunoMood: 'sit' },
   },
 };
 
@@ -123,7 +123,7 @@ export default function ChildHomeScreen() {
 
         {/* Breathe Button */}
         <button onClick={() => navigate('/app/child-breathe')} style={S.breatheBtn}>
-          {isMiddle ? "Let's Breathe" : "Let's Breathe! \u{1F30A}"}
+          {isMiddle ? "Let's Breathe" : "Let's Breathe! 🌊"}
         </button>
         {context.total_sessions > 0 && (
           <p style={S.lastTime}>
@@ -135,7 +135,7 @@ export default function ChildHomeScreen() {
         {(context.streak?.current || 0) > 0 && (
           <div style={S.card}>
             <p style={S.streakText}>
-              \u{1F525} {context.streak.current} day{context.streak.current > 1 ? 's' : ''} in a row! Keep it going!
+              {'\uD83D\uDD25'} {context.streak.current} day{context.streak.current > 1 ? 's' : ''} in a row! Keep it going!
             </p>
           </div>
         )}
@@ -149,7 +149,7 @@ export default function ChildHomeScreen() {
               </p>
             ) : (
               <p style={S.lightText}>
-                Your family is thinking of you. Your light is always on for them \u{1F49B}
+                Your family is thinking of you. Your light is always on for them 💛
               </p>
             )}
           </div>
@@ -163,7 +163,7 @@ export default function ChildHomeScreen() {
               <span style={S.statLabel}>times breathed</span>
             </div>
             <div style={S.stat}>
-              <span style={S.statNum}>{balloons} \u{1F388}</span>
+              <span style={S.statNum}>{balloons} 🎈</span>
               <span style={S.statLabel}>balloons filled</span>
             </div>
             <div style={S.stat}>
