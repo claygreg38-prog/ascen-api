@@ -11,31 +11,41 @@ const WebSocket = require('ws');
 
 const rooms = new Map(); // roomCode → { initiator, partner, state, breathParams, lastActivity }
 
-// ── ENGAGEMENT EVENT LOG — Clinical Kitchen Table (Correction #4) ──
-// Stores engagement events per session for communication analysis.
-// In-memory per server instance; clinical analysis runs at session completion
-// before the data would be lost. For horizontal scaling, move to Redis/DB.
-const engagementEvents = new Map(); // sessionId → [{ user_id, status, timestamp, ... }]
+// ── ENGAGEMENT EVENT LOG — DB-backed (survives restarts) ──
+const { Pool } = require('pg');
+const engagementPool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-function logEngagementEvent(sessionId, event) {
-  if (!engagementEvents.has(sessionId)) {
-    engagementEvents.set(sessionId, []);
-  }
-  engagementEvents.get(sessionId).push(event);
-
-  // Cap at 1000 events per session to bound memory
-  const events = engagementEvents.get(sessionId);
-  if (events.length > 1000) {
-    engagementEvents.set(sessionId, events.slice(-500));
+async function logEngagementEvent(sessionId, event) {
+  try {
+    await engagementPool.query(
+      'INSERT INTO engagement_events (session_id, user_id, event_type, payload) VALUES ($1, $2, $3, $4)',
+      [sessionId, event.user_id || null, event.status || event.event_type || 'unknown', JSON.stringify(event)]
+    );
+  } catch (err) {
+    // Non-blocking — log but don't crash the WebSocket
+    console.error('[CoBreath WS] Engagement event log failed:', err.message);
   }
 }
 
-function getEngagementEvents(sessionId) {
-  return engagementEvents.get(sessionId) || [];
+async function getEngagementEvents(sessionId) {
+  try {
+    const result = await engagementPool.query(
+      'SELECT * FROM engagement_events WHERE session_id = $1 ORDER BY created_at',
+      [sessionId]
+    );
+    return result.rows.map(r => ({ ...r.payload, id: r.id, created_at: r.created_at }));
+  } catch (err) {
+    console.error('[CoBreath WS] Get engagement events failed:', err.message);
+    return [];
+  }
 }
 
-function clearEngagementEvents(sessionId) {
-  engagementEvents.delete(sessionId);
+async function clearEngagementEvents(sessionId) {
+  try {
+    await engagementPool.query('DELETE FROM engagement_events WHERE session_id = $1', [sessionId]);
+  } catch (err) {
+    console.error('[CoBreath WS] Clear engagement events failed:', err.message);
+  }
 }
 
 function initCoBreathWS(server) {

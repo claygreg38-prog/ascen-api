@@ -83,7 +83,7 @@ router.post('/complete', async (req, res) => {
     // Clean up engagement events for this session
     try {
       const coBreathWS = require('../services/coBreathWebSocket');
-      if (coBreathWS.clearEngagementEvents) coBreathWS.clearEngagementEvents(session_id);
+      if (coBreathWS.clearEngagementEvents) await coBreathWS.clearEngagementEvents(session_id);
     } catch (e) { /* non-blocking */ }
 
     res.json(result);

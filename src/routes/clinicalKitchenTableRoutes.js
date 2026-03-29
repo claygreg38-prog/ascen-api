@@ -59,10 +59,10 @@ router.post('/engagement/update', async (req, res) => {
       return res.status(400).json({ error: 'session_id, user_id, and status required' });
     }
 
-    // Store engagement event in WebSocket event log
+    // Store engagement event in DB
     const coBreathWS = require('../services/coBreathWebSocket');
     if (coBreathWS.logEngagementEvent) {
-      coBreathWS.logEngagementEvent(session_id, {
+      await coBreathWS.logEngagementEvent(session_id, {
         user_id,
         status, // reflecting | listening | disengaged
         timestamp: Date.now()

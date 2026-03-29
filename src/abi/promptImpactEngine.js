@@ -171,7 +171,7 @@ async function getEngagementStatus(sessionId, userId) {
   try {
     const coBreathWS = require('../services/coBreathWebSocket');
     if (coBreathWS.getEngagementEvents) {
-      const events = coBreathWS.getEngagementEvents(sessionId);
+      const events = await coBreathWS.getEngagementEvents(sessionId);
       const memberEvents = events.filter(e => e.user_id === userId);
       if (memberEvents.length > 0) {
         const latest = memberEvents[memberEvents.length - 1];

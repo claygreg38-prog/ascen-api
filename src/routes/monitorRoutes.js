@@ -255,12 +255,16 @@ router.get('/session-report/latest/:userId', async (req, res) => {
     }
     const dbUserId = userLookup.rows[0].id;
 
+    // Resolve the VARCHAR user_id for session_completions queries
+    const userIdRow = await pool.query('SELECT user_id FROM users WHERE id = $1', [dbUserId]);
+    const scUserId = userIdRow.rows[0]?.user_id || dbUserId;
+
     // Check for active session first
     const activeResult = await pool.query(
       `SELECT session_key FROM session_completions
        WHERE user_id = $1 AND session_active = true
        ORDER BY arrival_started_at DESC LIMIT 1`,
-      [dbUserId]
+      [scUserId]
     );
 
     if (activeResult.rows.length) {
@@ -275,11 +279,11 @@ router.get('/session-report/latest/:userId', async (req, res) => {
     const completed = await pool.query(
       `SELECT sc.*, u.first_name
        FROM session_completions sc
-       LEFT JOIN users u ON sc.user_id = u.id
+       LEFT JOIN users u ON sc.user_id = u.user_id
        WHERE sc.user_id = $1
        ORDER BY sc.completed_at DESC NULLS LAST, sc.arrival_started_at DESC
        LIMIT 1`,
-      [dbUserId]
+      [scUserId]
     );
 
     if (!completed.rows.length) {

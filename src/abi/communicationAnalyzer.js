@@ -107,7 +107,7 @@ async function getSessionEngagementEvents(sessionId) {
   try {
     const coBreathWS = require('../services/coBreathWebSocket');
     if (coBreathWS.getEngagementEvents) {
-      return coBreathWS.getEngagementEvents(sessionId) || [];
+      return await coBreathWS.getEngagementEvents(sessionId) || [];
     }
     return [];
   } catch (err) {
