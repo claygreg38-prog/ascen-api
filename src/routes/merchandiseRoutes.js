@@ -36,9 +36,9 @@ router.get('/export/:tokenId', async (req, res) => {
 
     // Find the session completion with this art
     const session = await pool.query(
-      `SELECT sc.*, u.participant_id as user_id, u.wallet_address
+      `SELECT sc.*, u.user_id, u.wallet_address
        FROM session_completions sc
-       JOIN users u ON sc.user_id = u.participant_id
+       JOIN users u ON sc.user_id = u.user_id
        WHERE sc.art_token_id = $1 OR sc.art_ipfs_hash = $1
        ORDER BY sc.completed_at DESC LIMIT 1`,
       [tokenId]
@@ -320,7 +320,7 @@ router.get('/verify/:tokenId', async (req, res) => {
     const session = await pool.query(
       `SELECT sc.art_token_id, sc.art_ipfs_hash, u.wallet_address
        FROM session_completions sc
-       JOIN users u ON sc.user_id = u.participant_id
+       JOIN users u ON sc.user_id = u.user_id
        WHERE (sc.art_token_id = $1 OR sc.art_ipfs_hash = $1)
          AND u.wallet_address = $2
        LIMIT 1`,
