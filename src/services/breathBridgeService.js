@@ -157,7 +157,7 @@ async function scheduleMessages(familyId) {
   const sessionResult = await pool.query(
     `SELECT sc.id, sc.completed_at, sc.session_number, sc.active_duration_seconds
      FROM session_completions sc
-     JOIN users u ON sc.user_id = u.id
+     JOIN users u ON sc.user_id = u.user_id
      WHERE u.id = $1
      ORDER BY sc.completed_at DESC LIMIT 1`,
     [parentId]
@@ -579,7 +579,7 @@ async function evaluateGate(parentDbId, familyId) {
   // Count total sessions
   const sessionCount = await pool.query(
     `SELECT COUNT(*) as cnt FROM session_completions sc
-     JOIN users u ON sc.user_id = u.id
+     JOIN users u ON sc.user_id = u.user_id
      WHERE u.id = $1`,
     [parentDbId]
   );
@@ -607,7 +607,7 @@ async function evaluateGate(parentDbId, familyId) {
     const last30 = await pool.query(
       `SELECT DATE(sc.completed_at) as session_date
        FROM session_completions sc
-       JOIN users u ON sc.user_id = u.id
+       JOIN users u ON sc.user_id = u.user_id
        WHERE u.id = $1 AND sc.completed_at > NOW() - INTERVAL '30 days'
        GROUP BY DATE(sc.completed_at)
        ORDER BY session_date`,
@@ -726,7 +726,7 @@ async function deliverCoaching(parentDbId, sessionId, familyId) {
       const aiRouter = require('./aiRouter');
       const totalSessions = await pool.query(
         `SELECT COUNT(*) as cnt FROM session_completions sc
-         JOIN users u ON sc.user_id = u.id WHERE u.id = $1`,
+         JOIN users u ON sc.user_id = u.user_id WHERE u.id = $1`,
         [parentDbId]
       );
 
@@ -853,7 +853,7 @@ async function getCoachingProgress(familyId) {
   if (parentDbId) {
     const sc = await pool.query(
       `SELECT COUNT(*) as cnt FROM session_completions sc
-       JOIN users u ON sc.user_id = u.id WHERE u.id = $1`,
+       JOIN users u ON sc.user_id = u.user_id WHERE u.id = $1`,
       [parentDbId]
     );
     totalSessions = parseInt(sc.rows[0].cnt);
@@ -1114,7 +1114,7 @@ async function checkCoPresence(familyId, requestingUserId) {
     // Check for active session (session_active = true in session_completions)
     const activeSession = await pool.query(
       `SELECT sc.id FROM session_completions sc
-       JOIN users u ON sc.user_id = u.id
+       JOIN users u ON sc.user_id = u.user_id
        WHERE u.id = $1 AND sc.session_active = true
        LIMIT 1`,
       [other.db_id]

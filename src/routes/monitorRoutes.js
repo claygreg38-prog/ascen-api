@@ -220,7 +220,7 @@ router.get('/session-report/:sessionKey', async (req, res) => {
     const completed = await pool.query(
       `SELECT sc.*, u.first_name
        FROM session_completions sc
-       LEFT JOIN users u ON sc.user_id = u.id
+       LEFT JOIN users u ON sc.user_id = u.user_id
        WHERE sc.session_key = $1
        LIMIT 1`,
       [sessionKey]
@@ -279,7 +279,7 @@ router.get('/session-report/latest/:userId', async (req, res) => {
     const completed = await pool.query(
       `SELECT sc.*, u.first_name
        FROM session_completions sc
-       LEFT JOIN users u ON sc.user_id = u.id
+       LEFT JOIN users u ON sc.user_id = u.user_id
        WHERE sc.user_id = $1
        ORDER BY sc.completed_at DESC NULLS LAST, sc.arrival_started_at DESC
        LIMIT 1`,

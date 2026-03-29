@@ -450,13 +450,13 @@ async function generateConstellation(familyUnitId, triggerType) {
 
   // 2. Fetch all family members with session data
   const members = await pool.query(
-    `SELECT u.id, u.first_name, u.total_sessions_completed,
+    `SELECT u.user_id, u.first_name, u.total_sessions_completed,
             (SELECT ns3_mean FROM session_completions
-             WHERE user_id = u.id ORDER BY completed_at DESC LIMIT 1) as last_ns3,
+             WHERE user_id = u.user_id ORDER BY completed_at DESC LIMIT 1) as last_ns3,
             (SELECT completed_at FROM session_completions
-             WHERE user_id = u.id ORDER BY completed_at DESC LIMIT 1) as last_session_date,
+             WHERE user_id = u.user_id ORDER BY completed_at DESC LIMIT 1) as last_session_date,
             (SELECT packet_hash FROM session_completions
-             WHERE user_id = u.id ORDER BY completed_at DESC LIMIT 1) as last_packet_hash
+             WHERE user_id = u.user_id ORDER BY completed_at DESC LIMIT 1) as last_packet_hash
      FROM users u
      WHERE u.family_unit_id = $1`,
     [familyUnitId]
