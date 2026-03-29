@@ -154,7 +154,7 @@ async function evaluateGates(familyUnitId, tenantConfig = {}) {
     const elderStats = await pool.query(
       `SELECT COUNT(*) as total, MIN(completed_at) as first_session
        FROM session_completions sc
-       JOIN users u ON sc.user_id = u.user_id
+       JOIN users u ON sc.user_id = u.id
        WHERE u.id = $1`,
       [elderDbId]
     );
@@ -172,10 +172,10 @@ async function evaluateGates(familyUnitId, tenantConfig = {}) {
     const members = await pool.query(
       `SELECT fm.user_id, fm.role,
               (SELECT COUNT(*) FROM session_completions sc
-               JOIN users u ON sc.user_id = u.user_id
+               JOIN users u ON sc.user_id = u.id
                WHERE u.id = fm.user_id) as sessions,
               (SELECT MIN(completed_at) FROM session_completions sc
-               JOIN users u ON sc.user_id = u.user_id
+               JOIN users u ON sc.user_id = u.id
                WHERE u.id = fm.user_id) as first_session
        FROM family_memberships fm WHERE fm.family_unit_id = $1`,
       [familyUnitId]
@@ -197,7 +197,7 @@ async function evaluateGates(familyUnitId, tenantConfig = {}) {
   if (currentGates.gate_2 && !currentGates.gate_3) {
     const collective = await pool.query(
       `SELECT COUNT(*) as total FROM session_completions sc
-       JOIN users u ON sc.user_id = u.user_id
+       JOIN users u ON sc.user_id = u.id
        JOIN family_memberships fm ON fm.user_id = u.id
        WHERE fm.family_unit_id = $1`,
       [familyUnitId]
@@ -208,7 +208,7 @@ async function evaluateGates(familyUnitId, tenantConfig = {}) {
     // Check distinct active days
     const activeDays = await pool.query(
       `SELECT COUNT(DISTINCT DATE(sc.completed_at)) as days FROM session_completions sc
-       JOIN users u ON sc.user_id = u.user_id
+       JOIN users u ON sc.user_id = u.id
        JOIN family_memberships fm ON fm.user_id = u.id
        WHERE fm.family_unit_id = $1`,
       [familyUnitId]
@@ -423,7 +423,7 @@ async function getFamilyUnit(familyUnitId) {
   if (family.rows.length === 0) return null;
 
   const members = await pool.query(
-    `SELECT fm.*, u.user_id, u.first_name, u.total_sessions_completed
+    `SELECT fm.*, u.id, u.first_name, u.total_sessions_completed
      FROM family_memberships fm
      JOIN users u ON fm.user_id = u.id
      WHERE fm.family_unit_id = $1

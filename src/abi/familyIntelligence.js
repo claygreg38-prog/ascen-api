@@ -234,7 +234,7 @@ async function analyzeDyadicPattern(familyUnitId, userId, sessionData) {
     const recentFamilySessions = await pool.query(
       `SELECT sc.user_id as uid, u.id as db_id, sc.ns3_mean, sc.regulatory_trajectory
        FROM session_completions sc
-       JOIN users u ON sc.user_id = u.user_id
+       JOIN users u ON sc.user_id = u.id
        JOIN family_memberships fm ON fm.user_id = u.id
        WHERE fm.family_unit_id = $1 AND u.id != $2
          AND sc.completed_at > NOW() - INTERVAL '24 hours'
@@ -275,7 +275,7 @@ async function analyzeCascadePattern(familyUnitId, userId, sessionData) {
     const recentDysregulation = await pool.query(
       `SELECT sc.user_id as uid, u.id as db_id
        FROM session_completions sc
-       JOIN users u ON sc.user_id = u.user_id
+       JOIN users u ON sc.user_id = u.id
        JOIN family_memberships fm ON fm.user_id = u.id
        WHERE fm.family_unit_id = $1 AND u.id != $2
          AND sc.completed_at > NOW() - INTERVAL '48 hours'
@@ -515,7 +515,7 @@ async function checkEscalation(familyUnitId, patterns) {
     const dysregMembers = await pool.query(
       `SELECT u.id, COUNT(*) as below_count
        FROM session_completions sc
-       JOIN users u ON sc.user_id = u.user_id
+       JOIN users u ON sc.user_id = u.id
        JOIN family_memberships fm ON fm.user_id = u.id
        WHERE fm.family_unit_id = $1
          AND sc.completed_at > NOW() - INTERVAL '14 days'
@@ -567,14 +567,14 @@ async function checkEscalation(familyUnitId, patterns) {
     // 3. Engagement drop: family active sessions < 40% of baseline for 2+ weeks
     const recentActivity = await pool.query(
       `SELECT COUNT(*) as recent FROM session_completions sc
-       JOIN users u ON sc.user_id = u.user_id
+       JOIN users u ON sc.user_id = u.id
        JOIN family_memberships fm ON fm.user_id = u.id
        WHERE fm.family_unit_id = $1 AND sc.completed_at > NOW() - INTERVAL '14 days'`,
       [familyUnitId]
     );
     const baselineActivity = await pool.query(
       `SELECT COUNT(*) as baseline FROM session_completions sc
-       JOIN users u ON sc.user_id = u.user_id
+       JOIN users u ON sc.user_id = u.id
        JOIN family_memberships fm ON fm.user_id = u.id
        WHERE fm.family_unit_id = $1
          AND sc.completed_at BETWEEN NOW() - INTERVAL '42 days' AND NOW() - INTERVAL '14 days'`,

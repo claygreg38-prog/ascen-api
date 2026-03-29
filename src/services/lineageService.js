@@ -52,7 +52,7 @@ async function getUserTimeline(userId) {
 async function getFamilyTimeline(familyUnitId) {
   const result = await pool.query(
     `SELECT le.id, le.entry_type, le.entry_data, le.attestation_hash, le.created_at,
-            u.first_name, u.user_id
+            u.first_name, u.id
      FROM lineage_entries le
      JOIN users u ON le.user_id = u.id
      WHERE le.family_unit_id = $1
