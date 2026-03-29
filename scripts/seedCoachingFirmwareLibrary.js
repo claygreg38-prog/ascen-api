@@ -1585,7 +1585,7 @@ const COACHING_FIRMWARE_LIBRARY = [
     id: 'cf_repair_010',
     domain: 'repair',
     min_gate: 'gate_1',
-    template: "A crack doesn't ruin a bowl. Sometimes it's where the light gets in. Sometimes it's just a crack. Both are okay.",
+    template: "A crack doesn't break a bowl. Sometimes it's where the light gets in. Sometimes it's just a crack. Both are okay.",
     references_child: false,
     post_release: false,
     tags: ['imperfection', 'acceptance'],

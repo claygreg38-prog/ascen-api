@@ -411,7 +411,7 @@ async function getFamilyStatus(familyId) {
     `SELECT id, direction, content, age_bracket, delivery_status, held_reason,
             delivered_at, scheduled_for, clinician_previewed, created_at
      FROM breath_bridge_messages
-     WHERE family_id = $1 AND direction = 'parent_to_child'
+     WHERE family_id = $1 AND direction IN ('parent_to_child', 'child_to_parent_summary')
      ORDER BY created_at DESC LIMIT 10`,
     [familyId]
   );
@@ -423,10 +423,19 @@ async function getFamilyStatus(familyId) {
     [familyId]
   );
 
+  const summariesResult = await pool.query(
+    `SELECT id, content, delivered_at, created_at
+     FROM breath_bridge_messages
+     WHERE family_id = $1 AND direction = 'child_to_parent_summary'
+     ORDER BY created_at DESC LIMIT 3`,
+    [familyId]
+  );
+
   return {
     config,
     messages: messagesResult.rows,
     deliveredThisWeek: parseInt(deliveredThisWeek.rows[0].cnt),
+    warmthSummaries: summariesResult.rows,
   };
 }
 
