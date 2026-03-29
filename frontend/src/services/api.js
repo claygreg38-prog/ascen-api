@@ -13,7 +13,8 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
   r => r,
   async err => {
-    if (err.response?.status === 401 && !err.config._retry) {
+    const isAuthRoute = err.config?.url?.startsWith('/api/auth/login') || err.config?.url?.startsWith('/api/auth/register');
+    if (err.response?.status === 401 && !err.config._retry && !isAuthRoute) {
       err.config._retry = true;
       const refresh = localStorage.getItem('ascen_refresh');
       if (refresh) {
