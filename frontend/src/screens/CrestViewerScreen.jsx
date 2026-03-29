@@ -200,10 +200,18 @@ export default function CrestViewerScreen() {
   const [crest, setCrest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [ceremonyGlow, setCeremonyGlow] = useState(false);
 
   useEffect(() => {
     api.get('/api/crest')
-      .then(({ data }) => setCrest(data))
+      .then(({ data }) => {
+        setCrest(data);
+        // Brief glow pulse on load if crest has evolved beyond seed
+        if (parseFloat(data?.current_version || '1.0') > 1.0) {
+          setCeremonyGlow(true);
+          setTimeout(() => setCeremonyGlow(false), 2000);
+        }
+      })
       .catch(err => {
         if (err.response?.status === 404) setError('no_crest');
         else setError('failed');
@@ -299,7 +307,10 @@ export default function CrestViewerScreen() {
       )}
 
       {/* Crest canvas */}
-      <div style={S.crestContainer}>
+      <div style={{
+        ...S.crestContainer,
+        ...(ceremonyGlow ? { filter: 'brightness(1.3)', transition: 'filter 2s ease-out' } : { transition: 'filter 0.5s ease' }),
+      }}>
         <CrestCanvas stageIdx={stageIdx} quadrantData={quadrantData} />
         {/* Quadrant labels overlaid */}
         {[

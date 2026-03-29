@@ -241,6 +241,15 @@ export default function WearableSyncScreen() {
     return () => clearInterval(iv);
   }, []);
 
+  // BLE disconnect cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (bleConnection?.disconnect) {
+        try { bleConnection.disconnect(); } catch {}
+      }
+    };
+  }, [bleConnection]);
+
   // BLE scan (solo mode)
   const startScan = useCallback(async () => {
     if (!isBleSupported()) {
