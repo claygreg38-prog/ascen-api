@@ -123,11 +123,13 @@ export default function HomeScreen() {
       navigate('/app/child-breathe');
       return;
     }
-    if (context?.next_session?.number) {
-      navigate(`/app/session?s=${context.next_session.number}`);
-    } else {
-      navigate('/app/session');
-    }
+    // Adults route through wearable sync first, then to session
+    const sessionRoute = context?.next_session?.number
+      ? `/app/session?s=${context.next_session.number}`
+      : '/app/session';
+    navigate('/app/wearable-sync', {
+      state: { nextRoute: sessionRoute, mode: 'solo' },
+    });
   }
 
   // Text colors adapt: dark on sky (top cards), light on water (bottom cards)

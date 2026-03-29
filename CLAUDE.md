@@ -809,6 +809,8 @@ Focus only on the task assigned in the session prompt.
 - src/routes/clinicalKitchenTableRoutes.js — clinical kitchen table API (6 endpoints at /api/kitchen-table/clinical)
 - migrations/053_clinical_kitchen_table.sql — prompt_impacts, communication, coaching_logs tables
 - frontend/src/screens/ClinicianDashboardScreen.jsx — live kitchen table clinician dashboard (4-zone grid)
+- frontend/src/screens/CrestViewerScreen.jsx — Family Crest living document viewer (canvas + quadrant cards)
+- frontend/src/screens/WearableSyncScreen.jsx — BLE wearable sync pre-session flow (ocean canvas + HR ring)
 - frontend/src/components/BioRing.jsx — biometric ring + detail panel (clinician only)
 - frontend/src/components/SessionTimeline.jsx — ref-based canvas HRV timeline (clinician only)
 - public/test.html — throwaway test harness

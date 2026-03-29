@@ -344,9 +344,8 @@ export default function CrestViewerScreen() {
             }} />
           ))}
         </div>
-        <div style={S.stageLabel}>{stageObj.name}</div>
+        <div style={S.stageLabel}>{stageObj.name} · System Build {stageObj.ver.replace('v', '')}</div>
         <div style={S.stageDesc}>{stageObj.desc}</div>
-        <div style={S.stageVer}>{stageObj.ver}</div>
       </div>
 
       {/* Quadrant detail cards */}
