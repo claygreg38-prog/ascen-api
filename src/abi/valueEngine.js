@@ -79,12 +79,12 @@ class ValueEngine {
       // Engagement metrics
       const engagement = await this.pool.query(
         `SELECT
-           COUNT(DISTINCT u.user_id) as active_users,
+           COUNT(DISTINCT u.participant_id) as active_users,
            AVG(u.total_sessions_completed) as avg_sessions_per_user
          FROM users u
          WHERE EXISTS (
            SELECT 1 FROM session_completions sc
-           WHERE sc.user_id = u.user_id
+           WHERE sc.user_id = u.participant_id
              AND sc.completed_at > NOW() - ($1 || ' days')::INTERVAL
          )`,
         [period_days]

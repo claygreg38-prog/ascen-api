@@ -123,7 +123,7 @@ router.get('/family/:familyUnitId', async (req, res) => {
 
     const t = tenantWhere(req.tenantId, 1, 'fm');
     const members = await pool.query(
-      `SELECT u.user_id, u.first_name, fm.role
+      `SELECT u.participant_id as user_id, u.first_name, fm.role
        FROM family_memberships fm
        JOIN users u ON fm.user_id = u.id
        WHERE fm.family_unit_id = $1${t.clause}

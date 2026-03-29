@@ -517,7 +517,7 @@ async function getTransitionGuidance(sessionId, dimensionId) {
 async function getFamilyMap(familyUnitId) {
   try {
     const sessions = await pool.query(
-      `SELECT hp.*, u.first_name, u.user_id
+      `SELECT hp.*, u.first_name, u.participant_id as user_id
        FROM heritage_price_sessions hp
        JOIN users u ON hp.user_id = u.id
        WHERE hp.family_unit_id = $1 AND hp.status = 'completed'
