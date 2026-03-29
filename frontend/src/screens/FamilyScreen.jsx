@@ -99,6 +99,9 @@ export default function FamilyScreen() {
               ))}
             </div>
           )}
+          <button onClick={() => nav('/app/family/crest')} style={{ ...S.btn, marginBottom: 12, background: 'rgba(92,224,208,0.08)', border: '1px solid rgba(92,224,208,0.2)', color: '#5ffce0' }}>
+            View Family Crest
+          </button>
           {members.map((m, i) => (
             <div key={i} style={S.member}>
               <CapacityDot state={m.privacy_mode ? 'private' : m.state || 'unknown'} size={14} />

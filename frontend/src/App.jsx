@@ -30,6 +30,8 @@ import KitchenTableScreen from './screens/KitchenTableScreen';
 import ClinicianDashboardScreen from './screens/ClinicianDashboardScreen';
 import ChildBreathScreen from './screens/ChildBreathScreen';
 import ChildHomeScreen from './screens/ChildHomeScreen';
+import CrestViewerScreen from './screens/CrestViewerScreen';
+import WearableSyncScreen from './screens/WearableSyncScreen';
 
 // Shared features + age context for BottomNav and age-aware routing
 const FeaturesContext = createContext(null);
@@ -121,9 +123,11 @@ export default function App() {
           <Route path="/app/gallery" element={<Protected><GalleryScreen /></Protected>} />
           <Route path="/app/family" element={<Protected><FamilyScreen /></Protected>} />
           <Route path="/app/family/kitchen-table" element={<Protected nav={false} showHelp={false}><KitchenTableScreen /></Protected>} />
+          <Route path="/app/family/crest" element={<Protected><CrestViewerScreen /></Protected>} />
           <Route path="/app/profile" element={<Protected><ProfileScreen /></Protected>} />
 
           {/* Immersive — no nav, no help */}
+          <Route path="/app/wearable-sync" element={<Protected nav={false} showHelp={false}><WearableSyncScreen /></Protected>} />
           <Route path="/app/session" element={<Protected nav={false} showHelp={false}><SessionScreen /></Protected>} />
           <Route path="/app/child-breathe" element={<Protected nav={false} showHelp={false}><ChildBreathScreen /></Protected>} />
           <Route path="/app/cobreath/:roomCode" element={<Protected nav={false} showHelp={false}><CoBreathScreen /></Protected>} />
