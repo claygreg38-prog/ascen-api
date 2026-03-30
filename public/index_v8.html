@@ -206,6 +206,7 @@ let state = {
 const urlParams = new URLSearchParams(window.location.search);
 const IS_EMBEDDED = urlParams.get('embedded') === 'true';
 const REQUESTED_SESSION = urlParams.get('session') || null;
+const REQUESTED_SESSION_KEY = urlParams.get('sessionKey') || null;
 
 // SECURITY: Auth received via postMessage, NOT URL params.
 let _embeddedAuthReceived = false;
@@ -241,7 +242,13 @@ if (IS_EMBEDDED) {
         const payload = JSON.parse(atob(token.split('.')[1]));
         state.userId = payload.userId || payload.sub || payload.id;
       } catch (e) { console.warn('[V8] JWT decode failed:', e); }
-      if (REQUESTED_SESSION) {
+      if (REQUESTED_SESSION_KEY) {
+        // PWA already started the session — join it directly
+        state.sessionKey = REQUESTED_SESSION_KEY;
+        state.sessionId = REQUESTED_SESSION ? parseInt(REQUESTED_SESSION) : 1;
+        setPhase('arrival');
+        startArrival();
+      } else if (REQUESTED_SESSION) {
         state.sessionId = parseInt(REQUESTED_SESSION);
         startSession();
       } else {
