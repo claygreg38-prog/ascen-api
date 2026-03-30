@@ -95,8 +95,9 @@ router.post('/session/start', async (req, res) => {
     const options = req.body.options || {};
 
     // Fall back to JWT user identity when body doesn't include userId
+    // Use numeric DB id (req.user.userId = decoded.sub) — session_completions.user_id expects integer
     if (!userId) {
-      userId = req.user?.participant_id || req.user?.user_id || req.user?.userId;
+      userId = req.user?.userId;
     }
 
     // Build sessionId from session_number if not provided directly
