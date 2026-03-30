@@ -212,15 +212,16 @@ let _embeddedAuthReceived = false;
 
 if (IS_EMBEDDED) {
   // Notify parent the iframe is ready — retry until auth received (parent listener may not be attached yet)
-  window.parent.postMessage({ type: 'iframe_ready' }, window.location.origin);
+  // Use '*' because parent PWA may be on a different origin (e.g. ascen-frontend-production)
+  window.parent.postMessage({ type: 'iframe_ready' }, '*');
   var _iframeReadyInterval = setInterval(function() {
     if (_embeddedAuthReceived) { clearInterval(_iframeReadyInterval); return; }
-    window.parent.postMessage({ type: 'iframe_ready' }, window.location.origin);
+    window.parent.postMessage({ type: 'iframe_ready' }, '*');
   }, 500);
 
-  // Listen for auth message from parent PWA
+  // Listen for auth message from parent PWA (may be cross-origin)
   window.addEventListener('message', function(event) {
-    if (event.origin !== window.location.origin) return;
+    // Accept auth messages from any origin — the parent sends the JWT to us, not the other way around
     const { type, token, apiKey } = event.data || {};
     if (type === 'auth') {
       if (token) {
@@ -253,17 +254,17 @@ if (IS_EMBEDDED) {
 // postMessage helpers for embedded mode
 function notifyParentComplete(sessionNumber) {
   if (IS_EMBEDDED) {
-    window.parent.postMessage({ type: 'session_complete', data: { session_number: sessionNumber } }, window.location.origin);
+    window.parent.postMessage({ type: 'session_complete', data: { session_number: sessionNumber } }, '*');
   }
 }
 function notifyParentExit() {
   if (IS_EMBEDDED) {
-    window.parent.postMessage({ type: 'session_exit' }, window.location.origin);
+    window.parent.postMessage({ type: 'session_exit' }, '*');
   }
 }
 function notifyParentGallery() {
   if (IS_EMBEDDED) {
-    window.parent.postMessage({ type: 'view_gallery' }, window.location.origin);
+    window.parent.postMessage({ type: 'view_gallery' }, '*');
   }
 }
 

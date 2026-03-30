@@ -128,8 +128,10 @@ export default function SessionScreen() {
   useEffect(() => {
     if (phase !== 'breathing') return;
 
+    const breatheOrigin = apiBase ? new URL(apiBase).origin : window.location.origin;
+
     function handleMessage(event) {
-      if (event.origin !== window.location.origin) return;
+      if (event.origin !== window.location.origin && event.origin !== breatheOrigin) return;
       const { type, data } = event.data || {};
 
       switch (type) {
@@ -139,7 +141,7 @@ export default function SessionScreen() {
             type: 'auth',
             token: localStorage.getItem('ascen_jwt'),
             apiKey: localStorage.getItem('ascen_api_key') || '',
-          }, window.location.origin);
+          }, breatheOrigin);
           setIframeLoading(false);
           // Crossfade: show iframe after brief delay
           setTimeout(() => setIframeVisible(true), 200);
@@ -175,8 +177,9 @@ export default function SessionScreen() {
     navigate('/app/vault', { state: { fromSession: true, sessionNumber } });
   }, [navigate, sessionNumber]);
 
-  // Build iframe URL with session key
-  let breatheUrl = '/breathe?embedded=true';
+  // Build iframe URL with session key — /breathe is on the API server, not the frontend
+  const apiBase = import.meta.env.VITE_API_URL || '';
+  let breatheUrl = `${apiBase}/breathe?embedded=true`;
   if (sessionNumber) breatheUrl += `&session=${sessionNumber}`;
   if (sessionKey) breatheUrl += `&sessionKey=${sessionKey}`;
 
