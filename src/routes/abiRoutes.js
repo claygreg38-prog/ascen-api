@@ -560,11 +560,17 @@ router.post('/session/tick', async (req, res) => {
       events,
       drifting_word,
       ratio_changed,
-      current_ratio: current_ratio || (result?.session_update?.breath_ratio || result?.breath_ratio || null),
+      current_ratio: current_ratio || result?.session_update?.breath_ratio || result?.breath_ratio || null,
+      new_ratio: ratio_changed ? current_ratio : undefined,
       ratio_step_downs_remaining,
       somatic_reset,
       graceful_end,
-      graceful_end_message: graceful_end ? "You showed up. That's the work." : undefined
+      graceful_end_message: graceful_end ? "You showed up. That's the work." : undefined,
+      // Populate NS3/coherence so frontend can drive plankton feedback
+      ns3: result?.ns3 || null,
+      coherence: biometrics?.coherence || biometrics?.coherence_score || null,
+      breath_count: result?.breath_count || breathCount || 0,
+      elapsed: result?.elapsed || 0
     });
   } catch (error) {
     Sentry.captureException(error);

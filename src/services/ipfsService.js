@@ -18,8 +18,12 @@ const PINATA_API_URL = 'https://api.pinata.cloud';
  * @returns {string} iv:ciphertext (hex encoded)
  */
 function encryptClinicalPayload(payload, key) {
-  const iv = crypto.randomBytes(16);
   const keyBuffer = Buffer.from(key, 'hex');
+  if (keyBuffer.length !== 32) {
+    console.warn(`[IPFS] ART_ENCRYPTION_KEY invalid length: ${keyBuffer.length} bytes (need 32). Skipping encryption.`);
+    return null;
+  }
+  const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv('aes-256-cbc', keyBuffer, iv);
   let encrypted = cipher.update(JSON.stringify(payload), 'utf8', 'hex');
   encrypted += cipher.final('hex');

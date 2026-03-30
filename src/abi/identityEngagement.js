@@ -42,6 +42,16 @@ class CompanionshipMode {
   getLunoMessage() {
     return "Luno is here. No expectations. This time counts.";
   }
+
+  getSessionConfig() {
+    return {
+      active: this.active,
+      activated_at: this.activatedAt,
+      mode: 'companionship',
+      suppress_coaching: true,
+      suppress_biometric_mirror: true
+    };
+  }
 }
 
 module.exports = { IdentityGate, CompanionshipMode };

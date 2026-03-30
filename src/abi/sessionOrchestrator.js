@@ -1841,35 +1841,41 @@ function createOrchestrator(callbacks = {}) {
     } catch (err) { /* non-blocking */ }
 
     // ── MIRROR SCREEN DATA ──────────────────────────────
-    const mirrorData = {
-      suppress_biometrics: adaptedSession._suppress_biometric_mirror || false,
-      coherence_display: !adaptedSession._suppress_coherence_display,
-      active_duration_seconds: cleanMetrics.active_duration_seconds,
-      affirmation: primaryAffirmation ? primaryAffirmation.message : null,
-      mirror_dialogue: mirrorDialogue,
-      pause_note: cleanMetrics.mirror_pause_note || null,
-      advancement: advancementResult.action === 'advanced' ? advancementResult : null,
-      // New data from wired systems
-      state_summary: stateSummary,
-      coaching_summary: coachingSummary,
-      trend_report: trendReport,
-      immune_scan: immuneScan,
-      biometric_annotation: biometricAnnotation,
-      companionship_mode: isCompanionshipMode,
-      companionship_data: isCompanionshipMode && companionshipMode
-        ? companionshipMode.getSessionConfig() : null,
-      personalized_close: lunoPersonalizedClose,
-      personalized_close_tags: sessionTags,
-      victory_lap: victoryLap,
-      post_analysis: postAnalysis,
-      zone_time_profile: zoneProfile,
-      coherence_momentum: coherenceMomentum ? coherenceMomentum.getSummary() : null,
-      coaching_effectiveness: coachingEffectiveness ? coachingEffectiveness.getSummary() : null,
-      breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
-      aggregation: aggregationResult,
-      family_intelligence: familyIntelResult,
-      capacity: capacityResult
-    };
+    // Wrapped to prevent any single field from crashing the return
+    let mirrorData = {};
+    try {
+      mirrorData = {
+        suppress_biometrics: adaptedSession._suppress_biometric_mirror || false,
+        coherence_display: !adaptedSession._suppress_coherence_display,
+        active_duration_seconds: cleanMetrics.active_duration_seconds,
+        affirmation: primaryAffirmation ? primaryAffirmation.message : null,
+        mirror_dialogue: mirrorDialogue,
+        pause_note: cleanMetrics.mirror_pause_note || null,
+        advancement: advancementResult?.action === 'advanced' ? advancementResult : null,
+        state_summary: stateSummary,
+        coaching_summary: coachingSummary,
+        trend_report: trendReport,
+        immune_scan: immuneScan,
+        biometric_annotation: biometricAnnotation,
+        companionship_mode: isCompanionshipMode,
+        companionship_data: (isCompanionshipMode && companionshipMode?.getSessionConfig)
+          ? companionshipMode.getSessionConfig() : null,
+        personalized_close: lunoPersonalizedClose,
+        personalized_close_tags: sessionTags,
+        victory_lap: victoryLap,
+        post_analysis: postAnalysis,
+        zone_time_profile: zoneProfile,
+        coherence_momentum: coherenceMomentum?.getSummary ? coherenceMomentum.getSummary() : null,
+        coaching_effectiveness: coachingEffectiveness?.getSummary ? coachingEffectiveness.getSummary() : null,
+        breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
+        aggregation: aggregationResult,
+        family_intelligence: familyIntelResult,
+        capacity: capacityResult
+      };
+    } catch (err) {
+      console.error('[Mirror] Data assembly failed (returning partial):', err.message);
+      Sentry.captureException(err);
+    }
 
     onMirrorData(mirrorData);
 
