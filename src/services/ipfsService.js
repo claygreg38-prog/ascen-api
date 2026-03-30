@@ -156,7 +156,24 @@ async function upload(pngBuffer, metadataJSON, clinicalPayload, options = {}) {
   const encryptionKey = process.env.ART_ENCRYPTION_KEY;
 
   if (!encryptionKey) {
-    throw new Error('ART_ENCRYPTION_KEY must be set (64-char hex string for AES-256)');
+    console.warn('[IPFS] ART_ENCRYPTION_KEY not set — skipping art upload, session completion continues');
+    return { imageHash: null, metadataHash: null, skipped: true, reason: 'no_encryption_key' };
+  }
+
+  // Graceful degradation: if Pinata keys are missing, skip IPFS upload
+  const pinataKey = process.env.PINATA_API_KEY;
+  const pinataSecret = process.env.PINATA_SECRET_KEY;
+  if (!pinataKey || !pinataSecret) {
+    console.warn('[IPFS] PINATA_API_KEY/PINATA_SECRET_KEY not set — art generated but IPFS upload skipped. Session completion continues.');
+    // Encrypt clinical payload locally even without upload (for future backfill)
+    const encryptedClinical = encryptClinicalPayload(clinicalPayload, encryptionKey);
+    return {
+      imageHash: null,
+      metadataHash: null,
+      skipped: true,
+      reason: 'no_pinata_keys',
+      encrypted_clinical: encryptedClinical
+    };
   }
 
   // 1. Upload PNG to Pinata

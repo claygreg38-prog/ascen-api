@@ -1440,21 +1440,32 @@ function createOrchestrator(callbacks = {}) {
         };
 
         // Upload composite to IPFS (falls back to raw pngBuffer if harmonics failed)
-        const { imageHash, metadataHash } = await ipfsService.upload(
+        // Graceful: returns { skipped: true } when Pinata keys are missing
+        const ipfsResult = await ipfsService.upload(
           uploadBuffer, metadataJSON, clinicalPayload,
           { sessionNumber: rawSession.session_number || 0, firstName: user.first_name || 'Participant' }
         );
+        const { imageHash, metadataHash } = ipfsResult;
 
-        // Store art_ipfs_hash + harmonic metadata in session_completions
-        await pool.query(
-          `UPDATE session_completions SET art_ipfs_hash = $1, art_encoding_version = 1,
-           harmonic_meta = $4, container_shape = $5
-           WHERE user_id = $2 AND session_id = $3`,
-          [metadataHash, userId, sessionId, harmonicsMeta ? JSON.stringify(harmonicsMeta) : null, rawMetrics.containerShape || 'circle']
-        );
+        // Store art_ipfs_hash + harmonic metadata in session_completions (skip if IPFS was unavailable)
+        if (metadataHash) {
+          await pool.query(
+            `UPDATE session_completions SET art_ipfs_hash = $1, art_encoding_version = 1,
+             harmonic_meta = $4, container_shape = $5
+             WHERE user_id = $2 AND session_id = $3`,
+            [metadataHash, userId, sessionId, harmonicsMeta ? JSON.stringify(harmonicsMeta) : null, rawMetrics.containerShape || 'circle']
+          );
+        } else if (harmonicsMeta) {
+          // Still store harmonics even without IPFS
+          await pool.query(
+            `UPDATE session_completions SET harmonic_meta = $3, container_shape = $4
+             WHERE user_id = $1 AND session_id = $2`,
+            [userId, sessionId, JSON.stringify(harmonicsMeta), rawMetrics.containerShape || 'circle']
+          );
+        }
 
-        artResult = { svgString, imageHash, metadataHash };
-        console.log(`[BreathArt] Generated for session ${sessionId}, IPFS: ${metadataHash}`);
+        artResult = { svgString, imageHash, metadataHash, skipped: ipfsResult.skipped || false };
+        console.log(`[BreathArt] Generated for session ${sessionId}, IPFS: ${metadataHash || 'skipped (no Pinata keys)'}`);
       }
     } catch (err) {
       console.error('[BreathArt] Generation failed (non-blocking):', err.message);

@@ -269,7 +269,7 @@ router.post('/session/arrival-complete', async (req, res) => {
     const sk = session.dbSessionKey || key;
 
     // Persist adapted session, phase transition, and ratio tracking to DB
-    const assignedRatio = result?.ratio || result?._ratio || '4:6';
+    const assignedRatio = result?.breath_params?.ratio || result?.session_update?.breath_ratio || result?.ratio || '4:6';
     await sessionStateManager.updateSessionState(sk, {
       phase: 'breathing',
       adaptedSession: result,
@@ -294,15 +294,26 @@ router.post('/session/arrival-complete', async (req, res) => {
       initial_coherence: last30.length ? last30.reduce((s, x) => s + (x.coherence || 0), 0) / last30.length : 0
     };
 
+    // Extract ratio from orchestrator result
+    // Orchestrator returns: breath_params.ratio, session_update.breath_ratio
+    const resolvedRatio = result?.breath_params?.ratio
+      || result?.session_update?.breath_ratio
+      || result?.ratio || '4:6';
+    const resolvedDuration = result?.breath_params?.duration_seconds
+      || result?.session_update?.duration_seconds
+      || result?.duration_seconds || 180;
+
     res.json({
       success: true,
       result,
       adapted_session: {
-        breathwork_mode: result?.breathwork_mode || result?._breathwork_mode || 'simple_pacer',
-        ratio: result?.ratio || result?._ratio || '4:6',
-        track: result?.track || result?._track || 'standard',
-        duration_seconds: result?.duration_seconds || result?._duration_seconds || 720,
-        arc: result?.arc || result?._arc || 'foundation'
+        breathwork_mode: result?.session_update?.mode || result?.breathwork_mode || 'simple_pacer',
+        ratio: resolvedRatio,
+        track: result?.session_update?.track || result?.track || 'standard',
+        duration_seconds: resolvedDuration,
+        arc: result?.arc || 'foundation',
+        breath_in: result?.breath_params?.inhale_sec || result?.session_update?.breath_in,
+        breath_out: result?.breath_params?.exhale_sec || result?.session_update?.breath_out
       },
       arrival_baseline: arrivalBaseline,
       events
@@ -372,12 +383,12 @@ router.post('/session/tick', async (req, res) => {
     const result = session.abi.onBreathingTick(biometrics);
     const events = drainEvents(session);
     const tickLatency = Date.now() - tickStart;
+    const sk = session.dbSessionKey || key;
 
     // [CP2] Structured log — tick processed
-    console.log(`[CP2][${new Date().toISOString()}] TICK | SK:${sk || key} STATUS:${result ? 'ok' : 'empty'} LATENCY:${tickLatency}ms`);
+    console.log(`[CP2][${new Date().toISOString()}] TICK | SK:${sk} STATUS:${result ? 'ok' : 'empty'} LATENCY:${tickLatency}ms`);
 
     // Persist coherence peak to DB (non-blocking)
-    const sk = session.dbSessionKey || key;
     const coherence = biometrics?.coherence || 0;
     if (coherence > 0) {
       sessionStateManager.updateSessionState(sk, {

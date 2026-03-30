@@ -78,10 +78,23 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 .begin-btn{padding:.9rem 3rem;border-radius:12px;background:rgba(79,209,197,.12);border:1px solid rgba(79,209,197,.25);color:var(--accent);font-family:inherit;font-size:1rem;font-weight:500;cursor:pointer;transition:all .3s;letter-spacing:.05em}
 .begin-btn:active{background:rgba(79,209,197,.25)}
 
+/* ── BREATHING GUIDE RING ──────────────────────────── */
+.breath-guide{position:relative;width:200px;height:200px;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.breath-guide-ring{position:absolute;inset:0;border-radius:50%;border:2px solid var(--accent);opacity:.4;transition:border-color .3s}
+.breath-guide-ring.exhale{border-color:var(--accent2)}
+.breath-guide-progress{position:absolute;inset:0;border-radius:50%}
+.breath-guide-progress svg{width:100%;height:100%;transform:rotate(-90deg)}
+.breath-guide-progress circle{fill:none;stroke:var(--accent);stroke-width:3;stroke-linecap:round;transition:stroke .3s}
+.breath-guide-progress circle.exhale{stroke:var(--accent2)}
+.breath-guide-fill{position:absolute;inset:10px;border-radius:50%;background:rgba(79,209,197,.03);transition:all .15s linear}
+.breath-guide-fill.exhale{background:rgba(99,179,237,.03)}
+
 /* ── BREATHING RATIO DISPLAY ───────────────────────── */
-.ratio-display{font-size:1.8rem;font-weight:300;color:var(--accent);letter-spacing:.1em;margin-bottom:.25rem;transition:color .3s}
+.ratio-display{font-size:1.8rem;font-weight:300;color:var(--accent);letter-spacing:.1em;margin-bottom:.15rem;transition:color .3s}
 .ratio-display.exhale{color:var(--accent2)}
 .breath-phase-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.2em;color:var(--text-dim);transition:opacity .3s}
+.breath-countdown{font-size:2.5rem;font-weight:200;color:var(--accent);margin-bottom:.1rem;min-width:2ch;text-align:center;transition:color .3s}
+.breath-countdown.exhale{color:var(--accent2)}
 
 /* ── ART REVEAL ────────────────────────────────────── */
 .art-frame{width:280px;height:280px;border-radius:50%;overflow:hidden;border:2px solid rgba(79,209,197,.2);display:flex;align-items:center;justify-content:center;background:var(--surface);margin-bottom:1.5rem}
@@ -163,10 +176,18 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
 <!-- ═══ STEP 3: BREATHING (plankton biofeedback) ═══ -->
 <div class="phase-layer" id="breathingPhase">
-  <div class="ratio-display" id="ratioDisplay">--</div>
-  <div class="breath-phase-label" id="breathPhaseLabel">preparing</div>
-  <div class="luno-orb" id="breathLuno" style="width:120px;height:120px;margin-top:1.5rem"></div>
-  <div class="luno-speech" id="breathLunoText" style="margin-top:1.5rem"></div>
+  <div class="breath-guide" id="breathGuide">
+    <div class="breath-guide-ring" id="breathGuideRing"></div>
+    <div class="breath-guide-progress" id="breathGuideProgress">
+      <svg viewBox="0 0 200 200"><circle id="breathArc" cx="100" cy="100" r="96" stroke-dasharray="603.19" stroke-dashoffset="603.19"></circle></svg>
+    </div>
+    <div class="breath-guide-fill" id="breathGuideFill"></div>
+    <div class="breath-countdown" id="breathCountdown">--</div>
+    <div class="breath-phase-label" id="breathPhaseLabel">preparing</div>
+    <div class="ratio-display" id="ratioDisplay" style="font-size:1rem;margin-top:.3rem">--</div>
+  </div>
+  <div class="luno-orb" id="breathLuno" style="width:100px;height:100px;margin-top:1.5rem"></div>
+  <div class="luno-speech" id="breathLunoText" style="margin-top:1rem"></div>
 </div>
 
 <!-- ═══ STEP 4: ASCENT (reflection) ═══ -->
@@ -682,9 +703,11 @@ function initCanvas() {
 
       const col = lunoC(co);
       const glowBoost = prog * 0.6;
-      const alpha = (0.08 + co * 0.4 + glowBoost * 0.3 + Math.sin(p.ph) * 0.12) * p.dp;
-      const sz = (p.sz + co * 2 + glowBoost * 1.5) * (0.5 + p.dp * 0.6);
-      const glow = (2 + co * 10 + glowBoost * 10) * p.dp;
+      // Strengthened coherence response: 0.5+ should produce visible bioluminescence
+      const coBoost = co > 0.4 ? (co - 0.4) * 1.5 : 0; // extra kick above 0.4
+      const alpha = (0.1 + co * 0.6 + coBoost * 0.3 + glowBoost * 0.3 + Math.sin(p.ph) * 0.1) * p.dp;
+      const sz = (p.sz + co * 3.5 + coBoost * 2 + glowBoost * 1.5) * (0.5 + p.dp * 0.6);
+      const glow = (3 + co * 16 + coBoost * 8 + glowBoost * 10) * p.dp;
 
       ctx.beginPath(); ctx.arc(p.x, p.y, sz, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(' + (col[0]|0) + ',' + (col[1]|0) + ',' + (col[2]|0) + ',' + Math.max(0, alpha).toFixed(3) + ')';
@@ -695,13 +718,15 @@ function initCanvas() {
       ctx.fill(); ctx.shadowBlur = 0;
     }
 
-    // ── COHERENCE PULSE (during breathing) — particles organize radially ──
-    if (isBreathing && co > 0.4) {
+    // ── COHERENCE PULSE (during breathing) — visible bioluminescent field ──
+    if (isBreathing && co > 0.3) {
       const cx = w / 2, cy = h * 0.45;
-      const pulseR = 80 + co * 60 + Math.sin(t * 0.5) * 10;
+      const coStr = Math.max(0, (co - 0.3) / 0.7); // 0 at 0.3, 1 at 1.0
+      const pulseR = 100 + coStr * 80 + Math.sin(t * 0.5) * 15;
       const pg = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
       const pCol = lunoC(co);
-      pg.addColorStop(0, 'rgba(' + (pCol[0]|0) + ',' + (pCol[1]|0) + ',' + (pCol[2]|0) + ',' + (co * 0.08).toFixed(3) + ')');
+      pg.addColorStop(0, 'rgba(' + (pCol[0]|0) + ',' + (pCol[1]|0) + ',' + (pCol[2]|0) + ',' + (0.04 + coStr * 0.12).toFixed(3) + ')');
+      pg.addColorStop(0.5, 'rgba(' + (pCol[0]|0) + ',' + (pCol[1]|0) + ',' + (pCol[2]|0) + ',' + (coStr * 0.05).toFixed(3) + ')');
       pg.addColorStop(1, 'rgba(' + (pCol[0]|0) + ',' + (pCol[1]|0) + ',' + (pCol[2]|0) + ',0)');
       ctx.fillStyle = pg;
       ctx.fillRect(cx - pulseR, cy - pulseR, pulseR * 2, pulseR * 2);
@@ -756,6 +781,53 @@ function updateLunoOrbs() {
   if (state.phase === 'settle') renderLunoOrb(document.getElementById('settleLuno'), 80 + prog * 30, co, Math.min(2, glow));
   if (state.phase === 'breathing') renderLunoOrb(document.getElementById('breathLuno'), 120, co, 1 + co * 0.5);
   if (state.phase === 'ascent') renderLunoOrb(document.getElementById('ascentLuno'), 90 + (1 - prog) * 20, co, Math.min(2, glow));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TTS VOICE — Luno speaks through ElevenLabs
+// Enhancement only: session works without voice.
+// ═══════════════════════════════════════════════════════════════
+
+let ttsAvailable = false;
+let ttsAudio = null;
+
+async function checkTTS() {
+  try {
+    const data = await apiRequest('GET', '/api/tts/available');
+    ttsAvailable = data.available === true;
+  } catch { ttsAvailable = false; }
+}
+
+async function speakLuno(text, phase) {
+  if (!ttsAvailable || !text) return;
+  try {
+    const params = new URLSearchParams({
+      text: text,
+      phase: phase || 'breathing_milestone',
+      character: 'luno',
+      session_number: String(state.sessionNumber || 1)
+    });
+    const data = await apiRequest('GET', '/api/tts/generate?' + params.toString());
+    if (data.audio_url) {
+      // Stop any playing audio
+      if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
+      ttsAudio = new Audio(data.audio_url);
+      ttsAudio.volume = 0.7;
+      ttsAudio.play().catch(() => {}); // Autoplay may be blocked
+    }
+  } catch (err) { devLog('TTS: ' + err.message); }
+}
+
+// Pre-warm TTS for the session phases
+async function prewarmTTS() {
+  if (!ttsAvailable) return;
+  try {
+    await apiRequest('POST', '/api/tts/prewarm', {
+      session_number: state.sessionNumber || 1,
+      character: 'luno',
+      phases: ['arrival', 'closing']
+    });
+  } catch {}
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -825,10 +897,15 @@ async function loadSessionAndShowLanding() {
   }
 }
 
-function initSessionAndShowLanding() {
+async function initSessionAndShowLanding() {
   setPhase('landing');
   state.descentProgress = 0;
   updateLunoOrbs();
+  // Check and pre-warm TTS
+  await checkTTS();
+  if (ttsAvailable) prewarmTTS();
+  // Speak arrival greeting
+  speakLuno('Welcome back. Your breath is waiting.', 'arrival');
 }
 
 // ── STEP 1→2: Begin → Start session on server → Settle In ──
@@ -857,6 +934,7 @@ async function beginSession() {
 
 function startSettle() {
   setPhase('settle');
+  speakLuno('Going deeper now. Let the surface fade.', 'arrival');
   const startTime = Date.now();
   const SETTLE_DURATION = 10000; // 10 seconds
   const wordsFired = new Set();
@@ -976,22 +1054,57 @@ function startBreathing() {
   document.getElementById('ratioDisplay').textContent = ratioStr;
   document.getElementById('breathPhaseLabel').textContent = 'inhale';
 
-  // Breath animation — Luno orb pulses with breath cycle
+  // Breath animation — guide ring + countdown + Luno orb pulses
+  const circumference = 2 * Math.PI * 96; // matches SVG circle r=96
+  const arcEl = document.getElementById('breathArc');
+  const countdownEl = document.getElementById('breathCountdown');
+  const ringEl = document.getElementById('breathGuideRing');
+  const fillEl = document.getElementById('breathGuideFill');
+  const labelEl = document.getElementById('breathPhaseLabel');
+  const ratioEl = document.getElementById('ratioDisplay');
+  arcEl.style.strokeDasharray = circumference;
+
   function animateBreath() {
     if (state.phase !== 'breathing') return;
     if (state.paused) { state.breathAnimFrame = requestAnimationFrame(animateBreath); return; }
 
     const now = Date.now();
     const elapsed = ((now - startTime) / 1000) % cycleSec;
-    const ratioEl = document.getElementById('ratioDisplay');
-    const labelEl = document.getElementById('breathPhaseLabel');
+    const isExhale = elapsed >= inhale;
 
-    if (elapsed < inhale) {
+    if (!isExhale) {
+      // INHALE phase
+      const progress = elapsed / inhale;
+      const remaining = Math.ceil(inhale - elapsed);
+      countdownEl.textContent = remaining;
+      countdownEl.classList.remove('exhale');
+      arcEl.classList.remove('exhale');
+      ringEl.classList.remove('exhale');
+      fillEl.classList.remove('exhale');
       ratioEl.classList.remove('exhale');
       labelEl.textContent = 'inhale';
+      // Arc fills clockwise during inhale
+      arcEl.style.strokeDashoffset = circumference * (1 - progress);
+      // Fill expands
+      const scale = 1 + progress * 0.15;
+      fillEl.style.transform = 'scale(' + scale + ')';
     } else {
+      // EXHALE phase
+      const exhaleElapsed = elapsed - inhale;
+      const progress = exhaleElapsed / exhale;
+      const remaining = Math.ceil(exhale - exhaleElapsed);
+      countdownEl.textContent = remaining;
+      countdownEl.classList.add('exhale');
+      arcEl.classList.add('exhale');
+      ringEl.classList.add('exhale');
+      fillEl.classList.add('exhale');
       ratioEl.classList.add('exhale');
       labelEl.textContent = 'exhale';
+      // Arc empties during exhale
+      arcEl.style.strokeDashoffset = circumference * progress;
+      // Fill contracts
+      const scale = 1.15 - progress * 0.15;
+      fillEl.style.transform = 'scale(' + scale + ')';
     }
 
     updateLunoOrbs();
@@ -1054,6 +1167,7 @@ function startAscent() {
   const wordsFired = new Set();
 
   // Complete session on server (async, don't block animation)
+  speakLuno('Surfacing. Carrying your light with you.', 'closing');
   completeSessionOnServer();
 
   function animateAscent() {
@@ -1256,27 +1370,82 @@ async function fetchVagalData(sessionId) {
 
 function advanceToVault() {
   setPhase('vault');
+  speakLuno('Your session has been stored. This breath belongs to you.', 'closing');
 
   // Show capsule button if user has enough sessions
   if (state.sessionNumber >= 3) {
     document.getElementById('vaultCapsuleBtn').style.display = 'inline-block';
   }
 
-  // Store vault response on server
-  if (state.sessionKey) {
-    apiRequest('POST', '/api/fr/vault', {
-      session_key: state.sessionKey,
-      response: { completed: true, session_number: state.sessionNumber }
-    }).catch(() => {});
-  }
+  // Store vault response via /api/fr/vault (requires user_id, session_number, vault_response)
+  const vaultPayload = {
+    user_id: state.userId,
+    session_number: state.sessionNumber,
+    vault_response: {
+      completed: true,
+      duration_seconds: state.elapsed,
+      breath_count: state.breathCount,
+      coherence_peak: state.coherencePeak,
+      ratio: state.adaptedRatio || (state.inhale + ':' + state.exhale),
+      timestamp: new Date().toISOString()
+    }
+  };
+  apiRequest('POST', '/api/fr/vault', vaultPayload).then(data => {
+    if (data.sealed) {
+      document.getElementById('vaultMsg').textContent =
+        'Your session has been encrypted and stored. This breath belongs to you.';
+    }
+  }).catch(err => {
+    devLog('vault save: ' + err.message);
+    document.getElementById('vaultMsg').textContent =
+      'Your session is recorded. Encryption will complete when connection is restored.';
+  });
 }
 
 function openCapsuleFlow() {
-  // Navigate to legacy vault in PWA or show inline
+  // In embedded mode, delegate to PWA
   if (IS_EMBEDDED) {
     window.parent.postMessage({ type: 'open_vault', data: { session_id: state.sessionId } }, '*');
-  } else {
-    window.location.href = '/app/vault';
+    return;
+  }
+  // Standalone: create capsule via /api/legacy/capsule
+  createCapsule();
+}
+
+async function createCapsule() {
+  const vaultMsg = document.getElementById('vaultMsg');
+  const capsuleBtn = document.getElementById('vaultCapsuleBtn');
+  capsuleBtn.disabled = true;
+  capsuleBtn.textContent = 'Sealing...';
+
+  try {
+    // Find the session_completion id for this session
+    const completionId = state.completionResult?.session_completion_id || state.completionResult?.id || null;
+
+    const data = await apiRequest('POST', '/api/legacy/capsule', {
+      creator_participant_id: state.userId,
+      session_completion_id: completionId,
+      affirmation: 'I showed up. I breathed. This matters.',
+      release_type: 'immediate',
+      designees: [],
+      recovery_opt_in: true
+    });
+
+    if (data.capsule_id) {
+      vaultMsg.innerHTML =
+        'Capsule sealed.<br><span style="font-size:.75rem;color:var(--accent)">Recovery phrase (save this): ' +
+        '<strong>' + (data.mnemonic || 'Contact your facilitator') + '</strong></span>';
+      capsuleBtn.style.display = 'none';
+    } else {
+      vaultMsg.textContent = data.error || 'Capsule could not be created.';
+      capsuleBtn.disabled = false;
+      capsuleBtn.textContent = 'Create Capsule';
+    }
+  } catch (err) {
+    devLog('capsule create: ' + err.message);
+    vaultMsg.textContent = 'Capsule creation unavailable. Your session is still stored.';
+    capsuleBtn.disabled = false;
+    capsuleBtn.textContent = 'Create Capsule';
   }
 }
 
@@ -1344,6 +1513,7 @@ function processEvents(events) {
     switch (evt.type) {
       case 'luno_speak':
         showLunoSpeech(evt.text);
+        speakLuno(evt.text, 'breathing_milestone');
         break;
       case 'offer_exit':
         document.getElementById('btnExit').style.display = 'flex';
