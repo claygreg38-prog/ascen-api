@@ -235,16 +235,8 @@ router.post('/reset-password/complete', async (req, res) => {
 
 // ── Current User (requires JWT) ─────────────────────────────
 
-router.get('/me', async (req, res) => {
+router.get('/me', authenticate, async (req, res) => {
   try {
-    // This route needs auth — check if JWT present
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      // Check API key fallback
-      const apiKey = req.headers['x-api-key'];
-      if (!apiKey) return res.status(401).json({ error: 'Authentication required' });
-    }
-
     const userId = req.user?.userId || req.user?.sub;
     if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
