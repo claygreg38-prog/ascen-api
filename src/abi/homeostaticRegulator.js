@@ -3,8 +3,8 @@
 
 class HomeostaticRegulator {
   constructor(userId, pool) {
-    if (!userId || typeof userId !== 'string' || userId.trim() === '') throw new Error('HomeostaticRegulator: userId required');
-    this.userId = userId;
+    if (!userId && userId !== 0) throw new Error('HomeostaticRegulator: userId required');
+    this.userId = String(userId);
     this.pool = pool;
   }
 
