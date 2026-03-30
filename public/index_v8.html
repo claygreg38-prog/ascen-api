@@ -36,42 +36,79 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 .login-btn:disabled{opacity:.4;cursor:not-allowed}
 .login-error{color:var(--danger);font-size:.8rem;text-align:center;margin-top:.5rem;min-height:1.2rem}
 
-/* ── MAIN SESSION UI ───────────────────────────────── */
-#sessionContainer{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;transition:opacity .6s}
-#sessionContainer.visible{opacity:1}
+/* ── FULLSCREEN CANVAS ─────────────────────────────── */
+#immersiveCanvas{position:fixed;inset:0;z-index:0;pointer-events:none}
 
-/* Breath circle */
-.breath-ring{width:240px;height:240px;border-radius:50%;border:3px solid var(--accent);display:flex;align-items:center;justify-content:center;transition:transform .1s linear;position:relative}
-.breath-ring::after{content:'';position:absolute;inset:8px;border-radius:50%;border:1px solid rgba(79,209,197,.2)}
-.breath-label{font-size:1.1rem;font-weight:300;color:var(--accent);text-transform:uppercase;letter-spacing:.1em}
+/* ── PHASE LAYERS ──────────────────────────────────── */
+.phase-layer{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;opacity:0;pointer-events:none;transition:opacity .8s ease}
+.phase-layer.active{opacity:1;pointer-events:auto}
 
-/* Luno */
-.luno-container{margin-top:2rem;text-align:center;min-height:60px}
-.luno-text{font-size:.95rem;color:var(--text-dim);font-weight:300;line-height:1.5;max-width:320px;margin:0 auto;opacity:0;transition:opacity .5s}
-.luno-text.visible{opacity:1}
+/* ── LUNO ORGANISM (illuminated) ───────────────────── */
+.luno-orb{position:relative;display:flex;align-items:center;justify-content:center}
+.luno-orb .ring-outer{position:absolute;border-radius:50%;transition:all 1s ease}
+.luno-orb .ring-mid{position:absolute;border-radius:50%;transition:all 1s ease}
+.luno-orb .ring-core{position:absolute;border-radius:50%;transition:all .6s ease}
+.luno-orb .ring-spark{position:absolute;width:5px;height:5px;border-radius:50%;background:#fff;transition:all .6s ease}
 
-/* Status bar */
-.status-bar{position:fixed;bottom:0;left:0;right:0;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(transparent,rgba(2,8,18,.9))}
+/* ── LUNO TEXT ─────────────────────────────────────── */
+.luno-speech{text-align:center;max-width:320px;margin:0 auto;font-size:.95rem;color:var(--text-dim);font-weight:300;line-height:1.6;opacity:0;transition:opacity .6s ease;min-height:48px}
+.luno-speech.visible{opacity:1}
+
+/* ── DRIFTING WORD ─────────────────────────────────── */
+.drift-word{position:fixed;left:50%;transform:translateX(-50%);font-size:1.4rem;font-weight:300;letter-spacing:.15em;color:rgba(200,220,240,.7);pointer-events:none;animation:driftUp 3s ease-out forwards;z-index:20}
+@keyframes driftUp{0%{opacity:0;top:60%}15%{opacity:1}80%{opacity:1}100%{opacity:0;top:35%}}
+
+/* ── PHASE BADGE ───────────────────────────────────── */
+.phase-badge{position:fixed;top:env(safe-area-inset-top,20px);left:50%;transform:translateX(-50%);padding:.4rem 1.2rem;border-radius:20px;background:rgba(79,209,197,.08);border:1px solid rgba(79,209,197,.15);font-size:.7rem;color:var(--accent);text-transform:uppercase;letter-spacing:.15em;z-index:50;transition:opacity .5s}
+
+/* ── STATUS BAR ────────────────────────────────────── */
+.status-bar{position:fixed;bottom:0;left:0;right:0;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(transparent,rgba(2,8,18,.9));z-index:30;opacity:0;transition:opacity .5s}
+.status-bar.visible{opacity:1}
 .status-item{font-size:.75rem;color:var(--text-dim)}
 .status-value{color:var(--accent);font-weight:500}
 
-/* Phase indicator */
-.phase-badge{position:fixed;top:env(safe-area-inset-top,20px);left:50%;transform:translateX(-50%);padding:.4rem 1.2rem;border-radius:20px;background:rgba(79,209,197,.1);border:1px solid rgba(79,209,197,.2);font-size:.75rem;color:var(--accent);text-transform:uppercase;letter-spacing:.15em}
-
-/* Controls */
-.controls{position:fixed;bottom:5rem;left:50%;transform:translateX(-50%);display:flex;gap:1rem}
+/* ── CONTROLS ──────────────────────────────────────── */
+.controls{position:fixed;bottom:5rem;left:50%;transform:translateX(-50%);display:flex;gap:1rem;z-index:30}
 .ctrl-btn{width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--text-dim);font-size:1.2rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .ctrl-btn:active{background:rgba(79,209,197,.15);border-color:var(--accent)}
 
-/* Mirror screen */
-#mirrorScreen{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:500;padding:2rem}
-#mirrorScreen.visible{display:flex}
-.mirror-stat{text-align:center;margin-bottom:1.5rem}
-.mirror-value{font-size:2.5rem;font-weight:600;color:var(--accent)}
-.mirror-label{font-size:.8rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;margin-top:.25rem}
-.mirror-close{margin-top:2rem;padding:.8rem 2rem;border-radius:10px;background:rgba(79,209,197,.15);border:1px solid rgba(79,209,197,.3);color:var(--accent);font-family:inherit;font-size:.9rem;cursor:pointer}
+/* ── LANDING ───────────────────────────────────────── */
+#landingPhase .landing-title{font-size:1.6rem;font-weight:600;color:var(--accent);margin-bottom:.5rem;letter-spacing:.02em}
+#landingPhase .landing-sub{font-size:.85rem;color:var(--text-dim);margin-bottom:2.5rem}
+.begin-btn{padding:.9rem 3rem;border-radius:12px;background:rgba(79,209,197,.12);border:1px solid rgba(79,209,197,.25);color:var(--accent);font-family:inherit;font-size:1rem;font-weight:500;cursor:pointer;transition:all .3s;letter-spacing:.05em}
+.begin-btn:active{background:rgba(79,209,197,.25)}
 
-/* Dev panel (triple-tap Luno) */
+/* ── BREATHING RATIO DISPLAY ───────────────────────── */
+.ratio-display{font-size:1.8rem;font-weight:300;color:var(--accent);letter-spacing:.1em;margin-bottom:.25rem;transition:color .3s}
+.ratio-display.exhale{color:var(--accent2)}
+.breath-phase-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.2em;color:var(--text-dim);transition:opacity .3s}
+
+/* ── ART REVEAL ────────────────────────────────────── */
+.art-frame{width:280px;height:280px;border-radius:50%;overflow:hidden;border:2px solid rgba(79,209,197,.2);display:flex;align-items:center;justify-content:center;background:var(--surface);margin-bottom:1.5rem}
+.art-frame img{width:100%;height:100%;object-fit:cover}
+.art-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:.8rem;color:var(--text-dim)}
+
+/* ── VAGAL JOURNEY MAP ─────────────────────────────── */
+.journey-bar{position:relative;width:90%;max-width:320px;height:300px;border-radius:12px;overflow:hidden;background:rgba(14,28,50,.4);border:1px solid rgba(160,180,210,.08);margin:1rem auto}
+.journey-zone{position:absolute;left:0;right:0;display:flex;align-items:center;padding-left:12px}
+.journey-zone-label{font-size:10px;font-weight:300;letter-spacing:1px;opacity:.7}
+.journey-dot{position:absolute;right:25%;width:14px;height:14px;border-radius:50%;transform:translate(50%,-50%);z-index:2}
+.journey-dot-label{position:absolute;right:calc(25% + 14px);transform:translateY(-50%);font-size:10px;font-weight:400;white-space:nowrap;z-index:2}
+.journey-line{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:1}
+
+/* ── VAULT ─────────────────────────────────────────── */
+.vault-card{width:90%;max-width:360px;padding:1.5rem;border-radius:16px;background:var(--surface);border:1px solid rgba(79,209,197,.12);text-align:center}
+.vault-title{font-size:1.1rem;font-weight:500;color:var(--accent);margin-bottom:.5rem}
+.vault-msg{font-size:.85rem;color:var(--text-dim);line-height:1.5;margin-bottom:1.5rem}
+.vault-btn{padding:.7rem 2rem;border-radius:10px;background:rgba(79,209,197,.12);border:1px solid rgba(79,209,197,.2);color:var(--accent);font-family:inherit;font-size:.9rem;cursor:pointer;margin:0 .4rem;transition:all .2s}
+.vault-btn:active{background:rgba(79,209,197,.25)}
+.vault-btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);border:none;font-weight:600}
+
+/* ── SECTION TITLES ────────────────────────────────── */
+.section-title{font-size:1.2rem;font-weight:500;color:var(--text);margin-bottom:.3rem}
+.section-sub{font-size:.8rem;color:var(--text-dim);margin-bottom:1.5rem}
+
+/* ── DEV PANEL (triple-tap Luno) ───────────────────── */
 #devPanel{position:fixed;top:0;right:0;width:280px;height:100%;background:var(--surface);border-left:1px solid rgba(255,255,255,.1);padding:1rem;z-index:2000;transform:translateX(100%);transition:transform .3s;overflow-y:auto;font-size:.75rem}
 #devPanel.open{transform:translateX(0)}
 .dev-field{margin-bottom:.5rem}
@@ -90,64 +127,95 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       <button class="login-tab active" onclick="switchLoginTab('participant')">Participant</button>
       <button class="login-tab" onclick="switchLoginTab('staff')">Staff</button>
     </div>
-
-    <!-- Participant login (ID + PIN) -->
     <div id="participantLogin">
       <input class="login-field" id="participantId" type="text" placeholder="Participant ID" autocomplete="off">
       <div class="pin-display" id="pinDisplay"></div>
       <div class="pin-grid" id="pinGrid"></div>
     </div>
-
-    <!-- Staff login (email + password) -->
     <div id="staffLogin" style="display:none">
       <input class="login-field" id="staffEmail" type="email" placeholder="Email address" autocomplete="email">
       <input class="login-field" id="staffPassword" type="password" placeholder="Password" autocomplete="current-password">
       <button class="login-btn" onclick="loginStaff()">Sign In</button>
     </div>
-
     <div class="login-error" id="loginError"></div>
   </div>
 </div>
 
-<!-- ═══ SESSION CONTAINER ═══ -->
-<div id="sessionContainer">
-  <div class="phase-badge" id="phaseBadge">Arrival</div>
+<!-- ═══ FULLSCREEN CANVAS (plankton + descent + ocean) ═══ -->
+<canvas id="immersiveCanvas"></canvas>
 
-  <div class="breath-ring" id="breathRing">
-    <span class="breath-label" id="breathLabel">Settle In</span>
+<!-- ═══ PHASE BADGE ═══ -->
+<div class="phase-badge" id="phaseBadge"></div>
+
+<!-- ═══ STEP 1: LANDING (Luno greeting) ═══ -->
+<div class="phase-layer" id="landingPhase">
+  <div class="luno-orb" id="landingLuno" style="width:100px;height:100px;margin-bottom:2rem"></div>
+  <div class="landing-title">Welcome back.</div>
+  <div class="landing-sub" id="landingGreeting">Your breath is waiting.</div>
+  <button class="begin-btn" id="beginBtn" onclick="beginSession()">Begin</button>
+</div>
+
+<!-- ═══ STEP 2: SETTLE IN (10s descent) ═══ -->
+<div class="phase-layer" id="settlePhase">
+  <div class="luno-orb" id="settleLuno" style="width:80px;height:80px"></div>
+  <div class="luno-speech" id="settleText"></div>
+</div>
+
+<!-- ═══ STEP 3: BREATHING (plankton biofeedback) ═══ -->
+<div class="phase-layer" id="breathingPhase">
+  <div class="ratio-display" id="ratioDisplay">--</div>
+  <div class="breath-phase-label" id="breathPhaseLabel">preparing</div>
+  <div class="luno-orb" id="breathLuno" style="width:120px;height:120px;margin-top:1.5rem"></div>
+  <div class="luno-speech" id="breathLunoText" style="margin-top:1.5rem"></div>
+</div>
+
+<!-- ═══ STEP 4: ASCENT (reflection) ═══ -->
+<div class="phase-layer" id="ascentPhase">
+  <div class="luno-orb" id="ascentLuno" style="width:90px;height:90px;margin-bottom:1.5rem"></div>
+  <div class="luno-speech visible" id="ascentText" style="font-size:1.1rem;color:var(--text)">Surfacing.</div>
+</div>
+
+<!-- ═══ STEP 5: ART CREATION ═══ -->
+<div class="phase-layer" id="artPhase">
+  <div class="section-title">Your Breath, Made Visible</div>
+  <div class="section-sub">A thread woven from this session</div>
+  <div class="art-frame" id="artFrame">
+    <div class="art-placeholder" id="artPlaceholder">Generating...</div>
   </div>
+  <button class="vault-btn" onclick="advanceToVagal()">Continue</button>
+</div>
 
-  <div class="luno-container">
-    <div class="luno-text" id="lunoText"></div>
-  </div>
+<!-- ═══ STEP 6: VAGAL JOURNEY MAP ═══ -->
+<div class="phase-layer" id="vagalPhase">
+  <div class="section-title">Your Journey</div>
+  <div class="section-sub" id="vagalSub">Where you arrived. Where you landed.</div>
+  <div class="journey-bar" id="journeyBar"></div>
+  <button class="vault-btn" style="margin-top:1rem" onclick="advanceToVault()">Continue</button>
+</div>
 
-  <div class="controls">
-    <button class="ctrl-btn" id="btnPause" title="Pause">&#10074;&#10074;</button>
-    <button class="ctrl-btn" id="btnExit" title="Exit" style="display:none">&#x2715;</button>
-  </div>
-
-  <div class="status-bar">
-    <span class="status-item">HR <span class="status-value" id="hrDisplay">--</span></span>
-    <span class="status-item">Coherence <span class="status-value" id="cohDisplay">--</span></span>
-    <span class="status-item"><span class="status-value" id="timerDisplay">0:00</span></span>
+<!-- ═══ STEP 7: VAULT / LEGACY ═══ -->
+<div class="phase-layer" id="vaultPhase">
+  <div class="vault-card">
+    <div class="vault-title">Session Stored</div>
+    <div class="vault-msg" id="vaultMsg">Your session has been recorded and encrypted. This breath belongs to you.</div>
+    <div style="display:flex;justify-content:center;gap:.5rem;flex-wrap:wrap">
+      <button class="vault-btn" onclick="closeSession()">Done</button>
+      <button class="vault-btn primary" id="vaultCapsuleBtn" onclick="openCapsuleFlow()" style="display:none">Create Capsule</button>
+    </div>
   </div>
 </div>
 
-<!-- ═══ MIRROR SCREEN ═══ -->
-<div id="mirrorScreen">
-  <div class="mirror-stat">
-    <div class="mirror-value" id="mirrorBreaths">0</div>
-    <div class="mirror-label">Breaths</div>
-  </div>
-  <div class="mirror-stat">
-    <div class="mirror-value" id="mirrorDuration">0:00</div>
-    <div class="mirror-label">Duration</div>
-  </div>
-  <div class="mirror-stat">
-    <div class="mirror-value" id="mirrorCoherence">0</div>
-    <div class="mirror-label">Peak Coherence</div>
-  </div>
-  <button class="mirror-close" onclick="closeMirror()">Complete</button>
+<!-- ═══ STATUS BAR ═══ -->
+<div class="status-bar" id="statusBar">
+  <span class="status-item">HR <span class="status-value" id="hrDisplay">--</span></span>
+  <span class="status-item">Coherence <span class="status-value" id="cohDisplay">--</span></span>
+  <span class="status-item"><span class="status-value" id="timerDisplay">0:00</span></span>
+</div>
+
+<!-- ═══ CONTROLS ═══ -->
+<div class="controls" id="sessionControls" style="display:none">
+  <button class="ctrl-btn" id="btnPause" title="Pause">&#10074;&#10074;</button>
+  <button class="ctrl-btn" id="btnExit" title="Exit" style="display:none">&#x2715;</button>
 </div>
 
 <!-- ═══ DEV PANEL (triple-tap Luno) ═══ -->
@@ -174,29 +242,45 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 <script>
 // ═══════════════════════════════════════════════════════════════
 // ASCEN v8 Immersive Breathing Session Engine
+// Full 7-step flow with plankton biofeedback + illuminated Luno
 // ═══════════════════════════════════════════════════════════════
 
 const API_BASE = window.location.origin;
+const SESSION_DURATION = 180; // 3-minute hard cap — no exceptions
 
 // ── STATE ──────────────────────────────────────────────────
-let state = {
+const state = {
   jwt: localStorage.getItem('ascen_jwt'),
   refreshToken: localStorage.getItem('ascen_refresh'),
   sessionKey: null,
-  phase: 'idle', // idle, arrival, breathing, paused, mirror, done
+  // 7-step flow: landing → settle → breathing → ascent → art → vagal → vault
+  phase: 'idle',
   userId: null,
   sessionId: null,
+  sessionNumber: 1,
   breathCount: 0,
   coherencePeak: 0,
+  coherenceCurrent: 0,
   elapsed: 0,
   paused: false,
   bleConnected: false,
-  arrivalTimer: null,
   tickTimer: null,
   breathAnimFrame: null,
+  canvasAnimFrame: null,
   devPanelOpen: false,
   lunoTapCount: 0,
-  lunoTapTimeout: null
+  lunoTapTimeout: null,
+  // Adapted from server (NS3-driven)
+  adaptedRatio: null,
+  inhale: 4,
+  exhale: 6,
+  // Descent/ascent progress (0-1)
+  descentProgress: 0,
+  // Session results
+  completionResult: null,
+  arrivalNs3: null,
+  landingNs3: null,
+  artUrl: null
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -208,21 +292,16 @@ const IS_EMBEDDED = urlParams.get('embedded') === 'true';
 const REQUESTED_SESSION = urlParams.get('session') || null;
 const REQUESTED_SESSION_KEY = urlParams.get('sessionKey') || null;
 
-// SECURITY: Auth received via postMessage, NOT URL params.
 let _embeddedAuthReceived = false;
 
 if (IS_EMBEDDED) {
-  // Notify parent the iframe is ready — retry until auth received (parent listener may not be attached yet)
-  // Use '*' because parent PWA may be on a different origin (e.g. ascen-frontend-production)
   window.parent.postMessage({ type: 'iframe_ready' }, '*');
   var _iframeReadyInterval = setInterval(function() {
     if (_embeddedAuthReceived) { clearInterval(_iframeReadyInterval); return; }
     window.parent.postMessage({ type: 'iframe_ready' }, '*');
   }, 500);
 
-  // Listen for auth message from parent PWA (may be cross-origin)
   window.addEventListener('message', function(event) {
-    // Accept auth messages from any origin — the parent sends the JWT to us, not the other way around
     const { type, token, apiKey } = event.data || {};
     if (type === 'auth') {
       if (token) {
@@ -234,45 +313,33 @@ if (IS_EMBEDDED) {
         if (devKeyInput) devKeyInput.value = apiKey;
       }
       _embeddedAuthReceived = true;
-      console.log('[V8] Auth received via postMessage');
-      // Hide login and start session
       hideLogin();
-      // Decode userId from JWT
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
         state.userId = payload.userId || payload.sub || payload.id;
-      } catch (e) { console.warn('[V8] JWT decode failed:', e); }
+      } catch (e) {}
       if (REQUESTED_SESSION_KEY) {
-        // PWA already started the session — join it directly
         state.sessionKey = REQUESTED_SESSION_KEY;
         state.sessionId = REQUESTED_SESSION ? parseInt(REQUESTED_SESSION) : 1;
-        setPhase('arrival');
-        startArrival();
+        beginSession();
       } else if (REQUESTED_SESSION) {
         state.sessionId = parseInt(REQUESTED_SESSION);
-        startSession();
+        initSessionAndShowLanding();
       } else {
-        loadSessionAndStart();
+        loadSessionAndShowLanding();
       }
     }
   });
 }
 
-// postMessage helpers for embedded mode
 function notifyParentComplete(sessionNumber) {
-  if (IS_EMBEDDED) {
-    window.parent.postMessage({ type: 'session_complete', data: { session_number: sessionNumber } }, '*');
-  }
+  if (IS_EMBEDDED) window.parent.postMessage({ type: 'session_complete', data: { session_number: sessionNumber } }, '*');
 }
 function notifyParentExit() {
-  if (IS_EMBEDDED) {
-    window.parent.postMessage({ type: 'session_exit' }, '*');
-  }
+  if (IS_EMBEDDED) window.parent.postMessage({ type: 'session_exit' }, '*');
 }
 function notifyParentGallery() {
-  if (IS_EMBEDDED) {
-    window.parent.postMessage({ type: 'view_gallery' }, '*');
-  }
+  if (IS_EMBEDDED) window.parent.postMessage({ type: 'view_gallery' }, '*');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -281,24 +348,19 @@ function notifyParentGallery() {
 
 async function apiRequest(method, path, body) {
   const headers = { 'Content-Type': 'application/json' };
-
   if (state.jwt) {
     headers['Authorization'] = 'Bearer ' + state.jwt;
   } else if (state.devPanelOpen) {
     const devKey = document.getElementById('devApiKey')?.value;
     if (devKey) headers['x-api-key'] = devKey;
   }
-
-  if (state.sessionKey) {
-    headers['x-session-key'] = state.sessionKey;
-  }
+  if (state.sessionKey) headers['x-session-key'] = state.sessionKey;
 
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
 
   const res = await fetch(API_BASE + path, opts);
 
-  // Token refresh on 401
   if (res.status === 401 && state.refreshToken) {
     const refreshed = await refreshJWT();
     if (refreshed) {
@@ -334,9 +396,7 @@ async function refreshJWT() {
       localStorage.setItem('ascen_refresh', state.refreshToken);
     }
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -349,12 +409,11 @@ function initPinPad() {
   const display = document.getElementById('pinDisplay');
   const grid = document.getElementById('pinGrid');
   display.innerHTML = Array(6).fill('<div class="pin-dot"></div>').join('');
-
   const keys = [1,2,3,4,5,6,7,8,9,'',0,'<'];
   grid.innerHTML = keys.map(k => {
     if (k === '') return '<button class="pin-key empty"></button>';
     if (k === '<') return '<button class="pin-key" onclick="pinBackspace()">&#9003;</button>';
-    return `<button class="pin-key" onclick="pinPress(${k})">${k}</button>`;
+    return '<button class="pin-key" onclick="pinPress(' + k + ')">' + k + '</button>';
   }).join('');
 }
 
@@ -362,37 +421,21 @@ function pinPress(digit) {
   if (loginPin.length >= 6) return;
   loginPin += digit;
   updatePinDots();
-  if (loginPin.length === 6) {
-    setTimeout(() => loginParticipant(), 150);
-  }
+  if (loginPin.length === 6) setTimeout(() => loginParticipant(), 150);
 }
-
-function pinBackspace() {
-  loginPin = loginPin.slice(0, -1);
-  updatePinDots();
-}
-
+function pinBackspace() { loginPin = loginPin.slice(0, -1); updatePinDots(); }
 function updatePinDots() {
-  const dots = document.querySelectorAll('.pin-dot');
-  dots.forEach((d, i) => d.classList.toggle('filled', i < loginPin.length));
+  document.querySelectorAll('.pin-dot').forEach((d, i) => d.classList.toggle('filled', i < loginPin.length));
 }
 
 async function loginParticipant() {
   const participantId = document.getElementById('participantId').value.trim();
-  if (!participantId) {
-    showLoginError('Enter your Participant ID');
-    loginPin = '';
-    updatePinDots();
-    return;
-  }
-
+  if (!participantId) { showLoginError('Enter your Participant ID'); loginPin = ''; updatePinDots(); return; }
   try {
     const data = await fetch(API_BASE + '/api/auth/login/facility', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ participant_id: participantId, pin: loginPin })
     }).then(r => r.json());
-
     if (data.jwt) {
       state.jwt = data.jwt;
       state.refreshToken = data.refresh_token;
@@ -400,35 +443,20 @@ async function loginParticipant() {
       localStorage.setItem('ascen_jwt', state.jwt);
       localStorage.setItem('ascen_refresh', state.refreshToken);
       hideLogin();
-      loadSessionAndStart();
-    } else {
-      showLoginError(data.error || 'Login failed');
-      loginPin = '';
-      updatePinDots();
-    }
-  } catch (err) {
-    showLoginError(err.message);
-    loginPin = '';
-    updatePinDots();
-  }
+      loadSessionAndShowLanding();
+    } else { showLoginError(data.error || 'Login failed'); loginPin = ''; updatePinDots(); }
+  } catch (err) { showLoginError(err.message); loginPin = ''; updatePinDots(); }
 }
 
 async function loginStaff() {
   const email = document.getElementById('staffEmail').value.trim();
   const password = document.getElementById('staffPassword').value;
-
-  if (!email || !password) {
-    showLoginError('Enter email and password');
-    return;
-  }
-
+  if (!email || !password) { showLoginError('Enter email and password'); return; }
   try {
     const data = await fetch(API_BASE + '/api/auth/login/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     }).then(r => r.json());
-
     if (data.jwt) {
       state.jwt = data.jwt;
       state.refreshToken = data.refresh_token;
@@ -436,13 +464,9 @@ async function loginStaff() {
       localStorage.setItem('ascen_jwt', state.jwt);
       localStorage.setItem('ascen_refresh', state.refreshToken);
       hideLogin();
-      loadSessionAndStart();
-    } else {
-      showLoginError(data.error || 'Login failed');
-    }
-  } catch (err) {
-    showLoginError(err.message);
-  }
+      loadSessionAndShowLanding();
+    } else { showLoginError(data.error || 'Login failed'); }
+  } catch (err) { showLoginError(err.message); }
 }
 
 function switchLoginTab(tab) {
@@ -454,14 +478,13 @@ function switchLoginTab(tab) {
 }
 
 function showLoginError(msg) { document.getElementById('loginError').textContent = msg; }
-function showLogin() { document.getElementById('loginOverlay').classList.remove('hidden'); document.getElementById('sessionContainer').classList.remove('visible'); }
-function hideLogin() { document.getElementById('loginOverlay').classList.add('hidden'); document.getElementById('sessionContainer').classList.add('visible'); }
+function showLogin() { document.getElementById('loginOverlay').classList.remove('hidden'); }
+function hideLogin() { document.getElementById('loginOverlay').classList.add('hidden'); }
 
 // ═══════════════════════════════════════════════════════════════
 // BLE INTEGRATION
 // ═══════════════════════════════════════════════════════════════
 
-// Real BLE data set by Web Bluetooth or Capacitor BLE
 window._lastBLEData = null;
 
 function getSyntheticBio() {
@@ -475,7 +498,6 @@ function getSyntheticBio() {
 }
 
 function getBio() {
-  // Real BLE data (from Web Bluetooth or Capacitor BLE)
   if (window._lastBLEData && (Date.now() - window._lastBLEData.timestamp < 5000)) {
     return {
       heart_rate: window._lastBLEData.hr,
@@ -484,200 +506,810 @@ function getBio() {
       coherence: window._lastBLEData.coherence || 0
     };
   }
-  // Synthetic fallback (development and testing ONLY)
   return getSyntheticBio();
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SESSION LIFECYCLE
+// CANVAS — Plankton Particle System + Ocean Descent/Ascent
+// Ported from React Plankton.jsx + DescentAnimation.jsx
 // ═══════════════════════════════════════════════════════════════
 
-async function loadSessionAndStart() {
+const DEPTH_ZONES = [
+  { t: 0.0,  sky: [135,206,250], water: [45,185,185],  deep: [18,85,115],  sunStr: 1.0,  rayStr: 1.0,  planktonMul: 0.3 },
+  { t: 0.17, sky: [100,180,220], water: [30,160,170],  deep: [12,70,100],  sunStr: 0.7,  rayStr: 0.75, planktonMul: 0.45 },
+  { t: 0.35, sky: [60,130,190],  water: [15,120,150],  deep: [8,55,85],    sunStr: 0.35, rayStr: 0.4,  planktonMul: 0.6 },
+  { t: 0.55, sky: [30,70,130],   water: [8,60,100],    deep: [4,35,65],    sunStr: 0.1,  rayStr: 0.1,  planktonMul: 0.8 },
+  { t: 0.75, sky: [15,25,60],    water: [5,20,55],     deep: [3,12,35],    sunStr: 0.0,  rayStr: 0.0,  planktonMul: 0.95 },
+  { t: 1.0,  sky: [2,8,18],      water: [2,8,18],      deep: [2,8,18],     sunStr: 0.0,  rayStr: 0.0,  planktonMul: 1.0 },
+];
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpC(a, b, t) { return [lerp(a[0],b[0],t), lerp(a[1],b[1],t), lerp(a[2],b[2],t)]; }
+function lunoC(co) { return [14+co*90, 50+co*170, 80+co*175]; }
+function easeInOut(t) { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2; }
+
+function getZoneValue(progress, field) {
+  const zones = DEPTH_ZONES;
+  let lo = zones[0], hi = zones[zones.length - 1];
+  for (let i = 0; i < zones.length - 1; i++) {
+    if (progress >= zones[i].t && progress <= zones[i + 1].t) {
+      lo = zones[i]; hi = zones[i + 1]; break;
+    }
+  }
+  const localT = (progress - lo.t) / (hi.t - lo.t || 1);
+  const eased = easeInOut(Math.max(0, Math.min(1, localT)));
+  if (Array.isArray(lo[field])) return lerpC(lo[field], hi[field], eased);
+  return lerp(lo[field], hi[field], eased);
+}
+
+// Particle pool
+const particles = [];
+for (let i = 0; i < 90; i++) {
+  particles.push({
+    x: Math.random() * window.innerWidth,
+    y: Math.random() * window.innerHeight,
+    sz: 1 + Math.random() * 3.5,
+    vx: (Math.random() - 0.5) * 0.15,
+    vy: (Math.random() - 0.5) * 0.06,
+    ph: Math.random() * Math.PI * 2,
+    ps: 0.003 + Math.random() * 0.005,
+    dp: 0.2 + Math.random() * 0.8
+  });
+}
+
+function initCanvas() {
+  const canvas = document.getElementById('immersiveCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  let w, h;
+
+  function resize() {
+    w = window.innerWidth; h = window.innerHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function draw() {
+    if (!w || !h) { state.canvasAnimFrame = requestAnimationFrame(draw); return; }
+    const prog = state.descentProgress;
+    const co = state.coherenceCurrent;
+    const t = Date.now() * 0.001;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // During idle/landing — show surface
+    // During settle — descending (prog goes 0→1)
+    // During breathing — at depth (prog=1), plankton respond to coherence
+    // During ascent — ascending (prog goes 1→0)
+    // After — surface again
+
+    const skyCol = getZoneValue(prog, 'sky');
+    const waterCol = getZoneValue(prog, 'water');
+    const deepCol = getZoneValue(prog, 'deep');
+    const sunStr = getZoneValue(prog, 'sunStr');
+    const rayStr = getZoneValue(prog, 'rayStr');
+    const planktonMul = getZoneValue(prog, 'planktonMul');
+
+    const skyH = h * Math.max(0, 0.44 * (1 - prog * 1.3));
+
+    // ── SKY ──
+    if (skyH > 2) {
+      const sg = ctx.createLinearGradient(0, 0, 0, skyH);
+      sg.addColorStop(0, 'rgb(' + (skyCol[0]|0) + ',' + (skyCol[1]|0) + ',' + (skyCol[2]|0) + ')');
+      const horizonCol = lerpC([255, 218, 160], [100, 100, 120], prog);
+      sg.addColorStop(1, 'rgb(' + (horizonCol[0]|0) + ',' + (horizonCol[1]|0) + ',' + (horizonCol[2]|0) + ')');
+      ctx.fillStyle = sg; ctx.fillRect(0, 0, w, skyH);
+
+      // Sun
+      if (sunStr > 0.02) {
+        const sx = w * 0.62, sy = skyH * 0.3, sr = 25 + sunStr * 28;
+        const sunG = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 3);
+        sunG.addColorStop(0, 'rgba(255,242,205,' + (sunStr * 0.6) + ')');
+        sunG.addColorStop(0.3, 'rgba(255,225,165,' + (sunStr * 0.25) + ')');
+        sunG.addColorStop(1, 'rgba(255,200,120,0)');
+        ctx.fillStyle = sunG; ctx.fillRect(0, 0, w, skyH);
+        ctx.beginPath(); ctx.arc(sx, sy, sr * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,248,225,' + (sunStr * 0.7) + ')'; ctx.fill();
+      }
+
+      // Clouds
+      const cloudOp = Math.max(0, 1 - prog * 2.5) * 0.5;
+      if (cloudOp > 0.02) {
+        for (let i = 0; i < 5; i++) {
+          const cx = ((i * 127 + t * 2) % (w + 200)) - 100;
+          const cy = skyH * (0.15 + (i % 3) * 0.2);
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, 70 + i * 20, 16 + (i % 3) * 8, 0, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(235,238,245,' + cloudOp + ')'; ctx.fill();
+        }
+      }
+    }
+
+    // ── WATER ──
+    const waterTop = Math.max(0, skyH);
+    ctx.beginPath();
+    const waveAmp = Math.max(0, 3 * (1 - prog * 1.5));
+    if (waterTop > 0 && waveAmp > 0.1) {
+      ctx.moveTo(0, waterTop);
+      for (let x = 0; x <= w; x += 3) {
+        ctx.lineTo(x, waterTop + Math.sin(x * 0.018 + t * 0.6) * waveAmp);
+      }
+    } else {
+      ctx.moveTo(0, waterTop); ctx.lineTo(w, waterTop);
+    }
+    ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+
+    const wg = ctx.createLinearGradient(0, waterTop, 0, h);
+    wg.addColorStop(0, 'rgb(' + (waterCol[0]|0) + ',' + (waterCol[1]|0) + ',' + (waterCol[2]|0) + ')');
+    wg.addColorStop(0.5, 'rgb(' + (deepCol[0]|0) + ',' + (deepCol[1]|0) + ',' + (deepCol[2]|0) + ')');
+    wg.addColorStop(1, 'rgb(' + (Math.max(0,deepCol[0]-5)|0) + ',' + (Math.max(0,deepCol[1]-5)|0) + ',' + (Math.max(0,deepCol[2]-5)|0) + ')');
+    ctx.fillStyle = wg; ctx.fill();
+
+    // ── LIGHT RAYS ──
+    if (rayStr > 0.02) {
+      const rayCount = Math.round(rayStr * 6);
+      for (let i = 0; i < rayCount; i++) {
+        const rx = w * (0.2 + i * 0.13) + Math.sin(t * 0.2 + i * 1.3) * 10;
+        const rw = 5 + rayStr * 12;
+        const rayLen = h * (0.3 + rayStr * 0.4);
+        const rg = ctx.createLinearGradient(rx, waterTop, rx + 20, waterTop + rayLen);
+        rg.addColorStop(0, 'rgba(255,232,175,' + (rayStr * 0.12) + ')');
+        rg.addColorStop(1, 'rgba(255,232,175,0)');
+        ctx.save(); ctx.beginPath();
+        ctx.moveTo(rx - rw / 2, waterTop);
+        ctx.lineTo(rx + rw * 1.2, waterTop + rayLen);
+        ctx.lineTo(rx + rw * 0.3, waterTop + rayLen);
+        ctx.closePath(); ctx.fillStyle = rg; ctx.fill(); ctx.restore();
+      }
+    }
+
+    // ── PLANKTON PARTICLES ──
+    // During breathing: coherence drives density, brightness, organization
+    const isBreathing = state.phase === 'breathing' || state.phase === 'ascent';
+    const visCount = Math.round(planktonMul * (isBreathing ? 90 : 60));
+
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      p.ph += p.ps;
+      p.x += p.vx + Math.sin(p.ph * 0.5) * 0.06;
+      p.y += p.vy + Math.cos(p.ph * 0.3) * 0.03;
+      if (p.x < -15) p.x = w + 15; if (p.x > w + 15) p.x = -15;
+      if (p.y < waterTop + 5) p.y = h - 5; if (p.y > h + 10) p.y = waterTop + 10;
+      if (i >= visCount) continue;
+
+      const col = lunoC(co);
+      const glowBoost = prog * 0.6;
+      const alpha = (0.08 + co * 0.4 + glowBoost * 0.3 + Math.sin(p.ph) * 0.12) * p.dp;
+      const sz = (p.sz + co * 2 + glowBoost * 1.5) * (0.5 + p.dp * 0.6);
+      const glow = (2 + co * 10 + glowBoost * 10) * p.dp;
+
+      ctx.beginPath(); ctx.arc(p.x, p.y, sz, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + (col[0]|0) + ',' + (col[1]|0) + ',' + (col[2]|0) + ',' + Math.max(0, alpha).toFixed(3) + ')';
+      if (glow > 1.5) {
+        ctx.shadowColor = 'rgba(' + (col[0]|0) + ',' + (col[1]|0) + ',' + (col[2]|0) + ',' + (alpha * 0.5).toFixed(3) + ')';
+        ctx.shadowBlur = glow;
+      }
+      ctx.fill(); ctx.shadowBlur = 0;
+    }
+
+    // ── COHERENCE PULSE (during breathing) — particles organize radially ──
+    if (isBreathing && co > 0.4) {
+      const cx = w / 2, cy = h * 0.45;
+      const pulseR = 80 + co * 60 + Math.sin(t * 0.5) * 10;
+      const pg = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
+      const pCol = lunoC(co);
+      pg.addColorStop(0, 'rgba(' + (pCol[0]|0) + ',' + (pCol[1]|0) + ',' + (pCol[2]|0) + ',' + (co * 0.08).toFixed(3) + ')');
+      pg.addColorStop(1, 'rgba(' + (pCol[0]|0) + ',' + (pCol[1]|0) + ',' + (pCol[2]|0) + ',0)');
+      ctx.fillStyle = pg;
+      ctx.fillRect(cx - pulseR, cy - pulseR, pulseR * 2, pulseR * 2);
+    }
+
+    // ── LUNO GLOW (emerges at depth as sole light source) ──
+    if (prog > 0.4) {
+      const lunoStr = Math.max(0, (prog - 0.4) / 0.6);
+      const lCol = lunoC(co);
+      const cx = w / 2, cy = h * 0.5;
+      const lr = 40 + lunoStr * 60 + co * 30;
+      const lg = ctx.createRadialGradient(cx, cy, 0, cx, cy, lr);
+      lg.addColorStop(0, 'rgba(' + (lCol[0]|0) + ',' + (lCol[1]|0) + ',' + (lCol[2]|0) + ',' + (lunoStr * 0.35).toFixed(3) + ')');
+      lg.addColorStop(0.4, 'rgba(' + (lCol[0]|0) + ',' + (lCol[1]|0) + ',' + (lCol[2]|0) + ',' + (lunoStr * 0.12).toFixed(3) + ')');
+      lg.addColorStop(1, 'rgba(' + (lCol[0]|0) + ',' + (lCol[1]|0) + ',' + (lCol[2]|0) + ',0)');
+      ctx.fillStyle = lg;
+      ctx.fillRect(cx - lr, cy - lr, lr * 2, lr * 2);
+    }
+
+    state.canvasAnimFrame = requestAnimationFrame(draw);
+  }
+  state.canvasAnimFrame = requestAnimationFrame(draw);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ILLUMINATED LUNO ORB (renders into any .luno-orb container)
+// ═══════════════════════════════════════════════════════════════
+
+function renderLunoOrb(container, size, coherence, glowMul) {
+  if (!container) return;
+  const co = coherence || 0;
+  const gm = glowMul || 1;
+  const core = 'rgba(' + (14+co*90|0) + ',' + (50+co*170|0) + ',' + (80+co*175|0) + ',' + ((0.5+co*0.4)*gm).toFixed(2) + ')';
+  const mid = 'rgba(' + (14+co*60|0) + ',' + (50+co*120|0) + ',' + (80+co*130|0) + ',' + ((0.2+co*0.3)*gm).toFixed(2) + ')';
+  const outer = 'rgba(' + (14+co*40|0) + ',' + (50+co*70|0) + ',' + (80+co*80|0) + ',' + ((0.08+co*0.2)*gm).toFixed(2) + ')';
+  const gl = (4 + co * 16) * gm;
+
+  container.innerHTML =
+    '<div class="ring-outer" style="width:' + size + 'px;height:' + size + 'px;background:' + outer + ';box-shadow:0 0 ' + (gl*2.5) + 'px ' + outer + '"></div>' +
+    '<div class="ring-mid" style="width:' + (size*0.55) + 'px;height:' + (size*0.55) + 'px;background:' + mid + ';box-shadow:0 0 ' + (gl*1.5) + 'px ' + mid + '"></div>' +
+    '<div class="ring-core" style="width:' + (size*0.2) + 'px;height:' + (size*0.2) + 'px;background:radial-gradient(circle,' + core + ',' + mid + ');box-shadow:0 0 ' + gl + 'px ' + core + '"></div>' +
+    '<div class="ring-spark" style="opacity:' + ((0.25+co*0.6)*gm).toFixed(2) + ';box-shadow:0 0 ' + (4+co*12) + 'px rgba(255,255,255,' + ((0.2+co*0.5)*gm).toFixed(2) + ')"></div>';
+}
+
+// Update all visible Luno orbs
+function updateLunoOrbs() {
+  const co = state.coherenceCurrent;
+  const prog = state.descentProgress;
+  const glow = 0.5 + prog * 1.5;
+
+  if (state.phase === 'landing') renderLunoOrb(document.getElementById('landingLuno'), 100, co, 0.8);
+  if (state.phase === 'settle') renderLunoOrb(document.getElementById('settleLuno'), 80 + prog * 30, co, Math.min(2, glow));
+  if (state.phase === 'breathing') renderLunoOrb(document.getElementById('breathLuno'), 120, co, 1 + co * 0.5);
+  if (state.phase === 'ascent') renderLunoOrb(document.getElementById('ascentLuno'), 90 + (1 - prog) * 20, co, Math.min(2, glow));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DRIFTING WORDS
+// ═══════════════════════════════════════════════════════════════
+
+const DESCENT_WORDS = [
+  { t: 0.08, text: 'Breathe.' },
+  { t: 0.28, text: 'Deeper.' },
+  { t: 0.48, text: 'Safe here.' },
+  { t: 0.78, text: 'Your light.' }
+];
+const ASCENT_WORDS = [
+  { t: 0.2, text: 'Surfacing.' }
+];
+
+function showDriftWord(text) {
+  const el = document.createElement('div');
+  el.className = 'drift-word';
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+const PHASE_LABELS = {
+  idle: '', landing: 'Welcome', settle: 'Settling In',
+  breathing: 'Breathing', ascent: 'Surfacing',
+  art: 'Your Thread', vagal: 'Journey', vault: 'Stored'
+};
+
+function setPhase(phase) {
+  state.phase = phase;
+  document.getElementById('phaseBadge').textContent = PHASE_LABELS[phase] || '';
+
+  // Hide all phase layers, show current
+  document.querySelectorAll('.phase-layer').forEach(el => el.classList.remove('active'));
+  const phaseMap = {
+    landing: 'landingPhase', settle: 'settlePhase', breathing: 'breathingPhase',
+    ascent: 'ascentPhase', art: 'artPhase', vagal: 'vagalPhase', vault: 'vaultPhase'
+  };
+  if (phaseMap[phase]) document.getElementById(phaseMap[phase]).classList.add('active');
+
+  // Status bar visible during breathing
+  document.getElementById('statusBar').classList.toggle('visible', phase === 'breathing');
+  // Controls visible during breathing
+  document.getElementById('sessionControls').style.display = (phase === 'breathing') ? 'flex' : 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SESSION LIFECYCLE — 7-STEP FLOW
+// ═══════════════════════════════════════════════════════════════
+
+async function loadSessionAndShowLanding() {
   try {
-    // Load next session for user (default to session 1)
     const sessions = await apiRequest('GET', '/api/sessions');
     state.sessionId = sessions.sessions?.[0]?.session_number || 1;
-    await startSession();
+    state.sessionNumber = state.sessionId;
+    initSessionAndShowLanding();
   } catch (err) {
-    showLuno('Having trouble connecting. Please try again.');
-    devLog('loadSessionAndStart error: ' + err.message);
+    devLog('loadSession error: ' + err.message);
+    state.sessionId = 1;
+    initSessionAndShowLanding();
   }
 }
 
-async function startSession() {
+function initSessionAndShowLanding() {
+  setPhase('landing');
+  state.descentProgress = 0;
+  updateLunoOrbs();
+}
+
+// ── STEP 1→2: Begin → Start session on server → Settle In ──
+
+async function beginSession() {
+  document.getElementById('beginBtn').disabled = true;
+
   try {
-    setPhase('arrival');
     const data = await apiRequest('POST', '/api/abi/session/start', {
       user_id: state.userId,
       session_id: state.sessionId,
-      options: {}
+      options: { duration_seconds: SESSION_DURATION }
     });
-
     state.sessionKey = data.session_key;
     processEvents(data.events || []);
-
-    // Start arrival sampling
-    startArrival();
   } catch (err) {
-    showLuno('Session could not start. ' + err.message);
     devLog('startSession error: ' + err.message);
+    // Continue with client-only flow
   }
+
+  // Transition to settle-in (10-second descent)
+  startSettle();
 }
 
-function startArrival() {
-  let sampleCount = 0;
-  state.arrivalTimer = setInterval(async () => {
-    if (state.phase !== 'arrival') {
-      clearInterval(state.arrivalTimer);
-      return;
+// ── STEP 2: SETTLE IN (10s descent + arrival sampling) ──
+
+function startSettle() {
+  setPhase('settle');
+  const startTime = Date.now();
+  const SETTLE_DURATION = 10000; // 10 seconds
+  const wordsFired = new Set();
+  let arrivalSamples = 0;
+  let lastArrivalBio = null;
+
+  // Arrival sampling runs alongside descent
+  const arrivalInterval = setInterval(async () => {
+    const bio = getBio();
+    lastArrivalBio = bio;
+    state.coherenceCurrent = bio.coherence;
+    updateLunoOrbs();
+
+    if (state.sessionKey) {
+      try {
+        const data = await apiRequest('POST', '/api/abi/session/arrival-sample', {
+          session_key: state.sessionKey,
+          biometrics: bio
+        });
+        arrivalSamples = data.sample_count || arrivalSamples + 1;
+        processEvents(data.events || []);
+      } catch (err) { devLog('arrival-sample: ' + err.message); }
+    }
+  }, 1000);
+
+  function animateSettle() {
+    if (state.phase !== 'settle') return;
+    const elapsed = Date.now() - startTime;
+    const t = Math.min(1, elapsed / SETTLE_DURATION);
+    const eased = easeInOut(t);
+    state.descentProgress = eased;
+
+    // Drifting words
+    for (const word of DESCENT_WORDS) {
+      if (t >= word.t && !wordsFired.has(word.text)) {
+        wordsFired.add(word.text);
+        showDriftWord(word.text);
+      }
     }
 
-    const bio = getBio();
-    updateBioDisplay(bio);
+    // Luno text
+    const settleEl = document.getElementById('settleText');
+    if (t < 0.3) { settleEl.textContent = 'Going deeper...'; settleEl.classList.add('visible'); }
+    else if (t < 0.7) { settleEl.textContent = 'Let the surface fade.'; }
+    else { settleEl.textContent = "You're here. Let's begin."; }
 
+    updateLunoOrbs();
+
+    if (t < 1) {
+      requestAnimationFrame(animateSettle);
+    } else {
+      // Settle complete — complete arrival on server and start breathing
+      clearInterval(arrivalInterval);
+      completeArrivalAndBreathe(lastArrivalBio || getBio());
+    }
+  }
+  requestAnimationFrame(animateSettle);
+}
+
+// ── Arrival Complete → Breathing ──
+
+async function completeArrivalAndBreathe(bio) {
+  let adapted = { ratio: null, duration_seconds: SESSION_DURATION };
+
+  if (state.sessionKey) {
     try {
-      const data = await apiRequest('POST', '/api/abi/session/arrival-sample', {
+      const data = await apiRequest('POST', '/api/abi/session/arrival-complete', {
         session_key: state.sessionKey,
         biometrics: bio
       });
-      sampleCount = data.sample_count || sampleCount + 1;
+      processEvents(data.events || []);
+      adapted = data.adapted_session || data.result || adapted;
 
-      // Auto-complete after 30 samples (30 seconds)
-      if (sampleCount >= 30) {
-        clearInterval(state.arrivalTimer);
-        completeArrival(bio);
-      }
-
-      // Auto-completed by server (5-minute timeout)
-      if (data.auto_completed) {
-        clearInterval(state.arrivalTimer);
-        onArrivalDone(data);
-      }
+      // Capture arrival NS3 for vagal map
+      const baseline = data.arrival_baseline || {};
+      state.arrivalNs3 = baseline.ns3_score || (baseline.initial_coherence ? baseline.initial_coherence * 100 : null);
     } catch (err) {
-      devLog('arrival-sample error: ' + err.message);
+      devLog('arrival-complete: ' + err.message);
     }
-  }, 1000);
-}
-
-async function completeArrival(bio) {
-  try {
-    const data = await apiRequest('POST', '/api/abi/session/arrival-complete', {
-      session_key: state.sessionKey,
-      biometrics: bio
-    });
-    onArrivalDone(data);
-  } catch (err) {
-    devLog('arrival-complete error: ' + err.message);
-    // Continue with default breathing
-    setPhase('breathing');
-    startBreathing({ ratio: '4:6', duration_seconds: 720 });
   }
+
+  // NS3/biometric intelligence drives cadence — NOT hardcoded
+  // Server returns the right ratio via determineBreathParams
+  if (adapted.ratio) {
+    const parts = adapted.ratio.split(':').map(Number);
+    state.inhale = parts[0] || 4;
+    state.exhale = parts[1] || 6;
+    state.adaptedRatio = adapted.ratio;
+  } else if (adapted.breath_params?.ratio) {
+    const parts = adapted.breath_params.ratio.split(':').map(Number);
+    state.inhale = parts[0] || 4;
+    state.exhale = parts[1] || 6;
+    state.adaptedRatio = adapted.breath_params.ratio;
+  }
+  // If server returned no ratio, inhale/exhale stay at defaults
+  // which were determined by prior session history on the server
+
+  // Duration: 3-minute hard cap regardless of server response
+  startBreathing();
 }
 
-function onArrivalDone(data) {
-  processEvents(data.events || []);
-  const adapted = data.adapted_session || data.result || {};
+// ── STEP 3: BREATHING (plankton biofeedback, coherence-driven) ──
+
+function startBreathing() {
   setPhase('breathing');
-  startBreathing(adapted);
-}
+  state.elapsed = 0;
+  state.breathCount = 0;
+  state.coherencePeak = 0;
+  state.paused = false;
 
-function startBreathing(adapted) {
-  const ratio = (adapted.ratio || '4:6').split(':').map(Number);
-  const inhale = ratio[0] || 4;
-  const exhale = ratio[1] || 6;
+  const inhale = state.inhale;
+  const exhale = state.exhale;
   const cycleSec = inhale + exhale;
-  const duration = adapted.duration_seconds || 720;
+  const ratioStr = inhale + ':' + exhale;
   const startTime = Date.now();
 
-  document.getElementById('breathLabel').textContent = adapted.ratio || '4:6';
+  document.getElementById('ratioDisplay').textContent = ratioStr;
+  document.getElementById('breathPhaseLabel').textContent = 'inhale';
 
-  // Breath animation
+  // Breath animation — Luno orb pulses with breath cycle
   function animateBreath() {
-    if (state.phase !== 'breathing' && state.phase !== 'paused') return;
-    if (state.paused) {
-      state.breathAnimFrame = requestAnimationFrame(animateBreath);
-      return;
-    }
+    if (state.phase !== 'breathing') return;
+    if (state.paused) { state.breathAnimFrame = requestAnimationFrame(animateBreath); return; }
 
     const now = Date.now();
     const elapsed = ((now - startTime) / 1000) % cycleSec;
-    const ring = document.getElementById('breathRing');
+    const ratioEl = document.getElementById('ratioDisplay');
+    const labelEl = document.getElementById('breathPhaseLabel');
 
     if (elapsed < inhale) {
-      // Inhale — expand
-      const progress = elapsed / inhale;
-      const scale = 1 + progress * 0.3;
-      ring.style.transform = `scale(${scale})`;
-      ring.style.borderColor = 'var(--accent)';
+      ratioEl.classList.remove('exhale');
+      labelEl.textContent = 'inhale';
     } else {
-      // Exhale — contract
-      const progress = (elapsed - inhale) / exhale;
-      const scale = 1.3 - progress * 0.3;
-      ring.style.transform = `scale(${scale})`;
-      ring.style.borderColor = 'var(--accent2)';
+      ratioEl.classList.add('exhale');
+      labelEl.textContent = 'exhale';
     }
 
+    updateLunoOrbs();
     state.breathAnimFrame = requestAnimationFrame(animateBreath);
   }
   state.breathAnimFrame = requestAnimationFrame(animateBreath);
 
-  // Tick timer
+  // Tick timer (every second)
   let tickCount = 0;
   state.tickTimer = setInterval(async () => {
-    if (state.phase !== 'breathing') {
-      clearInterval(state.tickTimer);
-      return;
-    }
+    if (state.phase !== 'breathing') { clearInterval(state.tickTimer); return; }
     if (state.paused) return;
 
     tickCount++;
     state.elapsed = tickCount;
     updateTimer(tickCount);
 
-    const bio = getBio();
-    updateBioDisplay(bio);
-    state.coherencePeak = Math.max(state.coherencePeak, bio.coherence);
+    // Count breaths
+    const cycleSec2 = state.inhale + state.exhale;
+    state.breathCount = Math.floor(tickCount / cycleSec2);
 
-    try {
-      const data = await apiRequest('POST', '/api/abi/session/tick', {
-        session_key: state.sessionKey,
-        biometrics: bio
-      });
-      processEvents(data.events || []);
-    } catch (err) {
-      devLog('tick error: ' + err.message);
+    const bio = getBio();
+    state.coherenceCurrent = bio.coherence;
+    state.coherencePeak = Math.max(state.coherencePeak, bio.coherence);
+    updateBioDisplay(bio);
+
+    if (state.sessionKey) {
+      try {
+        const data = await apiRequest('POST', '/api/abi/session/tick', {
+          session_key: state.sessionKey,
+          biometrics: bio
+        });
+        processEvents(data.events || []);
+
+        // Server may step down ratio mid-session
+        if (data.ratio_changed && data.new_ratio) {
+          const parts = data.new_ratio.split(':').map(Number);
+          state.inhale = parts[0] || state.inhale;
+          state.exhale = parts[1] || state.exhale;
+          document.getElementById('ratioDisplay').textContent = data.new_ratio;
+        }
+      } catch (err) { devLog('tick: ' + err.message); }
     }
 
-    // Auto-complete at duration
-    if (tickCount >= duration) {
+    // 3-minute hard cap
+    if (tickCount >= SESSION_DURATION) {
       clearInterval(state.tickTimer);
-      completeSession();
+      cancelAnimationFrame(state.breathAnimFrame);
+      startAscent();
     }
   }, 1000);
 }
 
-async function completeSession() {
+// ── STEP 4: ASCENT (8s ascent + reflection + session complete) ──
+
+function startAscent() {
+  setPhase('ascent');
+  const startTime = Date.now();
+  const ASCENT_DURATION = 8000;
+  const wordsFired = new Set();
+
+  // Complete session on server (async, don't block animation)
+  completeSessionOnServer();
+
+  function animateAscent() {
+    if (state.phase !== 'ascent') return;
+    const elapsed = Date.now() - startTime;
+    const t = Math.min(1, elapsed / ASCENT_DURATION);
+    const eased = easeInOut(t);
+    state.descentProgress = 1 - eased; // Ascend: depth goes 1→0
+
+    for (const word of ASCENT_WORDS) {
+      if (t >= word.t && !wordsFired.has(word.text)) {
+        wordsFired.add(word.text);
+        showDriftWord(word.text);
+      }
+    }
+
+    const ascentText = document.getElementById('ascentText');
+    if (t < 0.4) ascentText.textContent = 'Surfacing.';
+    else if (t < 0.7) ascentText.textContent = 'Carrying your light.';
+    else ascentText.textContent = 'You showed up. That matters.';
+
+    updateLunoOrbs();
+
+    if (t < 1) {
+      requestAnimationFrame(animateAscent);
+    } else {
+      // Wait a moment at surface, then show art
+      setTimeout(() => advanceToArt(), 1500);
+    }
+  }
+  requestAnimationFrame(animateAscent);
+}
+
+async function completeSessionOnServer() {
   try {
-    cancelAnimationFrame(state.breathAnimFrame);
     const data = await apiRequest('POST', '/api/abi/session/complete', {
       session_key: state.sessionKey,
       rawMetrics: {
         breath_count: state.breathCount,
         coherence_peak: state.coherencePeak,
         duration_seconds: state.elapsed,
-        coherence_end: state.coherencePeak
+        coherence_end: state.coherenceCurrent
       }
     });
-
     processEvents(data.events || []);
-    showMirror(data.result);
+    state.completionResult = data.result || data;
+
+    // Extract landing NS3
+    state.landingNs3 = data.result?.ns3_mean || data.result?.ns3_peak || null;
+
+    // Extract art URL
+    state.artUrl = data.result?.art_ipfs_hash || data.result?.artUrl || null;
   } catch (err) {
-    devLog('complete error: ' + err.message);
-    showMirror({ breath_count: state.breathCount, duration_seconds: state.elapsed, coherence_peak: state.coherencePeak });
+    devLog('complete: ' + err.message);
+    state.completionResult = {
+      breath_count: state.breathCount,
+      duration_seconds: state.elapsed,
+      coherence_peak: state.coherencePeak
+    };
   }
 }
 
-// ── PAUSE / RESUME / EXIT ──
+// ── STEP 5: ART CREATION ──
+
+function advanceToArt() {
+  setPhase('art');
+
+  const artFrame = document.getElementById('artFrame');
+  const placeholder = document.getElementById('artPlaceholder');
+
+  if (state.artUrl) {
+    // Load art from IPFS or server
+    const img = document.createElement('img');
+    img.src = state.artUrl.startsWith('http') ? state.artUrl : API_BASE + '/api/art/decode/' + state.artUrl;
+    img.alt = 'Breath Art';
+    img.onload = function() { placeholder.style.display = 'none'; artFrame.appendChild(img); };
+    img.onerror = function() { placeholder.textContent = 'Your thread is being woven.'; };
+  } else {
+    // Try fetching latest art
+    fetchLatestArt();
+  }
+}
+
+async function fetchLatestArt() {
+  const placeholder = document.getElementById('artPlaceholder');
+  try {
+    const userId = state.userId;
+    const data = await apiRequest('GET', '/api/art/gallery/' + encodeURIComponent(userId) + '?limit=1');
+    if (data.artworks?.length > 0 && data.artworks[0].image_url) {
+      const img = document.createElement('img');
+      img.src = data.artworks[0].image_url;
+      img.alt = 'Breath Art';
+      img.onload = function() { placeholder.style.display = 'none'; document.getElementById('artFrame').appendChild(img); };
+      img.onerror = function() { placeholder.textContent = 'Your thread is being woven.'; };
+    } else {
+      placeholder.textContent = 'Your thread is being woven.';
+    }
+  } catch {
+    placeholder.textContent = 'Your thread is being woven.';
+  }
+}
+
+// ── STEP 6: VAGAL JOURNEY MAP ──
+
+function advanceToVagal() {
+  setPhase('vagal');
+  renderJourneyMap();
+}
+
+const VAGAL_ZONES = [
+  { label: 'Regulated',  color: '#5CE0D0', bg: 'rgba(92,224,208,0.15)',  range: [71, 100] },
+  { label: 'Settling',   color: '#A8CCE8', bg: 'rgba(168,204,232,0.12)', range: [41, 70]  },
+  { label: 'Activated',  color: '#E8BE6A', bg: 'rgba(232,190,106,0.12)', range: [25, 40]  },
+  { label: 'Protected',  color: '#D88AA0', bg: 'rgba(216,138,160,0.12)', range: [0, 24]   },
+];
+
+function ns3ToPosition(ns3) {
+  if (ns3 === null || ns3 === undefined) return 0.5;
+  return 1 - Math.max(0, Math.min(1, ns3 / 100));
+}
+
+function getZoneForNs3(ns3) {
+  if (ns3 === null || ns3 === undefined) return null;
+  if (ns3 >= 71) return VAGAL_ZONES[0];
+  if (ns3 >= 41) return VAGAL_ZONES[1];
+  if (ns3 >= 25) return VAGAL_ZONES[2];
+  return VAGAL_ZONES[3];
+}
+
+function renderJourneyMap() {
+  const bar = document.getElementById('journeyBar');
+  const arrNs3 = state.arrivalNs3;
+  const landNs3 = state.landingNs3;
+  const barHeight = 300;
+
+  // If we don't have NS3 data, try fetching from vagal API
+  if (arrNs3 === null && landNs3 === null && state.completionResult?.session_id) {
+    fetchVagalData(state.completionResult.session_id);
+  }
+
+  let html = '';
+
+  // Zone backgrounds
+  for (const zone of VAGAL_ZONES) {
+    const top = (1 - zone.range[1] / 100) * 100;
+    const height = ((zone.range[1] - zone.range[0] + 1) / 100) * 100;
+    html += '<div class="journey-zone" style="top:' + top + '%;height:' + height + '%;background:' + zone.bg + ';border-bottom:1px solid rgba(160,180,210,0.06)">' +
+      '<span class="journey-zone-label" style="color:' + zone.color + '">' + zone.label + '</span></div>';
+  }
+
+  // Connecting line
+  if (arrNs3 !== null && landNs3 !== null) {
+    const arrPos = ns3ToPosition(arrNs3) * 100;
+    const landPos = ns3ToPosition(landNs3) * 100;
+    html += '<svg class="journey-line"><line x1="70%" y1="' + arrPos + '%" x2="70%" y2="' + landPos + '%" stroke="rgba(92,224,210,0.3)" stroke-width="2" stroke-dasharray="4,4" /></svg>';
+  }
+
+  // Arrival dot
+  if (arrNs3 !== null) {
+    const arrPos = ns3ToPosition(arrNs3) * 100;
+    const arrZone = getZoneForNs3(arrNs3);
+    html += '<div class="journey-dot" style="top:' + arrPos + '%;background:' + (arrZone?.color || '#A8CCE8') + ';box-shadow:0 0 10px ' + (arrZone?.color || '#A8CCE8') + '40;opacity:0.6"></div>';
+    html += '<div class="journey-dot-label" style="top:' + arrPos + '%;color:' + (arrZone?.color || '#A8CCE8') + '">Arrived</div>';
+  }
+
+  // Landing dot
+  if (landNs3 !== null) {
+    const landPos = ns3ToPosition(landNs3) * 100;
+    const landZone = getZoneForNs3(landNs3);
+    html += '<div class="journey-dot" style="top:' + landPos + '%;background:' + (landZone?.color || '#5CE0D0') + ';box-shadow:0 0 12px ' + (landZone?.color || '#5CE0D0') + '60"></div>';
+    html += '<div class="journey-dot-label" style="top:' + landPos + '%;color:' + (landZone?.color || '#5CE0D0') + '">Landed</div>';
+  }
+
+  // No data state
+  if (arrNs3 === null && landNs3 === null) {
+    html += '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:.85rem">Your journey is being mapped...</div>';
+  }
+
+  bar.innerHTML = html;
+
+  // Update subtitle
+  const sub = document.getElementById('vagalSub');
+  const arrZone = getZoneForNs3(arrNs3);
+  const landZone = getZoneForNs3(landNs3);
+  if (arrZone && landZone) {
+    sub.textContent = arrZone.label + ' \u2192 ' + landZone.label;
+  }
+}
+
+async function fetchVagalData(sessionId) {
+  try {
+    const data = await apiRequest('GET', '/api/abi/vagal-journey/' + sessionId);
+    if (data.arrival_ns3 !== undefined) state.arrivalNs3 = data.arrival_ns3;
+    if (data.landing_ns3 !== undefined) state.landingNs3 = data.landing_ns3;
+    renderJourneyMap();
+  } catch { /* vagal data unavailable */ }
+}
+
+// ── STEP 7: VAULT / LEGACY ──
+
+function advanceToVault() {
+  setPhase('vault');
+
+  // Show capsule button if user has enough sessions
+  if (state.sessionNumber >= 3) {
+    document.getElementById('vaultCapsuleBtn').style.display = 'inline-block';
+  }
+
+  // Store vault response on server
+  if (state.sessionKey) {
+    apiRequest('POST', '/api/fr/vault', {
+      session_key: state.sessionKey,
+      response: { completed: true, session_number: state.sessionNumber }
+    }).catch(() => {});
+  }
+}
+
+function openCapsuleFlow() {
+  // Navigate to legacy vault in PWA or show inline
+  if (IS_EMBEDDED) {
+    window.parent.postMessage({ type: 'open_vault', data: { session_id: state.sessionId } }, '*');
+  } else {
+    window.location.href = '/app/vault';
+  }
+}
+
+function closeSession() {
+  if (IS_EMBEDDED) {
+    notifyParentComplete(state.sessionNumber);
+    return;
+  }
+
+  // Reset state
+  state.sessionKey = null;
+  state.paused = false;
+  state.breathCount = 0;
+  state.coherencePeak = 0;
+  state.coherenceCurrent = 0;
+  state.elapsed = 0;
+  state.descentProgress = 0;
+  state.completionResult = null;
+  state.arrivalNs3 = null;
+  state.landingNs3 = null;
+  state.artUrl = null;
+
+  // Clear art frame
+  const artFrame = document.getElementById('artFrame');
+  artFrame.innerHTML = '<div class="art-placeholder" id="artPlaceholder">Generating...</div>';
+
+  // Back to landing for next session
+  loadSessionAndShowLanding();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PAUSE / RESUME / EXIT
+// ═══════════════════════════════════════════════════════════════
 
 async function togglePause() {
   if (state.paused) {
@@ -694,30 +1326,24 @@ async function togglePause() {
 }
 
 async function exitSession() {
-  try {
-    cancelAnimationFrame(state.breathAnimFrame);
-    clearInterval(state.tickTimer);
-    clearInterval(state.arrivalTimer);
-    await apiRequest('POST', '/api/abi/session/exit', { session_key: state.sessionKey });
-    // In embedded mode, return to PWA without mirror
-    if (IS_EMBEDDED) {
-      notifyParentExit();
-      return;
-    }
-    showMirror({ breath_count: 0, duration_seconds: state.elapsed, coherence_peak: 0 });
-  } catch {
-    if (IS_EMBEDDED) { notifyParentExit(); return; }
-    showMirror({ breath_count: 0, duration_seconds: state.elapsed, coherence_peak: 0 });
-  }
+  clearInterval(state.tickTimer);
+  cancelAnimationFrame(state.breathAnimFrame);
+  try { await apiRequest('POST', '/api/abi/session/exit', { session_key: state.sessionKey }); } catch {}
+  if (IS_EMBEDDED) { notifyParentExit(); return; }
+  // Show vault with partial session
+  state.completionResult = { breath_count: state.breathCount, duration_seconds: state.elapsed, coherence_peak: state.coherencePeak };
+  advanceToVault();
 }
 
-// ── EVENTS ──
+// ═══════════════════════════════════════════════════════════════
+// EVENT PROCESSING
+// ═══════════════════════════════════════════════════════════════
 
 function processEvents(events) {
   for (const evt of events) {
     switch (evt.type) {
       case 'luno_speak':
-        showLuno(evt.text);
+        showLunoSpeech(evt.text);
         break;
       case 'offer_exit':
         document.getElementById('btnExit').style.display = 'flex';
@@ -726,15 +1352,15 @@ function processEvents(events) {
         devLog('State: ' + JSON.stringify(evt.stateData));
         break;
       case 'coaching_intervention':
-        showLuno(evt.data?.message || '');
+        showLunoSpeech(evt.data?.message || '');
         break;
     }
   }
 }
 
-// Event polling (pull-based, every 3 seconds during breathing)
+// Event polling during active phases
 setInterval(async () => {
-  if ((state.phase === 'breathing' || state.phase === 'arrival') && state.sessionKey) {
+  if ((state.phase === 'breathing' || state.phase === 'settle') && state.sessionKey) {
     try {
       const data = await apiRequest('GET', '/api/abi/session/events/' + state.sessionKey);
       processEvents(data.events || []);
@@ -745,13 +1371,6 @@ setInterval(async () => {
 // ═══════════════════════════════════════════════════════════════
 // UI HELPERS
 // ═══════════════════════════════════════════════════════════════
-
-function setPhase(phase) {
-  state.phase = phase;
-  const badge = document.getElementById('phaseBadge');
-  const labels = { idle: '', arrival: 'Arrival', breathing: 'Breathing', paused: 'Paused', mirror: 'Mirror', done: 'Complete' };
-  badge.textContent = labels[phase] || phase;
-}
 
 function updateBioDisplay(bio) {
   document.getElementById('hrDisplay').textContent = Math.round(bio.heart_rate);
@@ -764,62 +1383,39 @@ function updateTimer(seconds) {
   document.getElementById('timerDisplay').textContent = m + ':' + String(s).padStart(2, '0');
 }
 
-function showLuno(text) {
-  const el = document.getElementById('lunoText');
-  el.classList.remove('visible');
-  setTimeout(() => {
-    el.textContent = text;
-    el.classList.add('visible');
-  }, 100);
-}
-
-function showMirror(result) {
-  setPhase('mirror');
-  document.getElementById('mirrorBreaths').textContent = result?.breath_count || Math.floor(state.elapsed / 10);
-  const d = result?.duration_seconds || state.elapsed;
-  document.getElementById('mirrorDuration').textContent = Math.floor(d / 60) + ':' + String(d % 60).padStart(2, '0');
-  document.getElementById('mirrorCoherence').textContent = (result?.coherence_peak || state.coherencePeak || 0).toFixed(2);
-  document.getElementById('mirrorScreen').classList.add('visible');
-}
-
-function closeMirror() {
-  document.getElementById('mirrorScreen').classList.remove('visible');
-  setPhase('done');
-
-  // In embedded mode, return to PWA instead of showing "Complete"
-  if (IS_EMBEDDED) {
-    notifyParentComplete(state.sessionId);
-    return;
-  }
-
-  showLuno('Session complete. You showed up. That matters.');
-  // Reset for next session
-  state.sessionKey = null;
-  state.paused = false;
-  state.breathCount = 0;
-  state.coherencePeak = 0;
-  state.elapsed = 0;
-  document.getElementById('breathRing').style.transform = 'scale(1)';
-  document.getElementById('breathLabel').textContent = 'Complete';
-}
-
-// ── DEV PANEL (triple-tap Luno) ──
-
-document.querySelector('.luno-container').addEventListener('click', () => {
-  state.lunoTapCount++;
-  clearTimeout(state.lunoTapTimeout);
-  state.lunoTapTimeout = setTimeout(() => { state.lunoTapCount = 0; }, 500);
-  if (state.lunoTapCount >= 3) {
-    state.lunoTapCount = 0;
-    // In embedded mode, restrict dev panel to facilitator/admin/clinician
-    if (IS_EMBEDDED && state.jwt) {
-      try {
-        const payload = JSON.parse(atob(state.jwt.split('.')[1]));
-        if (!['facilitator', 'admin', 'clinician'].includes(payload.role)) return;
-      } catch (e) { return; }
+function showLunoSpeech(text) {
+  // Show in whichever Luno text is currently active
+  const targets = ['breathLunoText', 'settleText'];
+  for (const id of targets) {
+    const el = document.getElementById(id);
+    if (el && el.closest('.phase-layer.active')) {
+      el.classList.remove('visible');
+      setTimeout(() => { el.textContent = text; el.classList.add('visible'); }, 100);
+      return;
     }
-    state.devPanelOpen = !state.devPanelOpen;
-    document.getElementById('devPanel').classList.toggle('open', state.devPanelOpen);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DEV PANEL (triple-tap any Luno orb)
+// ═══════════════════════════════════════════════════════════════
+
+document.addEventListener('click', function(e) {
+  if (e.target.closest('.luno-orb')) {
+    state.lunoTapCount++;
+    clearTimeout(state.lunoTapTimeout);
+    state.lunoTapTimeout = setTimeout(() => { state.lunoTapCount = 0; }, 500);
+    if (state.lunoTapCount >= 3) {
+      state.lunoTapCount = 0;
+      if (IS_EMBEDDED && state.jwt) {
+        try {
+          const payload = JSON.parse(atob(state.jwt.split('.')[1]));
+          if (!['facilitator', 'admin', 'clinician'].includes(payload.role)) return;
+        } catch { return; }
+      }
+      state.devPanelOpen = !state.devPanelOpen;
+      document.getElementById('devPanel').classList.toggle('open', state.devPanelOpen);
+    }
   }
 });
 
@@ -827,7 +1423,7 @@ function devStartSession() {
   state.userId = document.getElementById('devUserId').value || 'dev_user';
   state.sessionId = document.getElementById('devSessionId').value || '1';
   hideLogin();
-  startSession();
+  initSessionAndShowLanding();
 }
 
 function devLog(msg) {
@@ -839,7 +1435,6 @@ function devLog(msg) {
 }
 
 // ── BUTTON HANDLERS ──
-
 document.getElementById('btnPause').addEventListener('click', togglePause);
 document.getElementById('btnExit').addEventListener('click', exitSession);
 
@@ -848,23 +1443,20 @@ document.getElementById('btnExit').addEventListener('click', exitSession);
 // ═══════════════════════════════════════════════════════════════
 
 initPinPad();
+initCanvas();
 
-// In embedded mode: wait for auth via postMessage (don't show login or auto-start)
 if (IS_EMBEDDED) {
-  // Show session container (loading state), hide login
   document.getElementById('loginOverlay').classList.add('hidden');
-  document.getElementById('sessionContainer').classList.add('visible');
-  showLuno('Preparing your session...');
+  setPhase('landing');
+  showLunoSpeech('Preparing your session...');
 } else if (state.jwt) {
-  // Auto-login if JWT exists (standalone mode)
   apiRequest('GET', '/api/auth/me')
     .then(data => {
       state.userId = data.user?.id || data.user?.user_id || data.userId;
       hideLogin();
-      loadSessionAndStart();
+      loadSessionAndShowLanding();
     })
     .catch(() => {
-      // JWT expired, show login
       localStorage.removeItem('ascen_jwt');
       localStorage.removeItem('ascen_refresh');
       state.jwt = null;
