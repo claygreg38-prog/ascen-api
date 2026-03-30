@@ -42,15 +42,12 @@ test.describe('Session Lifecycle', () => {
     }
   });
 
-  test('POST /api/abi/session/start rejects missing userId', async ({ request }) => {
-    const headers = await authHeaders(request);
+  test('POST /api/abi/session/start rejects unauthenticated request', async ({ request }) => {
     const res = await request.post('/api/abi/session/start', {
-      headers,
       data: { session_id: crypto.randomUUID() },
     });
-    expect(res.status()).toBe(400);
-    const body = await res.json();
-    expect(body.error).toContain('userId');
+    // No auth header → 401 from authenticateOrApiKey middleware
+    expect(res.status()).toBe(401);
   });
 
   test('POST /api/abi/session/tick rejects without session key', async ({ request }) => {
