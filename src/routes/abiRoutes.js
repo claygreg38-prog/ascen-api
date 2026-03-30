@@ -91,8 +91,19 @@ router.post('/session/start', async (req, res) => {
   const isAborted = () => req.socket?.destroyed || res.destroyed;
 
   try {
-    const { userId, sessionId } = extractIds(req.body);
+    let { userId, sessionId } = extractIds(req.body);
     const options = req.body.options || {};
+
+    // Fall back to JWT user identity when body doesn't include userId
+    if (!userId) {
+      userId = req.user?.participant_id || req.user?.user_id || req.user?.userId;
+    }
+
+    // Build sessionId from session_number if not provided directly
+    if (!sessionId) {
+      const sn = req.body.session_number || 1;
+      sessionId = `S${sn}`;
+    }
 
     if (!userId || !sessionId) {
       return res.status(400).json({ error: 'userId and sessionId required' });

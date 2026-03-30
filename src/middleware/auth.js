@@ -189,8 +189,11 @@ function authenticateOrApiKey(defaultRole = 'clinician') {
         const decoded = verifyToken(token);
         req.user = {
           userId: decoded.sub,
+          user_id: decoded.user_id || null,
+          participant_id: decoded.participant_id || null,
           role: decoded.role,
           facilityId: decoded.facility_id || null,
+          tenantId: decoded.tenantId || null,
           authMethod: 'jwt',
           scope: decoded.scope || null
         };
