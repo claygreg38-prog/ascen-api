@@ -211,8 +211,12 @@ const REQUESTED_SESSION = urlParams.get('session') || null;
 let _embeddedAuthReceived = false;
 
 if (IS_EMBEDDED) {
-  // Notify parent the iframe is ready — parent responds with auth credentials
+  // Notify parent the iframe is ready — retry until auth received (parent listener may not be attached yet)
   window.parent.postMessage({ type: 'iframe_ready' }, window.location.origin);
+  var _iframeReadyInterval = setInterval(function() {
+    if (_embeddedAuthReceived) { clearInterval(_iframeReadyInterval); return; }
+    window.parent.postMessage({ type: 'iframe_ready' }, window.location.origin);
+  }, 500);
 
   // Listen for auth message from parent PWA
   window.addEventListener('message', function(event) {
