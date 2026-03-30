@@ -24,7 +24,7 @@ function createSessionKey() {
 async function registerSession(userId, sessionId, sessionNumber, tenantId) {
   const sessionKey = createSessionKey();
   const tid = tenantId || _currentTenantId;
-  const t = tenantInsert(tid, 5);
+  const t = tenantInsert(tid, 4);
 
   await pool.query(`
     INSERT INTO session_completions (user_id, session_number, session_key, session_active, session_state, arrival_started_at${t.columns}, created_at)
