@@ -34,7 +34,8 @@ export default function LoginScreen() {
         nav('/app/');
       }
     } catch (e) {
-      setError(e.response?.data?.error || e.response?.data?.message || "That didn't match. Try again.");
+      const msg = e.response?.data?.message || (typeof e.response?.data?.error === 'string' && e.response.data.error) || "That didn't match. Try again.";
+      setError(msg);
       setPin('');
     }
     setLoading(false);
