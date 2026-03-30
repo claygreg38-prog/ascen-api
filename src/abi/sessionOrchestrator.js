@@ -180,12 +180,13 @@ function createOrchestrator(callbacks = {}) {
     user = userResult.rows[0];
 
     // ── LOAD SESSION ────────────────────────────────────
+    const sessionNumber = parseInt(String(sessionId).replace(/\D/g, '')) || 1;
     const sessResult = await pool.query(
-      `SELECT * FROM session_templates WHERE session_id = $1`,
-      [sessionId]
+      `SELECT * FROM session_templates WHERE session_number = $1`,
+      [sessionNumber]
     );
     if (sessResult.rows.length === 0) {
-      throw new Error(`Session ${sessionId} not found`);
+      throw new Error(`Session template for session ${sessionNumber} not found`);
     }
     rawSession = sessResult.rows[0];
     Sentry.setTag('session_number', rawSession.session_number);
