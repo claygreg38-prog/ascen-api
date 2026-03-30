@@ -171,8 +171,8 @@ function createOrchestrator(callbacks = {}) {
 
     // ── LOAD USER ───────────────────────────────────────
     const userResult = await pool.query(
-      `SELECT * FROM users WHERE user_id = $1`,
-      [userId]
+      `SELECT * FROM users WHERE user_id = $1 OR id = $2 OR participant_id = $3`,
+      [userId, parseInt(userId) || 0, userId]
     );
     if (userResult.rows.length === 0) {
       throw new Error(`User ${userId} not found`);
