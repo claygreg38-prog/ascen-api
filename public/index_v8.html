@@ -934,6 +934,7 @@ async function initSessionAndShowLanding() {
 
 async function beginSession() {
   document.getElementById('beginBtn').disabled = true;
+  document.getElementById('beginBtn').textContent = 'Connecting...';
 
   try {
     const data = await apiRequest('POST', '/api/abi/session/start', {
@@ -945,42 +946,123 @@ async function beginSession() {
     processEvents(data.events || []);
   } catch (err) {
     devLog('startSession error: ' + err.message);
-    // Continue with client-only flow
   }
 
-  // Transition to settle-in (10-second descent)
+  // Phase 1: 30-second biometric baseline on the landing screen
+  startArrivalSampling();
+}
+
+// ── 30-second biometric baseline collection (on landing screen) ──
+
+function startArrivalSampling() {
+  const ARRIVAL_DURATION = 30; // seconds — server expects ~30 samples
+  let elapsed = 0;
+  const arrivalBioSamples = [];
+
+  document.getElementById('beginBtn').textContent = 'Reading baseline...';
+  const greeting = document.getElementById('landingGreeting');
+  greeting.textContent = 'Luno is reading your breath. Just relax.';
+
+  const arrivalTimer = setInterval(async () => {
+    elapsed++;
+    const bio = getBio();
+    arrivalBioSamples.push(bio);
+    state.coherenceCurrent = bio.coherence;
+    updateLunoOrbs();
+
+    // Update landing UI with countdown
+    const remaining = ARRIVAL_DURATION - elapsed;
+    document.getElementById('beginBtn').textContent = 'Reading... ' + remaining + 's';
+
+    // Send sample to server
+    if (state.sessionKey) {
+      try {
+        await apiRequest('POST', '/api/abi/session/arrival-sample', {
+          session_key: state.sessionKey,
+          biometrics: bio
+        });
+      } catch (err) { devLog('arrival-sample: ' + err.message); }
+    }
+
+    if (elapsed >= ARRIVAL_DURATION) {
+      clearInterval(arrivalTimer);
+
+      // Compute baseline summary from collected samples
+      const baselineSummary = computeArrivalBaseline(arrivalBioSamples);
+      state.arrivalBaseline = baselineSummary;
+
+      // Call arrival-complete with the full baseline
+      completeArrivalAndSettle(baselineSummary);
+    }
+  }, 1000);
+}
+
+function computeArrivalBaseline(samples) {
+  if (!samples.length) return { resting_hr: 68, resting_hrv: 35, respiratory_rate: 14 };
+  const avg = (arr) => arr.reduce((s, v) => s + v, 0) / arr.length;
+  return {
+    resting_hr: Math.round(avg(samples.map(s => s.heart_rate || s.current_hr || 68))),
+    resting_hrv: Math.round(avg(samples.map(s => s.hrv || s.rmssd || 35))),
+    respiratory_rate: Math.round(avg(samples.map(s => s.respiratory_rate || 14)) * 10) / 10,
+    mean_coherence: Math.round(avg(samples.map(s => s.coherence || 0)) * 100) / 100,
+    sample_count: samples.length
+  };
+}
+
+async function completeArrivalAndSettle(baseline) {
+  let adapted = { ratio: null, duration_seconds: SESSION_DURATION };
+
+  if (state.sessionKey) {
+    try {
+      const data = await apiRequest('POST', '/api/abi/session/arrival-complete', {
+        session_key: state.sessionKey,
+        biometrics: baseline
+      });
+      processEvents(data.events || []);
+      adapted = data.adapted_session || data.result || adapted;
+
+      // Capture arrival NS3 for vagal map
+      const arrBaseline = data.arrival_baseline || {};
+      state.arrivalNs3 = arrBaseline.ns3_score || (arrBaseline.initial_coherence ? arrBaseline.initial_coherence * 100 : null);
+
+      devLog('arrival-complete ratio: ' + (adapted.ratio || 'none') + ' breath_in: ' + (adapted.breath_in || '-') + ' breath_out: ' + (adapted.breath_out || '-'));
+    } catch (err) {
+      devLog('arrival-complete: ' + err.message);
+    }
+  }
+
+  // NS3/biometric intelligence drives cadence — NOT hardcoded
+  if (adapted.ratio) {
+    const parts = adapted.ratio.split(':').map(Number);
+    state.inhale = parts[0] || state.inhale;
+    state.exhale = parts[1] || state.exhale;
+    state.adaptedRatio = adapted.ratio;
+  } else if (adapted.breath_params?.ratio) {
+    const parts = adapted.breath_params.ratio.split(':').map(Number);
+    state.inhale = parts[0] || state.inhale;
+    state.exhale = parts[1] || state.exhale;
+    state.adaptedRatio = adapted.breath_params.ratio;
+  } else if (adapted.breath_in && adapted.breath_out) {
+    state.inhale = adapted.breath_in;
+    state.exhale = adapted.breath_out;
+    state.adaptedRatio = adapted.breath_in + ':' + adapted.breath_out;
+  }
+
+  devLog('Assessed cadence: ' + state.inhale + ':' + state.exhale);
+
+  // Now transition to Settle In with the assessed ratio
   startSettle();
 }
 
-// ── STEP 2: SETTLE IN (10s descent + arrival sampling) ──
+// ── STEP 2: SETTLE IN (10s descent — runs AFTER 30s baseline + arrival-complete) ──
+// By this point, the assessed ratio is already set in state.inhale/state.exhale
 
 function startSettle() {
   setPhase('settle');
   speakLuno('Going deeper now. Let the surface fade.', 'arrival');
   const startTime = Date.now();
-  const SETTLE_DURATION = 10000; // 10 seconds
+  const SETTLE_DURATION = 10000; // 10 seconds (Option B)
   const wordsFired = new Set();
-  let arrivalSamples = 0;
-  let lastArrivalBio = null;
-
-  // Arrival sampling runs alongside descent
-  const arrivalInterval = setInterval(async () => {
-    const bio = getBio();
-    lastArrivalBio = bio;
-    state.coherenceCurrent = bio.coherence;
-    updateLunoOrbs();
-
-    if (state.sessionKey) {
-      try {
-        const data = await apiRequest('POST', '/api/abi/session/arrival-sample', {
-          session_key: state.sessionKey,
-          biometrics: bio
-        });
-        arrivalSamples = data.sample_count || arrivalSamples + 1;
-        processEvents(data.events || []);
-      } catch (err) { devLog('arrival-sample: ' + err.message); }
-    }
-  }, 1000);
 
   function animateSettle() {
     if (state.phase !== 'settle') return;
@@ -989,7 +1071,6 @@ function startSettle() {
     const eased = easeInOut(t);
     state.descentProgress = eased;
 
-    // Drifting words
     for (const word of DESCENT_WORDS) {
       if (t >= word.t && !wordsFired.has(word.text)) {
         wordsFired.add(word.text);
@@ -997,7 +1078,6 @@ function startSettle() {
       }
     }
 
-    // Luno text
     const settleEl = document.getElementById('settleText');
     if (t < 0.3) { settleEl.textContent = 'Going deeper...'; settleEl.classList.add('visible'); }
     else if (t < 0.7) { settleEl.textContent = 'Let the surface fade.'; }
@@ -1008,54 +1088,11 @@ function startSettle() {
     if (t < 1) {
       requestAnimationFrame(animateSettle);
     } else {
-      // Settle complete — complete arrival on server and start breathing
-      clearInterval(arrivalInterval);
-      completeArrivalAndBreathe(lastArrivalBio || getBio());
+      // Settle complete — start breathing with the assessed ratio
+      startBreathing();
     }
   }
   requestAnimationFrame(animateSettle);
-}
-
-// ── Arrival Complete → Breathing ──
-
-async function completeArrivalAndBreathe(bio) {
-  let adapted = { ratio: null, duration_seconds: SESSION_DURATION };
-
-  if (state.sessionKey) {
-    try {
-      const data = await apiRequest('POST', '/api/abi/session/arrival-complete', {
-        session_key: state.sessionKey,
-        biometrics: bio
-      });
-      processEvents(data.events || []);
-      adapted = data.adapted_session || data.result || adapted;
-
-      // Capture arrival NS3 for vagal map
-      const baseline = data.arrival_baseline || {};
-      state.arrivalNs3 = baseline.ns3_score || (baseline.initial_coherence ? baseline.initial_coherence * 100 : null);
-    } catch (err) {
-      devLog('arrival-complete: ' + err.message);
-    }
-  }
-
-  // NS3/biometric intelligence drives cadence — NOT hardcoded
-  // Server returns the right ratio via determineBreathParams
-  if (adapted.ratio) {
-    const parts = adapted.ratio.split(':').map(Number);
-    state.inhale = parts[0] || 4;
-    state.exhale = parts[1] || 6;
-    state.adaptedRatio = adapted.ratio;
-  } else if (adapted.breath_params?.ratio) {
-    const parts = adapted.breath_params.ratio.split(':').map(Number);
-    state.inhale = parts[0] || 4;
-    state.exhale = parts[1] || 6;
-    state.adaptedRatio = adapted.breath_params.ratio;
-  }
-  // If server returned no ratio, inhale/exhale stay at defaults
-  // which were determined by prior session history on the server
-
-  // Duration: 3-minute hard cap regardless of server response
-  startBreathing();
 }
 
 // ── STEP 3: BREATHING (plankton biofeedback, coherence-driven) ──
