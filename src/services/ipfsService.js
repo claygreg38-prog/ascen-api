@@ -49,11 +49,13 @@ function decryptClinicalPayload(encryptedString, key) {
  * @returns {string} IPFS hash (CID)
  */
 async function uploadBufferToPinata(buffer, fileName) {
+  // Read env vars at call time (not module scope) — Railway may inject after module load
   const apiKey = process.env.PINATA_API_KEY;
   const secretKey = process.env.PINATA_SECRET_KEY;
 
   if (!apiKey || !secretKey) {
-    throw new Error('PINATA_API_KEY and PINATA_SECRET_KEY must be set');
+    console.warn('[IPFS] PINATA keys not available at upload time — skipping buffer upload');
+    return null;
   }
 
   // Build multipart form data manually to avoid extra dependencies
@@ -110,11 +112,13 @@ async function uploadBufferToPinata(buffer, fileName) {
  * @returns {string} IPFS hash (CID)
  */
 async function uploadJSONToPinata(metadata, name) {
+  // Read env vars at call time (not module scope)
   const apiKey = process.env.PINATA_API_KEY;
   const secretKey = process.env.PINATA_SECRET_KEY;
 
   if (!apiKey || !secretKey) {
-    throw new Error('PINATA_API_KEY and PINATA_SECRET_KEY must be set');
+    console.warn('[IPFS] PINATA keys not available at upload time — skipping JSON upload');
+    return null;
   }
 
   const response = await fetch(`${PINATA_API_URL}/pinning/pinJSONToIPFS`, {
@@ -180,6 +184,12 @@ async function upload(pngBuffer, metadataJSON, clinicalPayload, options = {}) {
   const imageFileName = `breath_${sessionNumber}_${Date.now()}.png`;
   const imageHash = await uploadBufferToPinata(pngBuffer, imageFileName);
 
+  // If image upload failed/skipped, bail gracefully
+  if (!imageHash) {
+    const encryptedClinical = encryptClinicalPayload(clinicalPayload, encryptionKey);
+    return { imageHash: null, metadataHash: null, skipped: true, reason: 'pinata_upload_failed', encrypted_clinical: encryptedClinical };
+  }
+
   // 2. Encrypt clinical payload
   const encryptedClinical = encryptClinicalPayload(clinicalPayload, encryptionKey);
 
@@ -195,7 +205,7 @@ async function upload(pngBuffer, metadataJSON, clinicalPayload, options = {}) {
   const metadataName = `breath_meta_${sessionNumber}_${Date.now()}`;
   const metadataHash = await uploadJSONToPinata(fullMetadata, metadataName);
 
-  return { imageHash, metadataHash };
+  return { imageHash, metadataHash: metadataHash || null };
 }
 
 module.exports = {
