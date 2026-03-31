@@ -294,7 +294,7 @@ function createOrchestrator(callbacks = {}) {
     const bridge = applyGraduationBridge(rawSession, user);
 
     // ── ADAPT SESSION ───────────────────────────────────
-    const isFR = sessionId.startsWith('FR');
+    const isFR = String(sessionId).startsWith('FR');
     adaptedSession = isFR
       ? adaptFRBreathProtocol(rawSession, user, false)
       : adaptBreathProtocol(rawSession, user);
@@ -644,7 +644,7 @@ function createOrchestrator(callbacks = {}) {
           };
 
           // RE-ADAPT the session with the new track
-          const isFR = sessionId.startsWith('FR');
+          const isFR = String(sessionId).startsWith('FR');
           adaptedSession = isFR
             ? adaptFRBreathProtocol(rawSession, user, false)
             : adaptBreathProtocol(rawSession, user);
@@ -666,7 +666,7 @@ function createOrchestrator(callbacks = {}) {
       const provisionalResult = await checkProvisionalTrack(userId, cleanBaseline);
       if (provisionalResult.action === 'upgraded') {
         user.breath_track = provisionalResult.new_track;
-        const isFR = sessionId.startsWith('FR');
+        const isFR = String(sessionId).startsWith('FR');
         adaptedSession = isFR
           ? adaptFRBreathProtocol(rawSession, user, false)
           : adaptBreathProtocol(rawSession, user);
@@ -1044,7 +1044,7 @@ function createOrchestrator(callbacks = {}) {
         if (newTrack) {
           user.breath_track = newTrack;
 
-          const isFR = sessionId.startsWith('FR');
+          const isFR = String(sessionId).startsWith('FR');
           adaptedSession = isFR
             ? adaptFRBreathProtocol(rawSession, user, false)
             : adaptBreathProtocol(rawSession, user);
