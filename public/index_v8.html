@@ -281,7 +281,8 @@ const state = {
   sessionNumber: 1,
   breathCount: 0,
   coherencePeak: 0,
-  coherenceCurrent: 0,
+  coherenceCurrent: 0,    // raw value from server/bio
+  coherenceDisplay: 0,    // asymmetric ramp for visual feedback
   elapsed: 0,
   paused: false,
   bleConnected: false,
@@ -618,8 +619,17 @@ function initCanvas() {
   function draw() {
     if (!w || !h) { state.canvasAnimFrame = requestAnimationFrame(draw); return; }
     const prog = state.descentProgress;
-    const co = state.coherenceCurrent;
     const t = Date.now() * 0.001;
+
+    // ── ASYMMETRIC COHERENCE RAMP ────────────────────────
+    // Rising: fast (~2-3s ramp, rate 0.15)
+    // Falling: slow (~10-15s decay, rate 0.03)
+    // "Sticky high" — celebrate regulation, never punish dysregulation
+    const target = state.coherenceCurrent;
+    const rate = target > state.coherenceDisplay ? 0.15 : 0.03;
+    state.coherenceDisplay += (target - state.coherenceDisplay) * rate;
+    // Floor at 0.05 — scene never goes fully dark
+    const co = Math.max(0.05, state.coherenceDisplay);
 
     ctx.clearRect(0, 0, w, h);
 
@@ -795,7 +805,7 @@ function renderLunoOrb(container, size, coherence, glowMul) {
 
 // Update all visible Luno orbs
 function updateLunoOrbs() {
-  const co = state.coherenceCurrent;
+  const co = Math.max(0.05, state.coherenceDisplay); // Use display value (asymmetric ramp)
   const prog = state.descentProgress;
   const glow = 0.5 + prog * 1.5;
 
@@ -1578,6 +1588,7 @@ function closeSession() {
   state.breathCount = 0;
   state.coherencePeak = 0;
   state.coherenceCurrent = 0;
+  state.coherenceDisplay = 0;
   state.elapsed = 0;
   state.descentProgress = 0;
   state.completionResult = null;

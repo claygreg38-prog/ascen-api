@@ -440,7 +440,7 @@ router.post('/session/tick', async (req, res) => {
 
     const biometrics = req.body.biometrics;
     const tickStart = Date.now();
-    const result = session.abi.onBreathingTick(biometrics);
+    const result = await session.abi.onBreathingTick(biometrics);
     const events = drainEvents(session);
     const tickLatency = Date.now() - tickStart;
     const sk = session.dbSessionKey || key;
