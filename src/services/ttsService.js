@@ -48,17 +48,47 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
     return { audio_url: null, cached: false, fallback: 'text_only' };
   }
 
-  // Get voice config from tenant
-  const tenant = await pool.query(
-    'SELECT voice_config FROM tenants WHERE id = $1',
-    [tenantId]
-  );
+  // Get voice config from tenant, with env var fallback
+  // ELEVENLABS_LUNO_VOICE_ID / ELEVENLABS_LUNA_VOICE_ID override tenant config
+  let voiceId = null;
+  let charConfig = {};
 
-  const voiceConfig = tenant.rows[0]?.voice_config || {};
-  const charConfig = voiceConfig[character] || voiceConfig.luno || {};
-  const voiceId = charConfig.voice_id;
+  // 1. Check env var override (fastest path, no DB query)
+  const envVoiceId = character === 'luna'
+    ? process.env.ELEVENLABS_LUNA_VOICE_ID
+    : process.env.ELEVENLABS_LUNO_VOICE_ID;
+  if (envVoiceId) {
+    voiceId = envVoiceId;
+    charConfig = { stability: 0.75, similarity_boost: 0.8, style: 0.3 };
+  }
+
+  // 2. Check tenant config (if env var not set)
+  if (!voiceId && tenantId) {
+    try {
+      const tenant = await pool.query(
+        'SELECT voice_config FROM tenants WHERE id = $1',
+        [tenantId]
+      );
+      const voiceConfig = tenant.rows[0]?.voice_config || {};
+      charConfig = voiceConfig[character] || voiceConfig.luno || {};
+      voiceId = charConfig.voice_id || null;
+    } catch { /* non-blocking */ }
+  }
+
+  // 3. Final fallback: check default ASCEN tenant
+  if (!voiceId) {
+    try {
+      const ascen = await pool.query(
+        "SELECT voice_config FROM tenants WHERE slug = 'ascen' LIMIT 1"
+      );
+      const vc = ascen.rows[0]?.voice_config || {};
+      charConfig = vc[character] || vc.luno || {};
+      voiceId = charConfig.voice_id || null;
+    } catch { /* non-blocking */ }
+  }
 
   if (!voiceId) {
+    console.warn(`[TTS] No voice_id configured for ${character}. Set ELEVENLABS_LUNO_VOICE_ID env var or update tenants.voice_config.`);
     return { audio_url: null, cached: false, fallback: 'no_voice_configured' };
   }
 
