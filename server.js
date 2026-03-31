@@ -33,6 +33,9 @@ app.use('/audio/tts', express.static(path.join(__dirname, 'public/audio/tts')));
 
 // ── V8 IMMERSIVE FRONTEND — canonical participant experience ─
 app.get('/breathe', (req, res) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   res.sendFile(path.join(__dirname, 'public', 'index_v8.html'));
 });
 

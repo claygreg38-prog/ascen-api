@@ -212,7 +212,7 @@ function createOrchestrator(callbacks = {}) {
 
     // ── [NEW] HOMEOSTATIC REGULATOR — PRE-SESSION CHECK ─
     // Dosage limit, recovery insert, emotional load
-    homeostaticRegulator = new HomeostaticRegulator(userId, pool);
+    homeostaticRegulator = new HomeostaticRegulator(String(userId), pool);
     let homeostaticResult = { allowed: true };
     try {
       homeostaticResult = await homeostaticRegulator.preSessionCheck();
@@ -233,7 +233,7 @@ function createOrchestrator(callbacks = {}) {
 
     // ── [NEW] IMMUNE SYSTEM — BARRIER CHECK ─────────────
     // Verify no safety mode is active
-    immuneSystem = new ImmuneSystem(userId, pool);
+    immuneSystem = new ImmuneSystem(String(userId), pool);
     let immuneBarrier = { blocked: false };
     try {
       immuneBarrier = immuneSystem.checkBarriers('start_session');
@@ -1703,7 +1703,7 @@ function createOrchestrator(callbacks = {}) {
     let trendReport = null;
     if (shouldRunTrendAnalysis(sessCount)) {
       try {
-        trendReport = await analyzeTrends(userId);
+        trendReport = await analyzeTrends(String(userId));
       } catch (err) {
         console.error('Trend analysis failed (non-blocking):', err.message);
       Sentry.captureException(err);
