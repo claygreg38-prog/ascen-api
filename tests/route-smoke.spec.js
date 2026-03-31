@@ -21,6 +21,10 @@ test.describe('Route Smoke — All Route Groups Return 401, Not 404 or 500', () 
     { method: 'GET', path: '/api/vault/recovery/history/1', label: 'Vault Recovery' },
     { method: 'GET', path: '/api/art/presets', label: 'Art Presets' },
     { method: 'GET', path: '/api/art/preferences', label: 'Art Preferences' },
+  ];
+
+  // Public routes that return 200 without auth
+  const publicRoutes = [
     { method: 'GET', path: '/api/tts/available', label: 'TTS Available' },
   ];
 
@@ -33,6 +37,13 @@ test.describe('Route Smoke — All Route Groups Return 401, Not 404 or 500', () 
         res = await request.post(route.path, { data: {} });
       }
       expect(res.status()).toBe(401);
+    });
+  }
+
+  for (const route of publicRoutes) {
+    test(`${route.label}: ${route.method} ${route.path} → 200 (public)`, async ({ request }) => {
+      const res = await request.get(route.path);
+      expect(res.status()).toBe(200);
     });
   }
 });
