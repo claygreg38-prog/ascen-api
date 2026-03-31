@@ -261,7 +261,52 @@ router.post('/session/arrival-sample', async (req, res) => {
 router.post('/session/arrival-complete', async (req, res) => {
   try {
     const { key, session } = resolveSession(req);
-    if (!session) return res.status(404).json({ error: 'No active session' });
+
+    // If in-memory session lost (redeploy, process restart), fall back to DB-persisted state
+    if (!session) {
+      const sk = req.headers['x-session-key'] || req.body?.session_key;
+      if (sk) {
+        console.warn(`[ABI] arrival-complete: in-memory session lost for ${sk}, falling back to DB baseline`);
+        const dbSession = await sessionStateManager.getSession(sk);
+        if (dbSession) {
+          const samples = dbSession.arrivalSamples || [];
+          const last30 = samples.slice(-30);
+          const bio = req.body.biometrics || {};
+          const arrivalBaseline = {
+            mean_hr: last30.length ? last30.reduce((s, x) => s + (x.heart_rate || x.current_hr || 0), 0) / last30.length : bio.resting_hr || 68,
+            mean_hrv: last30.length ? last30.reduce((s, x) => s + (x.hrv || x.rmssd || 0), 0) / last30.length : bio.resting_hrv || 35,
+            initial_coherence: last30.length ? last30.reduce((s, x) => s + (x.coherence || 0), 0) / last30.length : 0.3
+          };
+
+          // Determine breath params from DB samples
+          let ratio = '4:6', breathIn = 4, breathOut = 6;
+          try {
+            const { determineBreathParams } = require('../abi/determineBreathParams');
+            const params = await determineBreathParams(
+              { resting_hr: arrivalBaseline.mean_hr, resting_hrv: arrivalBaseline.mean_hrv, respiratory_rate: bio.respiratory_rate || 14 },
+              { adaptive_ratio: true },
+              null,
+              { pool: require('../db/pool'), userId: dbSession.userId }
+            );
+            ratio = params.ratio || ratio;
+            breathIn = params.inhale_sec || params.inhale || breathIn;
+            breathOut = params.exhale_sec || params.exhale || breathOut;
+          } catch (e) { console.warn('[ABI] DB-fallback determineBreathParams failed:', e.message); }
+
+          await sessionStateManager.updateSessionState(sk, { phase: 'breathing', current_ratio: ratio, arrival_ratio: ratio });
+
+          return res.json({
+            success: true,
+            result: { breath_params: { ratio, inhale_sec: breathIn, exhale_sec: breathOut } },
+            adapted_session: { ratio, breath_in: breathIn, breath_out: breathOut, duration_seconds: 180, breathwork_mode: 'simple_pacer', track: 'standard' },
+            arrival_baseline: arrivalBaseline,
+            events: [],
+            _fallback: true
+          });
+        }
+      }
+      return res.status(404).json({ error: 'No active session' });
+    }
 
     const biometrics = req.body.biometrics;
     const result = await session.abi.onArrivalComplete(biometrics);
@@ -376,7 +421,22 @@ router.post('/session/somatic-complete', async (req, res) => {
 router.post('/session/tick', async (req, res) => {
   try {
     const { key, session } = resolveSession(req);
-    if (!session) return res.status(404).json({ error: 'No active session' });
+    if (!session) {
+      // In-memory session lost (redeploy). Return minimal tick so frontend doesn't break.
+      const sk = req.headers['x-session-key'] || req.body?.session_key;
+      if (sk) {
+        const dbState = await sessionStateManager.getSession(sk);
+        if (dbState) {
+          return res.json({
+            success: true, result: { action: 'none' }, events: [],
+            current_ratio: dbState.current_ratio || null,
+            ns3: null, coherence: req.body?.biometrics?.coherence || null,
+            breath_count: 0, elapsed: 0, _fallback: true
+          });
+        }
+      }
+      return res.status(404).json({ error: 'No active session' });
+    }
 
     const biometrics = req.body.biometrics;
     const tickStart = Date.now();
@@ -765,7 +825,24 @@ router.post('/session/ble-reconnect', async (req, res) => {
 router.post('/session/complete', async (req, res) => {
   try {
     const { key, session } = resolveSession(req);
-    if (!session) return res.status(404).json({ error: 'No active session' });
+    if (!session) {
+      // In-memory session lost (redeploy). Return minimal completion so frontend can proceed.
+      const sk = req.headers['x-session-key'] || req.body?.session_key;
+      if (sk) {
+        console.warn(`[ABI] session/complete: in-memory session lost for ${sk}, returning partial`);
+        const metrics = req.body.rawMetrics || req.body.metrics || {};
+        return res.json({
+          success: true,
+          result: {
+            breath_count: metrics.breath_count || 0,
+            duration_seconds: metrics.duration_seconds || 0,
+            coherence_peak: metrics.coherence_peak || 0,
+          },
+          events: [], _fallback: true
+        });
+      }
+      return res.status(404).json({ error: 'No active session' });
+    }
 
     const rawMetrics = req.body.rawMetrics || req.body.metrics || {};
     const result = await session.abi.onSessionComplete(rawMetrics);
