@@ -83,14 +83,25 @@ async function determineBreathParams(baseline, sessionConfig, history, options) 
   const hrv = baseline?.resting_hrv || 45;
   const naturalCycle = 60 / rr;
 
-  // Target BPM = naturalRR * 0.75 (therapeutic slowdown)
-  const targetBPM = rr * 0.75;
-  const targetCycle = 60 / targetBPM;
-
-  // Safety floor: selected ratio BPM must not be < naturalRR * 0.5
-  const safetyFloorCycle = 60 / (rr * 0.5);
-
+  // ── COHERENCE-OPTIMAL TARGET ──────────────────────────
+  // Cardiac coherence peaks at 5-7 BPM (8.5-12s cycles).
+  // The old formula (rr * 0.75) produced cycles too short for
+  // coherence (e.g., RR 14 → 10.5 BPM → 5.7s → 2:4).
+  //
+  // New approach: target 6 BPM (10s cycle) as the coherence sweet
+  // spot, then adjust based on capacity. Lower capacity → slightly
+  // faster (7 BPM / 8.5s), higher capacity → slower (5 BPM / 12s).
+  const COHERENCE_OPTIMAL_BPM = 6; // 10s cycle — center of 5-7 BPM range
   const capacityScore = calculateCapacity(hr, hrv, rr);
+
+  // Capacity-adjusted target: low capacity → 7 BPM, mid → 6 BPM, high → 5 BPM
+  const targetBPM = COHERENCE_OPTIMAL_BPM + (0.5 - capacityScore) * 2;
+  const targetCycle = 60 / Math.max(4.5, Math.min(8, targetBPM)); // clamp 4.5-8 BPM
+
+  // Safety ceiling: don't exceed natural cycle * 3 (never ask for a cycle
+  // more than triple what they breathe naturally — generous enough for
+  // coherence training where 14 BPM users need to reach 6 BPM / 10s cycles)
+  const safetyFloorCycle = naturalCycle * 3;
 
   // ── DETECTION MODE ────────────────────────────────────
   const detectionMode = sessionConfig.detection_mode || 'arrival_baseline';
