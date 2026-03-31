@@ -826,8 +826,19 @@ let ttsUnlocked = false; // Autoplay unlocked after first user gesture
 
 async function checkTTS() {
   try {
-    const data = await apiRequest('GET', '/api/tts/available');
-    ttsAvailable = data.available === true;
+    // Direct fetch — /api/tts/available requires auth, so use apiRequest
+    // If auth fails, try a direct fetch as fallback (server may make it public)
+    try {
+      const data = await apiRequest('GET', '/api/tts/available');
+      ttsAvailable = data.available === true;
+    } catch {
+      // Auth may not be ready yet — try direct fetch
+      const res = await fetch(API_BASE + '/api/tts/available');
+      if (res.ok) {
+        const data = await res.json();
+        ttsAvailable = data.available === true;
+      }
+    }
     console.log('[TTS] Available:', ttsAvailable);
   } catch (err) {
     ttsAvailable = false;
@@ -931,6 +942,8 @@ const PHASE_LABELS = {
 function setPhase(phase) {
   state.phase = phase;
   document.getElementById('phaseBadge').textContent = PHASE_LABELS[phase] || '';
+  // Ensure surface state on landing — no descent visible
+  if (phase === 'landing') state.descentProgress = 0;
 
   // Hide all phase layers, show current
   document.querySelectorAll('.phase-layer').forEach(el => el.classList.remove('active'));

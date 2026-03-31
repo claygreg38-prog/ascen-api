@@ -180,7 +180,7 @@ router.post('/session/start', async (req, res) => {
     res.json({ success: true, session_key: dbSessionKey, config, events });
   } catch (error) {
     Sentry.captureException(error);
-    console.error('Session start error:', error.message);
+    console.error('[ABI] Session start CRASH:', error.message, error.stack?.split('\n')[1]?.trim());
     if (!isAborted() && !res.headersSent) {
       res.status(500).json({ error: error.message });
     }
@@ -261,6 +261,7 @@ router.post('/session/arrival-sample', async (req, res) => {
 router.post('/session/arrival-complete', async (req, res) => {
   try {
     const { key, session } = resolveSession(req);
+    console.log(`[ABI] arrival-complete | key:${key || 'null'} session:${session ? 'found' : 'MISSING'} header:${req.headers['x-session-key'] || 'none'} body_key:${req.body?.session_key || 'none'}`);
 
     // If in-memory session lost (redeploy, process restart), fall back to DB-persisted state
     if (!session) {
@@ -644,7 +645,14 @@ router.post('/session/tick', async (req, res) => {
 router.post('/session/pause', async (req, res) => {
   try {
     const { key, session } = resolveSession(req);
-    if (!session) return res.status(404).json({ error: 'No active session' });
+    if (!session) {
+      const sk = req.headers['x-session-key'] || req.body?.session_key;
+      if (sk) {
+        await sessionStateManager.updateSessionState(sk, { paused: true, pausedAt: Date.now() });
+        return res.json({ success: true, events: [], _fallback: true });
+      }
+      return res.status(404).json({ error: 'No active session' });
+    }
 
     session.abi.onPauseTap();
     const events = drainEvents(session);
@@ -666,7 +674,15 @@ router.post('/session/pause', async (req, res) => {
 router.post('/session/resume', async (req, res) => {
   try {
     const { key, session } = resolveSession(req);
-    if (!session) return res.status(404).json({ error: 'No active session' });
+    if (!session) {
+      // In-memory session lost — update DB state and return success
+      const sk = req.headers['x-session-key'] || req.body?.session_key;
+      if (sk) {
+        await sessionStateManager.updateSessionState(sk, { paused: false, pausedAt: null });
+        return res.json({ success: true, events: [], _fallback: true });
+      }
+      return res.status(404).json({ error: 'No active session' });
+    }
 
     session.abi.onResumeTap();
     const events = drainEvents(session);
