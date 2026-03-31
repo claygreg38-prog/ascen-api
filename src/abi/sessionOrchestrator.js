@@ -734,11 +734,11 @@ function createOrchestrator(callbacks = {}) {
         }
       } catch (err) {
         // Fallback: use safest ratio in range
-        console.error('[ABI] determineBreathParams failed, using fallback:', err.message);
+        console.error('[ABI] determineBreathParams failed, using fallback 3:5:', err.message);
       Sentry.captureException(err);
-        adaptedSession.ratio = '3:4';
+        adaptedSession.ratio = '3:5';
         adaptedSession.breath_in = 3;
-        adaptedSession.breath_out = 4;
+        adaptedSession.breath_out = 5;
         adaptedSession.duration_seconds = 180;
         adaptedSession._breath_params_confidence = 0.2;
         adaptedSession._breath_params_method = 'fallback_error';

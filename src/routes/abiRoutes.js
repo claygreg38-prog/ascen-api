@@ -279,7 +279,7 @@ router.post('/session/arrival-complete', async (req, res) => {
           };
 
           // Determine breath params from DB samples
-          let ratio = '4:6', breathIn = 4, breathOut = 6;
+          let ratio = '3:5', breathIn = 3, breathOut = 5; // Conservative fallback
           try {
             const { determineBreathParams } = require('../abi/determineBreathParams');
             const params = await determineBreathParams(

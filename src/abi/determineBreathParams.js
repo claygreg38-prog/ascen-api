@@ -2,298 +2,259 @@
 // [ABI] determineBreathParams.js — Arrival-based ratio selection
 // File: src/abi/determineBreathParams.js
 //
-// Reads 30-second arrival baseline from BaselineFilter and maps
-// natural breathing rate to the closest safe ratio within the
-// session's ratio_range and duration_range.
-//
-// Works for both FR and Foundation sessions. The YAML provides
-// guardrails (ratio_range, duration_range). ABI decides.
+// Selects breathing cadence from 30-second arrival baseline.
+// HRV thresholds drive track selection. Session count drives
+// capacity ramp for compromised lungs (silent detection).
 //
 // Clinical Rule #1: The system NEVER asks users about their
 // breathing capacity. Silent biometric detection only.
+//
+// Track selection (from 30s arrival baseline):
+//   depleted / HRV < 20   → gentle  → 3:5
+//   HRV 20-50              → standard → 4:6
+//   HRV > 50               → standard → 4:7 or 4:8
+//   Capacity Track (S0.5-S4.5) → minimal → 3:4
+//
+// Capacity ramp (compromised lungs, silent):
+//   Sessions 1-5:  2:4
+//   Sessions 6-10: 3:5
+//   Sessions 11-15: 4:6
+//   Sessions 16+:  personalized resonance frequency
+//
+// Absolute floor: 2:3 (Capacity Track S0.5 only)
+// Fallback when arrival-complete fails: 3:5
 // ============================================================
 
-/**
- * Standard ratio library — inhale:exhale pairs sorted by difficulty.
- * Lower total cycle = easier. Higher exhale proportion = more calming.
- */
 const RATIO_LIBRARY = [
   { ratio: '2:3', inhale: 2, exhale: 3, total: 5, difficulty: 1 },
   { ratio: '2:4', inhale: 2, exhale: 4, total: 6, difficulty: 2 },
   { ratio: '3:4', inhale: 3, exhale: 4, total: 7, difficulty: 3 },
   { ratio: '3:5', inhale: 3, exhale: 5, total: 8, difficulty: 4 },
-  { ratio: '3:6', inhale: 3, exhale: 6, total: 9, difficulty: 5 },
   { ratio: '4:6', inhale: 4, exhale: 6, total: 10, difficulty: 6 },
   { ratio: '4:7', inhale: 4, exhale: 7, total: 11, difficulty: 7 },
   { ratio: '4:8', inhale: 4, exhale: 8, total: 12, difficulty: 8 },
-  { ratio: '5:7', inhale: 5, exhale: 7, total: 12, difficulty: 9 },
-  { ratio: '5:8', inhale: 5, exhale: 8, total: 13, difficulty: 10 },
-  { ratio: '6:8', inhale: 6, exhale: 8, total: 14, difficulty: 11 },
-  { ratio: '6:10', inhale: 6, exhale: 10, total: 16, difficulty: 12 }
 ];
 
-/**
- * Determine breath parameters from arrival baseline and session config.
- *
- * @param {Object} baseline - Filtered arrival baseline
- * @param {Object} sessionConfig - From YAML or adapter
- * @param {Object} [history] - Optional session history for experienced users
- * @param {Object} [options] - { pool, userId } for DB-based history lookup
- * @returns {Object} { ratio, inhale_sec, exhale_sec, cycle_sec, duration_sec, detection_mode, selection_reason, confidence }
- */
-async function determineBreathParams(baseline, sessionConfig, history, options) {
-  // If session has a hardcoded ratio and adaptive_ratio is not true, use it
-  if (sessionConfig.ratio && sessionConfig.adaptive_ratio !== true) {
-    const parsed = parseRatio(sessionConfig.ratio);
-    return {
-      ratio: sessionConfig.ratio,
-      inhale_sec: parsed.inhale,
-      exhale_sec: parsed.exhale,
-      cycle_sec: parsed.inhale + parsed.exhale,
-      duration_sec: sessionConfig.duration_seconds || 300,
-      detection_mode: 'hardcoded',
-      selection_reason: 'Fixed ratio from session config',
-      confidence: 1.0,
-      // Backward compat
-      inhale: parsed.inhale,
-      exhale: parsed.exhale,
-      duration_seconds: sessionConfig.duration_seconds || 300,
-      method: 'hardcoded'
-    };
-  }
-
-  // ── PARSE RATIO RANGE ────────────────────────────────
-  const allowedRatios = filterRatioOptionsForUser(sessionConfig.ratio_range);
-
-  if (allowedRatios.length === 0) {
-    const dur = calculateDuration(sessionConfig.duration_range, 0.3);
-    return {
-      ratio: '3:4', inhale_sec: 3, exhale_sec: 4, cycle_sec: 7,
-      duration_sec: dur,
-      detection_mode: 'fallback',
-      selection_reason: 'No valid ratios in range',
-      confidence: 0.3,
-      inhale: 3, exhale: 4, duration_seconds: dur, method: 'fallback_no_range'
-    };
-  }
-
-  // ── BASELINE BIOMETRICS ───────────────────────────────
-  const rr = baseline?.respiratory_rate || 14;
-  const hr = baseline?.resting_hr || 72;
-  const hrv = baseline?.resting_hrv || 45;
-  const naturalCycle = 60 / rr;
-
-  // ── COHERENCE-OPTIMAL TARGET ──────────────────────────
-  // Cardiac coherence peaks at 5-7 BPM (8.5-12s cycles).
-  // The old formula (rr * 0.75) produced cycles too short for
-  // coherence (e.g., RR 14 → 10.5 BPM → 5.7s → 2:4).
-  //
-  // New approach: target 6 BPM (10s cycle) as the coherence sweet
-  // spot, then adjust based on capacity. Lower capacity → slightly
-  // faster (7 BPM / 8.5s), higher capacity → slower (5 BPM / 12s).
-  const COHERENCE_OPTIMAL_BPM = 6; // 10s cycle — center of 5-7 BPM range
-  const capacityScore = calculateCapacity(hr, hrv, rr);
-
-  // Capacity-adjusted target: low capacity → 7 BPM, mid → 6 BPM, high → 5 BPM
-  const targetBPM = COHERENCE_OPTIMAL_BPM + (0.5 - capacityScore) * 2;
-  const targetCycle = 60 / Math.max(4.5, Math.min(8, targetBPM)); // clamp 4.5-8 BPM
-
-  // Safety ceiling: don't exceed natural cycle * 3 (never ask for a cycle
-  // more than triple what they breathe naturally — generous enough for
-  // coherence training where 14 BPM users need to reach 6 BPM / 10s cycles)
-  const safetyFloorCycle = naturalCycle * 3;
-
-  // ── DETECTION MODE ────────────────────────────────────
-  const detectionMode = sessionConfig.detection_mode || 'arrival_baseline';
-  let selectionReason = 'Selected from arrival baseline';
-
-  // ── HISTORY-BASED ADJUSTMENT ──────────────────────────
-  // For arrival_baseline_plus_history, query last 10 sessions
-  if (detectionMode === 'arrival_baseline_plus_history' && !history && options?.pool && options?.userId) {
-    try {
-      const histResult = await options.pool.query(
-        `SELECT coherence_score, breath_track_at_completion, arc_id
-         FROM session_completions
-         WHERE user_id = $1
-         ORDER BY completed_at DESC LIMIT 10`,
-        [options.userId]
-      );
-      if (histResult.rows.length > 0) {
-        const avgCoherence = histResult.rows.reduce((s, r) => s + (parseFloat(r.coherence_score) || 0), 0) / histResult.rows.length;
-        history = { avg_coherence: avgCoherence, last_ratio: null };
-      }
-    } catch (err) {
-      // Non-blocking — proceed without history
-    }
-  }
-
-  // ── SELECT RATIO ──────────────────────────────────────
-  let selectedRatio = findClosestRatio(allowedRatios, targetCycle);
-
-  // Safety floor check: if selected ratio cycle > safetyFloorCycle, use floor
-  if (selectedRatio.total > safetyFloorCycle) {
-    selectedRatio = allowedRatios[0];
-    selectionReason = 'Safety floor applied — ratio capped to prevent strain';
-  }
-
-  // Low capacity override
-  if (capacityScore < 0.25) {
-    selectedRatio = allowedRatios[0];
-    selectionReason = 'Low biometric capacity — using easiest ratio in range';
-  }
-
-  // History nudge
-  if (history?.last_ratio && history?.avg_coherence > 0.5) {
-    const { floor: rangeFloor, ceiling: rangeCeiling } = parseRatioRange(sessionConfig.ratio_range);
-    const lastDifficulty = RATIO_LIBRARY.find(r => r.ratio === history.last_ratio)?.difficulty || 0;
-    if (lastDifficulty > selectedRatio.difficulty && lastDifficulty <= (rangeCeiling?.difficulty || 99)) {
-      const nextUp = allowedRatios.find(r => r.difficulty === selectedRatio.difficulty + 1);
-      if (nextUp && nextUp.total <= safetyFloorCycle) {
-        selectedRatio = nextUp;
-        selectionReason = 'Nudged up based on session history';
-      }
-    }
-  }
-
-  if (history && detectionMode === 'arrival_baseline_plus_history') {
-    selectionReason += ' (with history from last 10 sessions)';
-  }
-
-  // ── DURATION ──────────────────────────────────────────
-  const duration = calculateDuration(sessionConfig.duration_range, capacityScore);
-
-  // ── CONFIDENCE ────────────────────────────────────────
-  const hasRealBio = baseline?.resting_hr && baseline?.respiratory_rate;
-  const confidence = hasRealBio ? (history ? 0.9 : 0.7) : 0.4;
-
-  return {
-    ratio: selectedRatio.ratio,
-    inhale_sec: selectedRatio.inhale,
-    exhale_sec: selectedRatio.exhale,
-    cycle_sec: selectedRatio.total,
-    duration_sec: duration,
-    detection_mode: detectionMode,
-    selection_reason: selectionReason,
-    confidence,
-    // Backward compat fields
-    inhale: selectedRatio.inhale,
-    exhale: selectedRatio.exhale,
-    duration_seconds: duration,
-    method: history ? 'baseline_plus_history' : 'arrival_baseline'
-  };
+// Lookup helper
+function getRatio(ratioStr) {
+  return RATIO_LIBRARY.find(r => r.ratio === ratioStr) || RATIO_LIBRARY[3]; // 3:5 fallback
 }
 
 /**
- * Parse a ratio string like "4:6" into {inhale, exhale}
+ * Determine breath parameters from arrival baseline.
+ *
+ * @param {Object} baseline - { resting_hr, resting_hrv, respiratory_rate, mean_coherence }
+ * @param {Object} sessionConfig - { adaptive_ratio, ratio, ratio_range, duration_range, detection_mode, capacity_state }
+ * @param {Object} [history] - { avg_coherence, last_ratio, session_count }
+ * @param {Object} [options] - { pool, userId }
  */
+async function determineBreathParams(baseline, sessionConfig, history, options) {
+  // ── HARDCODED RATIO (First Spiral S121-S150 = locked 6:6) ──
+  if (sessionConfig.ratio && sessionConfig.adaptive_ratio !== true) {
+    const parsed = parseRatio(sessionConfig.ratio);
+    console.log('[BREATH_PARAMS] Hardcoded ratio:', sessionConfig.ratio);
+    return buildResult(parsed.inhale, parsed.exhale, sessionConfig.duration_seconds || 180,
+      'hardcoded', 'Fixed ratio from session config', 1.0);
+  }
+
+  // ── INPUTS ──
+  const hrv = baseline?.resting_hrv ?? baseline?.mean_hrv ?? baseline?.hrv ?? null;
+  const hr = baseline?.resting_hr ?? baseline?.mean_hr ?? baseline?.heart_rate ?? null;
+  const coherence = baseline?.mean_coherence ?? baseline?.initial_coherence ?? baseline?.coherence ?? null;
+  const capacityState = sessionConfig?.capacity_state || null;
+
+  // ── SESSION COUNT (for capacity ramp) ──
+  let sessionCount = history?.session_count || 0;
+  if (!sessionCount && options?.pool && options?.userId) {
+    try {
+      const countResult = await options.pool.query(
+        'SELECT COUNT(*) as cnt FROM session_completions WHERE user_id = $1',
+        [options.userId]
+      );
+      sessionCount = parseInt(countResult.rows[0]?.cnt || 0);
+    } catch { /* non-blocking */ }
+  }
+
+  // ── TRACK + RATIO DETERMINATION ──
+  let track = 'standard';
+  let selected = getRatio('4:6'); // standard default
+  let reason = '';
+
+  // Rule 1: Capacity Track user (S0.5-S4.5 — compromised lungs ramp)
+  const isCapacityTrack = sessionConfig?.track === 'minimal'
+    || sessionConfig?.track === 'capacity'
+    || capacityState === 'capacity_track';
+
+  if (isCapacityTrack) {
+    track = 'minimal';
+    if (sessionCount <= 5) {
+      selected = getRatio('2:4');
+      reason = 'Capacity ramp: sessions 1-5 → 2:4';
+    } else if (sessionCount <= 10) {
+      selected = getRatio('3:5');
+      reason = 'Capacity ramp: sessions 6-10 → 3:5';
+    } else if (sessionCount <= 15) {
+      selected = getRatio('4:6');
+      reason = 'Capacity ramp: sessions 11-15 → 4:6';
+    } else {
+      // Sessions 16+: personalized resonance frequency from history
+      selected = getRatio('4:6');
+      reason = 'Capacity ramp: sessions 16+ → personalized (default 4:6)';
+      // If history has a successful ratio, use it
+      if (history?.last_ratio) {
+        const prev = getRatio(history.last_ratio);
+        if (prev) { selected = prev; reason = 'Capacity ramp: sessions 16+ → last successful ratio ' + prev.ratio; }
+      }
+    }
+  }
+  // Rule 2: Depleted capacity state
+  else if (capacityState === 'depleted') {
+    track = 'gentle';
+    selected = getRatio('3:5');
+    reason = 'Depleted capacity state → gentle track → 3:5';
+  }
+  // Rule 3: HRV-based track selection (primary path)
+  else if (hrv !== null) {
+    if (hrv < 20) {
+      track = 'gentle';
+      selected = getRatio('3:5');
+      reason = 'HRV ' + Math.round(hrv) + ' < 20 → gentle track → 3:5';
+    } else if (hrv <= 50) {
+      track = 'standard';
+      selected = getRatio('4:6');
+      reason = 'HRV ' + Math.round(hrv) + ' (20-50) → standard track → 4:6';
+    } else {
+      track = 'standard';
+      // HRV > 50: higher capacity, can handle longer exhales
+      if (hrv > 70) {
+        selected = getRatio('4:8');
+        reason = 'HRV ' + Math.round(hrv) + ' > 70 → standard track → 4:8';
+      } else {
+        selected = getRatio('4:7');
+        reason = 'HRV ' + Math.round(hrv) + ' > 50 → standard track → 4:7';
+      }
+    }
+  }
+  // Rule 4: No HRV data — conservative fallback
+  else {
+    track = 'gentle';
+    selected = getRatio('3:5');
+    reason = 'No HRV data → gentle fallback → 3:5';
+  }
+
+  // ── RATIO RANGE GUARD ──
+  // If session config has a ratio_range, clamp selection to it
+  const allowedRatios = filterRatioOptionsForUser(sessionConfig.ratio_range);
+  if (allowedRatios.length > 0) {
+    const inRange = allowedRatios.find(r => r.ratio === selected.ratio);
+    if (!inRange) {
+      // Selected ratio not in range — find closest allowed
+      const closest = findClosestRatio(allowedRatios, selected.total);
+      reason += ' (clamped from ' + selected.ratio + ' to ' + closest.ratio + ' by ratio_range)';
+      selected = closest;
+    }
+  }
+
+  // ── DURATION ──
+  const duration = calculateDuration(sessionConfig.duration_range, hrv ? Math.min(1, hrv / 80) : 0.4);
+
+  // ── CONFIDENCE ──
+  const hasRealBio = hr !== null && hrv !== null;
+  const confidence = hasRealBio ? 0.8 : 0.4;
+
+  // ── LOGGING ──
+  console.log('[BREATH_PARAMS] Input:', JSON.stringify({
+    mean_hr: hr, mean_hrv: hrv, initial_coherence: coherence,
+    session_count: sessionCount, capacity_state: capacityState, track_config: sessionConfig?.track
+  }));
+  console.log('[BREATH_PARAMS] Output:', JSON.stringify({
+    ratio: selected.ratio, track, reason, confidence, duration
+  }));
+
+  return buildResult(selected.inhale, selected.exhale, duration,
+    sessionConfig.detection_mode || 'arrival_baseline', reason, confidence, track);
+}
+
+function buildResult(inhale, exhale, duration, mode, reason, confidence, track) {
+  return {
+    ratio: inhale + ':' + exhale,
+    inhale_sec: inhale,
+    exhale_sec: exhale,
+    cycle_sec: inhale + exhale,
+    duration_sec: duration,
+    detection_mode: mode,
+    selection_reason: reason,
+    confidence,
+    track: track || 'standard',
+    // Backward compat
+    inhale, exhale,
+    duration_seconds: duration,
+    method: mode
+  };
+}
+
 function parseRatio(ratioStr) {
   if (!ratioStr || typeof ratioStr !== 'string') return { inhale: 4, exhale: 6 };
   const parts = ratioStr.split(':').map(Number);
   return { inhale: parts[0] || 4, exhale: parts[1] || 6 };
 }
 
-/**
- * Filter RATIO_LIBRARY to entries allowed by ratio_range config.
- * Accepts string format "2:3 → 4:7" or array format ["2:3", "3:4", "4:6"].
- */
 function filterRatioOptionsForUser(ratioRange) {
-  if (!ratioRange) {
-    return [...RATIO_LIBRARY];
-  }
+  if (!ratioRange) return [...RATIO_LIBRARY];
 
-  // Array format (from corrected YAML abi_config)
   if (Array.isArray(ratioRange)) {
     return RATIO_LIBRARY.filter(r => ratioRange.includes(r.ratio));
   }
 
-  // String format "2:3 → 4:7"
   const { floor, ceiling } = parseRatioRange(ratioRange);
   return RATIO_LIBRARY.filter(r =>
     r.difficulty >= floor.difficulty && r.difficulty <= ceiling.difficulty
   );
 }
 
-/**
- * Calculate duration from duration_range and capacity score.
- * Lower capacity → shorter duration.
- */
-function calculateDuration(durationRange, capacityScore) {
+function calculateDuration(durationRange, capacityFactor) {
   const { min, max } = parseDurationRange(durationRange);
   const range = max - min;
-  const selected = min + Math.round(range * (capacityScore || 0.5));
+  const selected = min + Math.round(range * (capacityFactor || 0.5));
   return Math.max(min, Math.min(max, selected));
 }
 
-/**
- * Find the ratio in allowedRatios closest to targetCycle seconds.
- */
-function findClosestRatio(allowedRatios, targetCycle) {
-  if (!allowedRatios || allowedRatios.length === 0) {
-    return RATIO_LIBRARY[2]; // 3:4 fallback
-  }
+function findClosestRatio(allowedRatios, targetTotal) {
+  if (!allowedRatios || allowedRatios.length === 0) return getRatio('3:5');
   if (allowedRatios.length === 1) return allowedRatios[0];
 
   let best = allowedRatios[0];
   let bestDist = Infinity;
-
   for (const r of allowedRatios) {
-    const dist = Math.abs(r.total - targetCycle);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = r;
-    }
+    const dist = Math.abs(r.total - targetTotal);
+    if (dist < bestDist) { bestDist = dist; best = r; }
   }
-
   return best;
 }
 
-/**
- * Parse ratio_range string "2:3 → 4:7" into floor/ceiling library entries
- */
 function parseRatioRange(rangeStr) {
   if (!rangeStr || typeof rangeStr !== 'string') {
     return { floor: RATIO_LIBRARY[0], ceiling: RATIO_LIBRARY[RATIO_LIBRARY.length - 1] };
   }
-
   const parts = rangeStr.split(/\s*[→\-–]\s*|\s+to\s+/);
   const floorStr = (parts[0] || '').trim();
   const ceilStr = (parts[1] || '').trim();
-
-  const floor = RATIO_LIBRARY.find(r => r.ratio === floorStr) || RATIO_LIBRARY[0];
-  const ceiling = RATIO_LIBRARY.find(r => r.ratio === ceilStr) || RATIO_LIBRARY[RATIO_LIBRARY.length - 1];
-
-  return { floor, ceiling };
+  return {
+    floor: RATIO_LIBRARY.find(r => r.ratio === floorStr) || RATIO_LIBRARY[0],
+    ceiling: RATIO_LIBRARY.find(r => r.ratio === ceilStr) || RATIO_LIBRARY[RATIO_LIBRARY.length - 1]
+  };
 }
 
-/**
- * Parse duration_range — string "120-240" or object {min_sec, max_sec}
- */
 function parseDurationRange(rangeStr) {
-  if (!rangeStr) return { min: 180, max: 300 };
-
+  if (!rangeStr) return { min: 180, max: 180 }; // 3-minute default
   if (typeof rangeStr === 'string') {
     const parts = rangeStr.split(/\s*[-–]\s*/).map(Number);
-    return { min: parts[0] || 180, max: parts[1] || parts[0] || 300 };
+    return { min: parts[0] || 180, max: parts[1] || parts[0] || 180 };
   }
-
   if (typeof rangeStr === 'object') {
-    return {
-      min: rangeStr.min_sec || rangeStr.min || 180,
-      max: rangeStr.max_sec || rangeStr.max || 300
-    };
+    return { min: rangeStr.min_sec || rangeStr.min || 180, max: rangeStr.max_sec || rangeStr.max || 180 };
   }
-
-  return { min: 180, max: 300 };
-}
-
-/**
- * Calculate capacity score (0-1) from biometrics.
- */
-function calculateCapacity(hr, hrv, rr) {
-  const hrScore = Math.max(0, Math.min(1, (100 - hr) / 40));
-  const hrvScore = Math.max(0, Math.min(1, (hrv - 10) / 90));
-  const rrScore = Math.max(0, Math.min(1, (22 - rr) / 14));
-  return (rrScore * 0.5) + (hrvScore * 0.3) + (hrScore * 0.2);
+  return { min: 180, max: 180 };
 }
 
 module.exports = {

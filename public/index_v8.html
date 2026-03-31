@@ -291,10 +291,10 @@ const state = {
   devPanelOpen: false,
   lunoTapCount: 0,
   lunoTapTimeout: null,
-  // Adapted from server (NS3-driven)
+  // Adapted from server (NS3-driven). Fallback: 3:5 (gentle/conservative)
   adaptedRatio: null,
-  inhale: 4,
-  exhale: 6,
+  inhale: 3,
+  exhale: 5,
   // Descent/ascent progress (0-1)
   descentProgress: 0,
   // Session results
