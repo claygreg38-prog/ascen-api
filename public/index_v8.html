@@ -812,16 +812,40 @@ function updateLunoOrbs() {
 
 let ttsAvailable = false;
 let ttsAudio = null;
+let ttsUnlocked = false; // Autoplay unlocked after first user gesture
 
 async function checkTTS() {
   try {
     const data = await apiRequest('GET', '/api/tts/available');
     ttsAvailable = data.available === true;
-  } catch { ttsAvailable = false; }
+    console.log('[TTS] Available:', ttsAvailable);
+  } catch (err) {
+    ttsAvailable = false;
+    console.log('[TTS] Check failed:', err.message);
+  }
+}
+
+// Unlock audio context on first user gesture (required by autoplay policy)
+function unlockTTSAudio() {
+  if (ttsUnlocked) return;
+  ttsUnlocked = true;
+  // Create and play a silent audio to unlock the audio context
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+    console.log('[TTS] Audio context unlocked');
+  } catch (e) { console.log('[TTS] Audio unlock failed:', e.message); }
 }
 
 async function speakLuno(text, phase) {
-  if (!ttsAvailable || !text) return;
+  if (!ttsAvailable || !text) {
+    console.log('[TTS] Skip:', !ttsAvailable ? 'not available' : 'no text');
+    return;
+  }
   try {
     const params = new URLSearchParams({
       text: text,
@@ -829,18 +853,27 @@ async function speakLuno(text, phase) {
       character: 'luno',
       session_number: String(state.sessionNumber || 1)
     });
+    console.log('[TTS] Requesting:', phase, text.substring(0, 40));
     const data = await apiRequest('GET', '/api/tts/generate?' + params.toString());
     if (data.audio_url) {
       // Stop any playing audio
       if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
       ttsAudio = new Audio(data.audio_url);
       ttsAudio.volume = 0.7;
-      ttsAudio.play().catch(() => {}); // Autoplay may be blocked
+      ttsAudio.play().then(() => {
+        console.log('[TTS] Playing:', phase);
+      }).catch(err => {
+        console.warn('[TTS] Autoplay blocked:', err.message, '— user gesture needed first');
+      });
+    } else {
+      console.log('[TTS] No audio_url returned:', JSON.stringify(data));
     }
-  } catch (err) { devLog('TTS: ' + err.message); }
+  } catch (err) {
+    console.warn('[TTS] Error:', err.message);
+    devLog('TTS: ' + err.message);
+  }
 }
 
-// Pre-warm TTS for the session phases
 async function prewarmTTS() {
   if (!ttsAvailable) return;
   try {
@@ -849,7 +882,8 @@ async function prewarmTTS() {
       character: 'luno',
       phases: ['arrival', 'closing']
     });
-  } catch {}
+    console.log('[TTS] Prewarm complete');
+  } catch (err) { console.log('[TTS] Prewarm failed:', err.message); }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -923,16 +957,16 @@ async function initSessionAndShowLanding() {
   setPhase('landing');
   state.descentProgress = 0;
   updateLunoOrbs();
-  // Check and pre-warm TTS
+  // Check TTS availability (pre-warm happens after Begin click)
   await checkTTS();
-  if (ttsAvailable) prewarmTTS();
-  // Speak arrival greeting
-  speakLuno('Welcome back. Your breath is waiting.', 'arrival');
 }
 
 // ── STEP 1→2: Begin → Start session on server → Settle In ──
 
 async function beginSession() {
+  // Unlock audio on user gesture (required for autoplay policy)
+  unlockTTSAudio();
+
   document.getElementById('beginBtn').disabled = true;
   document.getElementById('beginBtn').textContent = 'Connecting...';
 
@@ -947,6 +981,9 @@ async function beginSession() {
   } catch (err) {
     devLog('startSession error: ' + err.message);
   }
+
+  // First voice — after user gesture so autoplay works
+  speakLuno('Luno is reading your breath. Just relax.', 'arrival');
 
   // Phase 1: 30-second biometric baseline on the landing screen
   startArrivalSampling();
