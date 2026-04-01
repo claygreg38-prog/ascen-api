@@ -854,56 +854,63 @@ function unlockTTSAudio() {
   } catch (e) { console.log('[TTS] Audio unlock failed:', e.message); }
 }
 
-async function speakLuno(text, phase) {
-  console.error('[TTS-DEBUG] speakLuno called with:', text?.substring(0, 50), 'phase:', phase, 'ttsAvailable:', ttsAvailable, 'jwt:', !!state.jwt);
-  if (!ttsAvailable || !text) {
-    console.error('[TTS-DEBUG] BLOCKED — ttsAvailable:', ttsAvailable, 'text:', !!text);
-    return;
-  }
-  try {
-    const params = new URLSearchParams({
-      text: text,
-      phase: phase || 'breathing_milestone',
-      character: 'luno',
-      session_number: String(state.sessionNumber || 1)
-    });
-    console.log('[TTS] Requesting:', phase, text.substring(0, 40));
-    // Direct fetch — TTS endpoint is public, no auth needed
-    const ttsRes = await fetch(API_BASE + '/api/tts/generate?' + params.toString());
-    if (!ttsRes.ok) {
-      console.error('[TTS] Generate failed:', ttsRes.status);
-      return;
-    }
-    const data = await ttsRes.json();
-    if (data.audio_url) {
-      // Stop any playing audio
-      if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
-      ttsAudio = new Audio(data.audio_url);
-      ttsAudio.volume = 0.7;
-      ttsAudio.play().then(() => {
-        console.log('[TTS] Playing:', phase);
-      }).catch(err => {
-        console.warn('[TTS] Autoplay blocked:', err.message, '— user gesture needed first');
-      });
-    } else {
-      console.error('[TTS] No audio_url:', data.fallback, data.error || '');
-    }
-  } catch (err) {
-    console.warn('[TTS] Error:', err.message);
-    devLog('TTS: ' + err.message);
-  }
+// ── Browser-native speech (Web Speech API) ──
+// Zero cost, zero API calls, works immediately.
+// Used as primary when ElevenLabs is unavailable/blocked.
+// Luno voice: low pitch, slow rate, calm.
+
+function speakBrowser(text) {
+  if (!window.speechSynthesis || !text) return false;
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.rate = 0.85;    // Slow, grounded
+  utter.pitch = 0.85;   // Slightly low — warm, not robotic
+  utter.volume = 0.8;
+  // Pick a good voice if available (prefer natural/male voices)
+  const voices = window.speechSynthesis.getVoices();
+  const preferred = voices.find(v => /daniel|james|google us english|aaron|samantha/i.test(v.name))
+    || voices.find(v => v.lang.startsWith('en') && v.localService)
+    || voices[0];
+  if (preferred) utter.voice = preferred;
+  window.speechSynthesis.speak(utter);
+  return true;
 }
 
-async function prewarmTTS() {
-  if (!ttsAvailable) return;
-  try {
-    await apiRequest('POST', '/api/tts/prewarm', {
-      session_number: state.sessionNumber || 1,
-      character: 'luno',
-      phases: ['arrival', 'closing']
-    });
-    console.log('[TTS] Prewarm complete');
-  } catch (err) { console.log('[TTS] Prewarm failed:', err.message); }
+// Load voices (some browsers load async)
+if (window.speechSynthesis) {
+  window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+}
+
+async function speakLuno(text, phase) {
+  if (!text) return;
+
+  // Try ElevenLabs first (if available and not blocked)
+  if (ttsAvailable) {
+    try {
+      const params = new URLSearchParams({
+        text, phase: phase || 'breathing_milestone',
+        character: 'luno', session_number: String(state.sessionNumber || 1)
+      });
+      const ttsRes = await fetch(API_BASE + '/api/tts/generate?' + params.toString());
+      if (ttsRes.ok) {
+        const data = await ttsRes.json();
+        if (data.audio_url) {
+          if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
+          ttsAudio = new Audio(data.audio_url);
+          ttsAudio.volume = 0.7;
+          await ttsAudio.play();
+          console.log('[TTS] ElevenLabs playing:', phase);
+          return;
+        }
+      }
+    } catch { /* fall through to browser TTS */ }
+  }
+
+  // Fallback: browser-native speech
+  if (speakBrowser(text)) {
+    console.log('[TTS] Browser speech:', phase, text.substring(0, 30));
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
