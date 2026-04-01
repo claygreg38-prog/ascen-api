@@ -520,14 +520,10 @@ try {
 // ═══════════════════════════════════════════════════════════════
 try {
   const ttsRoutes = require('./src/routes/ttsRoutes');
-  // /api/tts/available is public (just returns boolean, no sensitive data)
-  const ttsService = require('./src/services/ttsService');
-  app.get('/api/tts/available', (req, res) => {
-    res.json({ available: ttsService.isAvailable() });
-  });
-  app.use('/api/tts', authenticateOrApiKey('participant'));
+  // TTS routes are public — they generate audio from text, no sensitive data.
+  // Voice IDs come from env vars, tenant context from tenantResolver (global).
   app.use('/api/tts', ttsRoutes);
-  console.log('[TTS] Routes mounted at /api/tts (available endpoint public)');
+  console.log('[TTS] Routes mounted at /api/tts (public — no auth required)');
 } catch (err) {
   console.warn('[TTS] Could not mount:', err.message);
 }

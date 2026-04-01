@@ -826,18 +826,10 @@ let ttsUnlocked = false; // Autoplay unlocked after first user gesture
 
 async function checkTTS() {
   try {
-    // Direct fetch — /api/tts/available requires auth, so use apiRequest
-    // If auth fails, try a direct fetch as fallback (server may make it public)
-    try {
-      const data = await apiRequest('GET', '/api/tts/available');
+    const res = await fetch(API_BASE + '/api/tts/available');
+    if (res.ok) {
+      const data = await res.json();
       ttsAvailable = data.available === true;
-    } catch {
-      // Auth may not be ready yet — try direct fetch
-      const res = await fetch(API_BASE + '/api/tts/available');
-      if (res.ok) {
-        const data = await res.json();
-        ttsAvailable = data.available === true;
-      }
     }
     console.log('[TTS] Available:', ttsAvailable);
   } catch (err) {
@@ -876,7 +868,13 @@ async function speakLuno(text, phase) {
       session_number: String(state.sessionNumber || 1)
     });
     console.log('[TTS] Requesting:', phase, text.substring(0, 40));
-    const data = await apiRequest('GET', '/api/tts/generate?' + params.toString());
+    // Direct fetch — TTS endpoint is public, no auth needed
+    const ttsRes = await fetch(API_BASE + '/api/tts/generate?' + params.toString());
+    if (!ttsRes.ok) {
+      console.error('[TTS] Generate failed:', ttsRes.status);
+      return;
+    }
+    const data = await ttsRes.json();
     if (data.audio_url) {
       // Stop any playing audio
       if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
