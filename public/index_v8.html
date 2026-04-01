@@ -886,7 +886,7 @@ async function speakLuno(text, phase) {
         console.warn('[TTS] Autoplay blocked:', err.message, '— user gesture needed first');
       });
     } else {
-      console.log('[TTS] No audio_url returned:', JSON.stringify(data));
+      console.error('[TTS] No audio_url:', data.fallback, data.error || '');
     }
   } catch (err) {
     console.warn('[TTS] Error:', err.message);

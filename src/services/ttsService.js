@@ -125,11 +125,14 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
 
   // Generate new audio via ElevenLabs
   try {
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    console.log('[TTS] Calling ElevenLabs:', { voiceId: voiceId.substring(0, 8) + '...', apiKeySet: !!apiKey, textLen: text.length });
+
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'xi-api-key': process.env.ELEVENLABS_API_KEY
+        'xi-api-key': apiKey
       },
       body: JSON.stringify({
         text,
@@ -145,36 +148,48 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[TTS] ElevenLabs error:', response.status, errorText);
-      Sentry.captureMessage(`TTS generation failed: ${response.status}`, 'error');
-      return { audio_url: null, cached: false, fallback: 'generation_failed' };
+      console.error('[TTS] ElevenLabs error:', response.status, errorText.substring(0, 200));
+
+      // Return the actual error so we can diagnose
+      return {
+        audio_url: null, cached: false,
+        fallback: 'generation_failed',
+        error: `ElevenLabs ${response.status}: ${errorText.substring(0, 100)}`
+      };
     }
 
-    // Save audio file
     const audioBuffer = Buffer.from(await response.arrayBuffer());
-    const filename = `${cacheKey}.mp3`;
-    const filepath = path.join(AUDIO_DIR, filename);
-    fs.writeFileSync(filepath, audioBuffer);
-
-    const audioUrl = `/audio/tts/${filename}`;
-
-    // Estimate duration (rough: MP3 at 128kbps, ~16KB per second)
     const durationMs = Math.round((audioBuffer.length / 16000) * 1000);
+    console.log(`[TTS] Generated: ${phase} (${audioBuffer.length} bytes, ~${durationMs}ms)`);
 
-    // Store in DB cache (non-blocking — table may not exist yet)
+    // Strategy 1: Save to filesystem (works within a single deploy)
+    let audioUrl = null;
+    try {
+      if (!fs.existsSync(AUDIO_DIR)) fs.mkdirSync(AUDIO_DIR, { recursive: true });
+      const filename = `${cacheKey}.mp3`;
+      fs.writeFileSync(path.join(AUDIO_DIR, filename), audioBuffer);
+      audioUrl = `/audio/tts/${filename}`;
+    } catch (fsErr) {
+      console.warn('[TTS] Filesystem save failed:', fsErr.message);
+    }
+
+    // Strategy 2: If filesystem fails, return as base64 data URI
+    if (!audioUrl) {
+      audioUrl = 'data:audio/mpeg;base64,' + audioBuffer.toString('base64');
+      console.log('[TTS] Using data URI fallback (filesystem unavailable)');
+    }
+
+    // DB cache (non-blocking, best-effort)
     pool.query(`
       INSERT INTO tts_cache (cache_key, tenant_id, voice_id, text_content, phase, session_number, character, audio_url, audio_duration_ms, generated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-    `, [cacheKey, tenantId, voiceId, text, phase, sessionNumber, character, audioUrl, durationMs])
-      .catch(err => console.warn('[TTS] Cache write skipped:', err.message));
-
-    console.log(`[TTS] Generated: ${phase} for session ${sessionNumber} (${durationMs}ms)`);
+    `, [cacheKey, tenantId, voiceId, text, phase, sessionNumber, character, audioUrl.startsWith('/') ? audioUrl : null, durationMs])
+      .catch(() => {}); // Swallow — table may not exist
 
     return { audio_url: audioUrl, duration_ms: durationMs, cached: false };
   } catch (err) {
     console.error('[TTS] Generation error:', err.message);
-    Sentry.captureException(err);
-    return { audio_url: null, cached: false, fallback: 'error' };
+    return { audio_url: null, cached: false, fallback: 'error', error: err.message };
   }
 }
 
