@@ -67,28 +67,24 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
   }
 
   // 2. Check tenant config (if env var not set)
+  // voice_config column may not exist until migration 056
   if (!voiceId && tenantId) {
     try {
-      const tenant = await pool.query(
-        'SELECT voice_config FROM tenants WHERE id = $1',
-        [tenantId]
-      );
+      const tenant = await pool.query('SELECT voice_config FROM tenants WHERE id = $1', [tenantId]);
       const voiceConfig = tenant.rows[0]?.voice_config || {};
       charConfig = voiceConfig[character] || voiceConfig.luno || {};
       voiceId = charConfig.voice_id || null;
-    } catch { /* non-blocking */ }
+    } catch { /* column may not exist — non-blocking */ }
   }
 
   // 3. Final fallback: check default ASCEN tenant
   if (!voiceId) {
     try {
-      const ascen = await pool.query(
-        "SELECT voice_config FROM tenants WHERE slug = 'ascen' LIMIT 1"
-      );
+      const ascen = await pool.query("SELECT voice_config FROM tenants WHERE slug = 'ascen' LIMIT 1");
       const vc = ascen.rows[0]?.voice_config || {};
       charConfig = vc[character] || vc.luno || {};
       voiceId = charConfig.voice_id || null;
-    } catch { /* non-blocking */ }
+    } catch { /* column may not exist — non-blocking */ }
   }
 
   if (!voiceId) {
@@ -102,23 +98,29 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
     .digest('hex')
     .slice(0, 32);
 
-  // Check cache
-  const cached = await pool.query(
-    'SELECT audio_url, audio_duration_ms FROM tts_cache WHERE cache_key = $1',
-    [cacheKey]
-  );
+  // Check file cache first (survives missing DB table)
+  const cachedFile = path.join(AUDIO_DIR, `${cacheKey}.mp3`);
+  if (fs.existsSync(cachedFile)) {
+    console.log('[TTS] File cache hit:', cacheKey.substring(0, 8));
+    return { audio_url: `/audio/tts/${cacheKey}.mp3`, cached: true };
+  }
 
-  if (cached.rows.length) {
-    // Update usage stats
-    await pool.query(
-      'UPDATE tts_cache SET last_used_at = NOW(), use_count = use_count + 1 WHERE cache_key = $1',
+  // Check DB cache (graceful — table may not exist yet)
+  try {
+    const cached = await pool.query(
+      'SELECT audio_url, audio_duration_ms FROM tts_cache WHERE cache_key = $1',
       [cacheKey]
     );
-    return {
-      audio_url: cached.rows[0].audio_url,
-      duration_ms: cached.rows[0].audio_duration_ms,
-      cached: true
-    };
+    if (cached.rows.length) {
+      pool.query(
+        'UPDATE tts_cache SET last_used_at = NOW(), use_count = use_count + 1 WHERE cache_key = $1',
+        [cacheKey]
+      ).catch(() => {});
+      return { audio_url: cached.rows[0].audio_url, duration_ms: cached.rows[0].audio_duration_ms, cached: true };
+    }
+  } catch (cacheErr) {
+    // tts_cache table may not exist — proceed to generate without cache
+    console.warn('[TTS] Cache lookup skipped (table may not exist):', cacheErr.message);
   }
 
   // Generate new audio via ElevenLabs
@@ -159,11 +161,12 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
     // Estimate duration (rough: MP3 at 128kbps, ~16KB per second)
     const durationMs = Math.round((audioBuffer.length / 16000) * 1000);
 
-    // Store in cache
-    await pool.query(`
+    // Store in DB cache (non-blocking — table may not exist yet)
+    pool.query(`
       INSERT INTO tts_cache (cache_key, tenant_id, voice_id, text_content, phase, session_number, character, audio_url, audio_duration_ms, generated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-    `, [cacheKey, tenantId, voiceId, text, phase, sessionNumber, character, audioUrl, durationMs]);
+    `, [cacheKey, tenantId, voiceId, text, phase, sessionNumber, character, audioUrl, durationMs])
+      .catch(err => console.warn('[TTS] Cache write skipped:', err.message));
 
     console.log(`[TTS] Generated: ${phase} for session ${sessionNumber} (${durationMs}ms)`);
 
