@@ -44,7 +44,10 @@ function isAvailable() {
  * Same text + same voice = same audio. Never regenerate.
  */
 async function generateOrCache({ text, tenantId, character, phase, sessionNumber }) {
+  console.log('[TTS] generateOrCache called:', { character, phase, textLen: text?.length, tenantId, elevenLabsAvailable });
+
   if (!elevenLabsAvailable) {
+    console.warn('[TTS] ElevenLabs not available — ELEVENLABS_API_KEY missing?');
     return { audio_url: null, cached: false, fallback: 'text_only' };
   }
 
@@ -57,6 +60,7 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
   const envVoiceId = character === 'luna'
     ? process.env.ELEVENLABS_LUNA_VOICE_ID
     : process.env.ELEVENLABS_LUNO_VOICE_ID;
+  console.log('[TTS] Env voice_id for', character, ':', envVoiceId ? envVoiceId.substring(0, 8) + '...' : 'NOT SET');
   if (envVoiceId) {
     voiceId = envVoiceId;
     charConfig = { stability: 0.75, similarity_boost: 0.8, style: 0.3 };
@@ -178,15 +182,35 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
 async function prewarmSession(sessionNumber, tenantId, character) {
   if (!elevenLabsAvailable) return;
 
-  // Get session template
-  const session = await pool.query(
-    'SELECT luno_arrival, luno_close FROM session_templates WHERE session_number = $1',
-    [sessionNumber]
-  );
-
-  if (!session.rows.length) return;
-
-  const { luno_arrival, luno_close } = session.rows[0];
+  // Get session template — luno_arrival/luno_close may be top-level columns
+  // or inside yaml_data JSONB (depends on migration state)
+  let luno_arrival = null, luno_close = null;
+  try {
+    const session = await pool.query(
+      `SELECT
+        COALESCE(luno_arrival, yaml_data->>'luno_arrival') as luno_arrival,
+        COALESCE(luno_close, yaml_data->>'luno_close') as luno_close
+       FROM session_templates WHERE session_number = $1 LIMIT 1`,
+      [sessionNumber]
+    );
+    if (!session.rows.length) return;
+    luno_arrival = session.rows[0].luno_arrival;
+    luno_close = session.rows[0].luno_close;
+  } catch {
+    // Columns may not exist — try yaml_data only
+    try {
+      const session = await pool.query(
+        "SELECT yaml_data->>'luno_arrival' as luno_arrival, yaml_data->>'luno_close' as luno_close FROM session_templates WHERE session_number = $1 LIMIT 1",
+        [sessionNumber]
+      );
+      if (!session.rows.length) return;
+      luno_arrival = session.rows[0].luno_arrival;
+      luno_close = session.rows[0].luno_close;
+    } catch (e) {
+      console.warn('[TTS] Prewarm: could not read session template:', e.message);
+      return;
+    }
+  }
 
   // Pre-generate arrival voice
   if (luno_arrival) {

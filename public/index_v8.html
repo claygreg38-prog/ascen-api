@@ -863,8 +863,9 @@ function unlockTTSAudio() {
 }
 
 async function speakLuno(text, phase) {
+  console.error('[TTS-DEBUG] speakLuno called with:', text?.substring(0, 50), 'phase:', phase, 'ttsAvailable:', ttsAvailable, 'jwt:', !!state.jwt);
   if (!ttsAvailable || !text) {
-    console.log('[TTS] Skip:', !ttsAvailable ? 'not available' : 'no text');
+    console.error('[TTS-DEBUG] BLOCKED — ttsAvailable:', ttsAvailable, 'text:', !!text);
     return;
   }
   try {
@@ -989,6 +990,9 @@ async function initSessionAndShowLanding() {
 async function beginSession() {
   // Unlock audio on user gesture (required for autoplay policy)
   unlockTTSAudio();
+
+  // Re-check TTS if it wasn't available on page load (auth may be ready now)
+  if (!ttsAvailable) await checkTTS();
 
   document.getElementById('beginBtn').disabled = true;
   document.getElementById('beginBtn').textContent = 'Connecting...';

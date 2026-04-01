@@ -28,14 +28,30 @@ router.get('/generate', async (req, res) => {
     // If no text provided, look up from session template
     let spokenText = text;
     if (!spokenText && session_number) {
-      const session = await pool.query(
-        'SELECT luno_arrival, luno_close FROM session_templates WHERE session_number = $1',
-        [parseInt(session_number)]
-      );
-
-      if (session.rows.length) {
-        if (phase === 'arrival') spokenText = session.rows[0].luno_arrival;
-        else if (phase === 'closing') spokenText = session.rows[0].luno_close;
+      try {
+        const session = await pool.query(
+          `SELECT
+            COALESCE(luno_arrival, yaml_data->>'luno_arrival') as luno_arrival,
+            COALESCE(luno_close, yaml_data->>'luno_close') as luno_close
+           FROM session_templates WHERE session_number = $1 LIMIT 1`,
+          [parseInt(session_number)]
+        );
+        if (session.rows.length) {
+          if (phase === 'arrival') spokenText = session.rows[0].luno_arrival;
+          else if (phase === 'closing') spokenText = session.rows[0].luno_close;
+        }
+      } catch {
+        // Columns may not exist — try yaml_data only
+        try {
+          const session = await pool.query(
+            "SELECT yaml_data->>'luno_arrival' as luno_arrival, yaml_data->>'luno_close' as luno_close FROM session_templates WHERE session_number = $1 LIMIT 1",
+            [parseInt(session_number)]
+          );
+          if (session.rows.length) {
+            if (phase === 'arrival') spokenText = session.rows[0].luno_arrival;
+            else if (phase === 'closing') spokenText = session.rows[0].luno_close;
+          }
+        } catch { /* template lookup failed — use provided text */ }
       }
     }
 
