@@ -485,7 +485,7 @@ let abiPaused=false;
 let abiAdaptedSession=null;
 let abiModeConfig=null;
 let abiCoherencePeak=0;
-const abi=new AbiService('https://hearty-optimism-production-2eb6.up.railway.app',{apiKey:'ascen-fr-2026-prod'});
+const abi=new AbiService(DEFAULT_BASE,{apiKey:'ascen-fr-2026-prod'});
 
 // Active session data from API
 let activeApiSession = null;
@@ -1213,7 +1213,7 @@ function buildSessionPanel(){
       html+=`<div class="api-sess-row" data-snum="${s.session_number}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:6px;background:rgba(14,28,50,0.5);border:1px solid rgba(160,196,232,0.07);${doneStyle}border-radius:10px;cursor:pointer;" onclick="selectApiSession(${s.session_number})">
         <span style="font-size:9px;color:rgba(160,196,232,0.35);font-family:Outfit,sans-serif;min-width:2.5rem;">${String(s.session_number).padStart(3,'0')}</span>
         <span style="flex:1;font-size:16px;font-weight:300;color:rgba(200,220,240,0.85);font-family:Outfit,sans-serif;">${s.title||'Session '+s.session_number}</span>
-        <span style="font-size:9px;color:rgba(160,196,232,0.3);font-family:Outfit,sans-serif;">${Math.round((s.duration_seconds||720)/60)}m</span>
+        <span style="font-size:9px;color:rgba(160,196,232,0.3);font-family:Outfit,sans-serif;">${Math.round((s.duration_seconds||180)/60)}m</span>
         <span style="color:#4ecdc4;font-size:11px;">${done}</span>
       </div>`;
     });
