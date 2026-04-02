@@ -1295,40 +1295,60 @@ function createOrchestrator(callbacks = {}) {
 
     // ── SAVE SESSION COMPLETION ──────────────────────────
     try {
+      const cohPeak = rawMetrics.coherence_peak || 0;
+      const breathRatio = adaptedSession.ratio || adaptedSession._ratio || (adaptedSession.breath_in && adaptedSession.breath_out ? adaptedSession.breath_in + ':' + adaptedSession.breath_out : null);
+      const breathDur = rawMetrics.total_duration_seconds || cleanMetrics.active_duration_seconds || 0;
+      const zoneProfile = sessionPacket?.zoneTimeProfile || null;
+      const optPct = zoneProfile?.optimal_pct ?? null;
+      const appPct = zoneProfile?.approaching_pct ?? null;
+      const belPct = zoneProfile?.below_window_pct ?? null;
+
       await pool.query(
         `INSERT INTO session_completions (
            user_id, session_id, session_number, completed_at,
-           coherence_score, coherence_end, cycle_completion_rate,
+           coherence_score, coherence_peak, coherence_end, cycle_completion_rate,
            duration_seconds, active_duration_seconds,
            pause_count, pause_seconds, panic_event, exit_type,
            breathwork_mode, breath_track_at_completion, arc_id,
+           breath_ratio, breath_duration_seconds, session_type,
            time_to_regulation_sec, arrival_hr, arrival_hrv,
            coherence_trajectory, zone_time_profile,
+           optimal_zone_pct, zone_optimal_pct, approaching_zone_pct, zone_approaching_pct,
+           below_window_zone_pct, zone_below_pct,
            packet_hash, state_summary, coaching_summary,
            immune_flags_snapshot, biometric_source
-         ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                   $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
+         ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                   $17, $18, $19, $20, $21, $22, $23, $24,
+                   $25, $26, $27, $28, $29, $30,
+                   $31, $32, $33, $34, $35)`,
         [
           userId,
           sessionId,
           rawSession.session_number || 0,
-          rawMetrics.coherence_peak || 0,
+          cohPeak,                                                          // coherence_score
+          cohPeak,                                                          // coherence_peak (alias)
           coherenceEnd,
           cleanMetrics.adjusted_cycle_completion_rate || rawMetrics.cycle_completion_rate || 0,
-          rawMetrics.total_duration_seconds || 0,
-          cleanMetrics.active_duration_seconds || rawMetrics.total_duration_seconds || 0,
-          cleanMetrics.total_pauses || 0,
-          cleanMetrics.total_pause_seconds || 0,
+          breathDur,                                                        // duration_seconds
+          cleanMetrics.active_duration_seconds || breathDur || 0,           // active_duration_seconds
+          cleanMetrics.total_pauses || 0,                                   // pause_count
+          cleanMetrics.total_pause_seconds || 0,                            // pause_seconds
           rawMetrics.panic_event || false,
           cleanMetrics.exit_type || 'normal',
           adaptedSession._breathwork_mode || 'simple_pacer',
           user.breath_track || 'standard',
           adaptedSession._arc || null,
+          breathRatio,                                                      // breath_ratio
+          breathDur,                                                        // breath_duration_seconds
+          'solo',                                                           // session_type (default solo)
           sessionPacket?.timeToRegulationSec ?? null,
           sessionPacket?.arrivalHr ?? null,
           sessionPacket?.arrivalHrv ?? null,
           sessionPacket?.coherenceTrajectory ?? null,
-          sessionPacket?.zoneTimeProfile ? JSON.stringify(sessionPacket.zoneTimeProfile) : null,
+          zoneProfile ? JSON.stringify(zoneProfile) : null,
+          optPct, optPct,                                                   // optimal_zone_pct + zone_optimal_pct
+          appPct, appPct,                                                   // approaching_zone_pct + zone_approaching_pct
+          belPct, belPct,                                                   // below_window_zone_pct + zone_below_pct
           sessionPacket?.packetHash ?? null,
           stateSummary ? JSON.stringify(stateSummary) : null,
           coachingSummary ? JSON.stringify(coachingSummary) : null,
