@@ -177,7 +177,13 @@ router.post('/session/start', async (req, res) => {
     const events = [...pendingEvents];
     pendingEvents.length = 0;
 
-    res.json({ success: true, session_key: dbSessionKey, config, events });
+    res.json({
+      success: true,
+      session_key: dbSessionKey,
+      config,
+      session_content: config.session_content || null,
+      events
+    });
   } catch (error) {
     Sentry.captureException(error);
     console.error('[ABI] Session start CRASH:', error.message, error.stack?.split('\n')[1]?.trim());

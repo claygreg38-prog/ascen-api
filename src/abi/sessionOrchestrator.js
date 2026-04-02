@@ -472,8 +472,23 @@ function createOrchestrator(callbacks = {}) {
     sessionPhase = 'arrival';
 
     // Return initial session config for the engine
+    // ── SESSION CONTENT (Luno dialogue from YAML/template) ──
+    const sessionContent = {
+      luno_arrival: rawSession.luno_arrival || null,
+      luno_settle: rawSession.luno_settle || rawSession.yaml_data?.luno_settle || null,
+      luno_mid: rawSession.luno_mid || null,
+      luno_close: rawSession.luno_close || null,
+      breathing_prompts: rawSession.breathing_prompts || rawSession.yaml_data?.breathing_prompts || null,
+      drift_words: rawSession.drift_words || rawSession.yaml_data?.drift_words || null,
+      title: rawSession.title || null,
+      arc: rawSession.arc || null,
+      vault_prompt: rawSession.vault_prompt || null,
+      session_number: rawSession.session_number
+    };
+
     return {
       session: adaptedSession,
+      session_content: sessionContent,
       gap_detected: gapCheck.gap_detected,
       gap_luno_message: gapLunoMessage,
       pre_frame_message: preFrameMessage,

@@ -296,6 +296,8 @@ const state = {
   adaptedRatio: null,
   inhale: 3,
   exhale: 5,
+  // Session content from YAML templates (per-session Luno dialogue)
+  sessionContent: null,
   // Descent/ascent progress (0-1)
   descentProgress: 0,
   // Session results
@@ -927,6 +929,31 @@ const ASCENT_WORDS = [
   { t: 0.2, text: 'Surfacing.' }
 ];
 
+// Build drift words from session content or fall back to defaults
+function getSettleDriftWords() {
+  const words = state.sessionContent?.drift_words;
+  if (Array.isArray(words) && words.length >= 2) {
+    // Space them evenly across the descent
+    return words.map((text, i) => ({
+      t: 0.08 + (i / words.length) * 0.7,
+      text
+    }));
+  }
+  return DESCENT_WORDS;
+}
+
+// Get a breathing prompt from session content (rotates through list)
+let _breathPromptIndex = 0;
+function getBreathingPrompt() {
+  const prompts = state.sessionContent?.breathing_prompts;
+  if (Array.isArray(prompts) && prompts.length > 0) {
+    const text = prompts[_breathPromptIndex % prompts.length];
+    _breathPromptIndex++;
+    return text;
+  }
+  return null;
+}
+
 function showDriftWord(text) {
   const el = document.createElement('div');
   el.className = 'drift-word';
@@ -1009,13 +1036,17 @@ async function beginSession() {
       options: { duration_seconds: SESSION_DURATION }
     });
     state.sessionKey = data.session_key;
+    state.sessionContent = data.session_content || null;
+    if (state.sessionContent) {
+      console.log('[SESSION] Content loaded:', state.sessionContent.title || 'untitled', '— arrival:', (state.sessionContent.luno_arrival || '').substring(0, 40));
+    }
     processEvents(data.events || []);
   } catch (err) {
     devLog('startSession error: ' + err.message);
   }
 
   // First voice — after user gesture so autoplay works
-  speakLuno('Luno is reading your breath. Just relax.', 'arrival');
+  speakLuno(state.sessionContent?.luno_arrival || 'Luno is reading your breath. Just relax.', 'arrival');
 
   // Phase 1: 30-second biometric baseline on the landing screen
   startArrivalSampling();
@@ -1128,7 +1159,7 @@ async function completeArrivalAndSettle(baseline) {
 
 function startSettle() {
   setPhase('settle');
-  speakLuno('Going deeper now. Let the surface fade.', 'arrival');
+  speakLuno(state.sessionContent?.luno_settle || 'Going deeper now. Let the surface fade.', 'arrival');
   const startTime = Date.now();
   const SETTLE_DURATION = 10000; // 10 seconds (Option B)
   const wordsFired = new Set();
@@ -1140,7 +1171,9 @@ function startSettle() {
     const eased = easeInOut(t);
     state.descentProgress = eased;
 
-    for (const word of DESCENT_WORDS) {
+    // Use session-specific drift words if available, else defaults
+    const driftSource = getSettleDriftWords();
+    for (const word of driftSource) {
       if (t >= word.t && !wordsFired.has(word.text)) {
         wordsFired.add(word.text);
         showDriftWord(word.text);
@@ -1298,6 +1331,15 @@ function startBreathing() {
       } catch (err) { devLog('tick: ' + err.message); }
     }
 
+    // Breathing prompt from session content every ~30 seconds
+    if (tickCount > 0 && tickCount % 30 === 0) {
+      const prompt = getBreathingPrompt();
+      if (prompt) {
+        showLunoSpeech(prompt);
+        speakLuno(prompt, 'breathing_milestone');
+      }
+    }
+
     // 3-minute hard cap
     if (tickCount >= SESSION_DURATION) {
       clearInterval(state.tickTimer);
@@ -1316,7 +1358,7 @@ function startAscent() {
   const wordsFired = new Set();
 
   // Complete session on server (async, don't block animation)
-  speakLuno('Surfacing. Carrying your light with you.', 'closing');
+  speakLuno(state.sessionContent?.luno_close || 'Surfacing. Carrying your light with you.', 'closing');
   completeSessionOnServer();
 
   function animateAscent() {
@@ -1519,7 +1561,7 @@ async function fetchVagalData(sessionId) {
 
 function advanceToVault() {
   setPhase('vault');
-  speakLuno('Your session has been stored. This breath belongs to you.', 'closing');
+  speakLuno(state.sessionContent?.luno_close || 'Your session has been stored. This breath belongs to you.', 'closing');
 
   // Show capsule button if user has enough sessions
   if (state.sessionNumber >= 3) {
@@ -1611,6 +1653,8 @@ function closeSession() {
   state.coherencePeak = 0;
   state.coherenceCurrent = 0;
   state.coherenceDisplay = 0;
+  state.sessionContent = null;
+  _breathPromptIndex = 0;
   state.elapsed = 0;
   state.descentProgress = 0;
   state.completionResult = null;
