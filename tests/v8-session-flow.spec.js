@@ -419,7 +419,8 @@ test.describe('v8 Endpoint Smoke Tests', () => {
       return;
     }
     expect(res.status()).toBe(200);
-    expect(text).toContain('ASCEN BreathWorx');
-    expect(text).toContain('loginOverlay');
+    // v8.1 has "Ascen BreathWorx" in title and AbiService class
+    expect(text.toLowerCase()).toContain('ascen');
+    expect(text).toContain('AbiService');
   });
 });
