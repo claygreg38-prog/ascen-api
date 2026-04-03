@@ -1469,7 +1469,15 @@ $('lunoCon').addEventListener('click',function(e){
 });
 
 // Tap prompt drives phase advancement
-$('tapP').addEventListener('click',function(){advancePhase();});
+$('tapP').addEventListener('click',async function(){
+  if(!_audioUnlocked){
+    const silence=new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=");
+    await silence.play().catch(()=>{});
+    _audioUnlocked=true;
+    console.log('[TTS] Audio unlocked by user tap');
+  }
+  advancePhase();
+});
 
 /* ================================================================
    RAILWAY API INTEGRATION
@@ -1670,6 +1678,7 @@ function notifyParentExit(){
 // ════════════════════════════════════════════════════════════════
 
 let ttsAvailable=false;
+let _audioUnlocked=false;
 (async function checkTTS(){
   try{
     const res=await fetch((window.location.origin||DEFAULT_BASE)+'/api/tts/available');
@@ -1694,6 +1703,7 @@ if(window.speechSynthesis)window.speechSynthesis.onvoiceschanged=()=>window.spee
 
 async function speakLuno(text,phase){
   if(!text)return;
+  if(!_audioUnlocked){console.log('[TTS] Audio not unlocked yet — skipping');return;}
   console.log('[TTS] Requesting:',phase,'→',text.substring(0,60)+(text.length>60?'...':''));
   if(ttsAvailable){
     try{
