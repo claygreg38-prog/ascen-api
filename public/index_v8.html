@@ -1508,26 +1508,37 @@ function setApiStatus(s){
 
 let apiSessions=[];
 
+// URL params — hoisted for use in session loading + embedded mode
+const _urlParams=new URLSearchParams(window.location.search);
+const IS_EMBEDDED=_urlParams.get('embedded')==='true';
+const REQUESTED_SESSION=_urlParams.get('session')||null;
+const REQUESTED_SESSION_KEY=_urlParams.get('sessionKey')||null;
+
 // Load all sessions from DB
-apiGet('/api/sessions').then(data=>{
-  if(data && data.sessions && data.sessions.length){
-    apiSessions=data.sessions;
-    setApiStatus('live');
-    const s1=apiSessions.find(s=>s.session_number===1);
-    if(s1) applySessionData(s1);
-    injectSessionPicker();
-    // Check ABI subsystem health
-    abi.abiHealth().then(h=>{
-      console.log('[ABI] Health:',h);
-      if(h&&h.status==='healthy'){$('apiLbl').textContent='ABI live'}
-    }).catch(()=>{console.warn('[ABI] ABI health check failed — endpoints may not be deployed')});
-  } else {
+function loadSessions(){
+  apiGet('/api/sessions').then(data=>{
+    if(data && data.sessions && data.sessions.length){
+      apiSessions=data.sessions;
+      setApiStatus('live');
+      const targetNum=REQUESTED_SESSION?parseInt(REQUESTED_SESSION):1;
+      const s1=apiSessions.find(s=>s.session_number===targetNum)||apiSessions[0];
+      if(s1) applySessionData(s1);
+      injectSessionPicker();
+      // Check ABI subsystem health
+      abi.abiHealth().then(h=>{
+        console.log('[ABI] Health:',h);
+        if(h&&h.status==='healthy'){$('apiLbl').textContent='ABI live'}
+      }).catch(()=>{console.warn('[ABI] ABI health check failed — endpoints may not be deployed')});
+    } else {
+      setApiStatus('offline');
+    }
+  }).catch(err=>{
+    console.error('[API] Failed to load sessions:',err);
     setApiStatus('offline');
-  }
-}).catch(err=>{
-  console.error('[API] Failed to load sessions:',err);
-  setApiStatus('offline');
-});
+  });
+}
+// In embedded mode, wait for auth before loading sessions; standalone loads immediately
+if(!IS_EMBEDDED){loadSessions();}
 
 function applySessionData(s){
   activeApiSession=s;
@@ -1632,10 +1643,7 @@ async function saveProgress(){
 // EMBEDDED MODE — PWA iframe postMessage integration
 // ════════════════════════════════════════════════════════════════
 
-const _urlParams=new URLSearchParams(window.location.search);
-const IS_EMBEDDED=_urlParams.get('embedded')==='true';
-const REQUESTED_SESSION=_urlParams.get('session')||null;
-const REQUESTED_SESSION_KEY=_urlParams.get('sessionKey')||null;
+// _urlParams, IS_EMBEDDED, REQUESTED_SESSION, REQUESTED_SESSION_KEY hoisted above loadSessions()
 
 if(IS_EMBEDDED){
   // Notify parent the iframe is ready
@@ -1663,6 +1671,8 @@ if(IS_EMBEDDED){
         localStorage.setItem('ascen_uid',String(userId));
       }catch(e){}
       console.log('[EMBEDDED] Auth received, userId:',userId);
+      // Now that auth is set, load sessions with the JWT
+      loadSessions();
     }
   });
 }
