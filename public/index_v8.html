@@ -472,6 +472,7 @@ function $(id){return document.getElementById(id)}
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
 function lerp(a,b,t){return a+(b-a)*t}
 function pick(a){return a[Math.floor(Math.random()*a.length)]}
+var depthProgress=0; // hoisted: used by render() before depth section declares it
 
 function lunoColor(t){const s=[[14,32,48],[26,56,72],[58,104,136],[74,152,184],[106,208,232],[160,240,255]];const i=clamp(t*5,0,4.999);const lo=Math.floor(i),hi=Math.ceil(i),f=i-lo;return[lerp(s[lo][0],s[hi][0],f),lerp(s[lo][1],s[hi][1],f),lerp(s[lo][2],s[hi][2],f)]}
 function lunaColor(t){const s=[[58,16,32],[106,32,64],[176,48,112],[208,96,160],[224,128,192],[255,176,208]];const i=clamp(t*5,0,4.999);const lo=Math.floor(i),hi=Math.ceil(i),f=i-lo;return[lerp(s[lo][0],s[hi][0],f),lerp(s[lo][1],s[hi][1],f),lerp(s[lo][2],s[hi][2],f)]}
@@ -1149,7 +1150,7 @@ const ASCENT_WORDS=[{t:0.2,text:'Surfacing.',duration:3000}];
 const DESCENT_DURATION=10000;
 const ASCENT_DURATION=8000;
 
-let depthProgress=0; // 0=surface, 1=midnight
+// depthProgress hoisted to top of script (var) — 0=surface, 1=midnight
 let depthAnimating=false;
 let depthRAF=null;
 let depthParticles=[];
