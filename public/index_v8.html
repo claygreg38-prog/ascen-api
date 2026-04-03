@@ -15,7 +15,13 @@
 .mode-btn { padding: 8px 14px; font-family: 'Outfit', sans-serif; font-size: 11px; font-weight: 500; color: rgba(160,196,232,0.4); cursor: pointer; border: none; background: transparent; letter-spacing: 0.5px; transition: all 0.3s; }
 .mode-btn.active { background: rgba(160,196,232,0.1); color: rgba(200,220,240,0.85); }
 
-.ocean-bg { position: absolute; inset: 0; transition: background 3s ease; }
+#depthCanvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.ocean-bg { position: absolute; inset: 0; transition: background 3s ease; z-index: 1; }
+.depth-word { position: absolute; left: 50%; top: 40%; transform: translate(-50%,-50%); font-size: 22px; font-weight: 200; color: rgba(200,220,240,0.75); letter-spacing: 3px; z-index: 99; pointer-events: none; text-align: center; opacity: 0; animation: driftWordIn 0.8s ease forwards, driftWordOut 0.8s ease forwards var(--word-dur); white-space: nowrap; text-shadow: 0 0 20px rgba(120,180,220,0.4); }
+@keyframes driftWordIn { 0%{opacity:0;transform:translate(-50%,-40%)} 100%{opacity:1;transform:translate(-50%,-50%)} }
+@keyframes driftWordOut { 0%{opacity:1;transform:translate(-50%,-50%)} 100%{opacity:0;transform:translate(-50%,-60%)} }
+#descentOverlay { position: absolute; inset: 0; z-index: 95; pointer-events: none; display: none; }
+#descentOverlay.active { display: block; pointer-events: all; }
 .stars { position: absolute; inset: 0; z-index: 1; }
 .star { position: absolute; border-radius: 50%; animation: twinkle var(--speed) ease-in-out infinite; }
 @keyframes twinkle { 0%,100%{opacity:0.15} 50%{opacity:var(--max-op)} }
@@ -226,6 +232,8 @@
 
 <!-- VIEW 1 — IMMERSIVE -->
 <div class="view active" id="immersiveView">
+  <canvas id="depthCanvas"></canvas>
+  <div id="descentOverlay"></div>
   <div class="ocean-bg" id="oceanBg">
     <div class="stars" id="stars"></div>
     <div class="aurora-container" id="auroraCon">
@@ -531,7 +539,8 @@ function renderLightSource(N,I,coreCol){
   const sessStr=sessNum<80?0:clamp((sessNum-80)/4920,0,1);
   const lightStr=sessStr*(0.28+I*0.72);
   const ls=$('lightSourceLayer'),lr=$('lightRaysLayer');
-  if(lightStr<0.004){ls.style.opacity='0';lr.style.opacity='0';}
+  // Gate behind depth — no v8.1 light effects at surface
+  if(lightStr<0.004||depthProgress<0.5){ls.style.opacity='0';lr.style.opacity='0';}
   else{
     const c1=rgba(coreCol,Math.min(0.75,lightStr*0.65)),c2=rgba(coreCol,Math.min(0.35,lightStr*0.30)),c3=rgba(coreCol,Math.min(0.12,lightStr*0.10));
     const radH=55+lightStr*40,radW=60+lightStr*30;
@@ -630,11 +639,25 @@ function render(){
   $('floorLbl').textContent=`Floor: ${floor}% · I: ${Math.round(I*100)}%`;
   const coolBg=lunoColor(I*0.4),warmBg=lunaColor(I*0.3);
   const bgR=lerp(coolBg[0],warmBg[0],warmBleed*I*0.3),bgG=lerp(coolBg[1],warmBg[1],warmBleed*I*0.2),bgB=lerp(coolBg[2],warmBg[2],warmBleed*I*0.15);
-  $('oceanBg').style.background=`linear-gradient(180deg,rgb(${Math.round(bgR*0.3)},${Math.round(bgG*0.3)},${Math.round(bgB*0.4)}) 0%,rgb(${Math.round(bgR*0.5)},${Math.round(bgG*0.5)},${Math.round(bgB*0.6)}) 40%,rgb(${Math.round(bgR*0.6)},${Math.round(bgG*0.6)},${Math.round(bgB*0.7)}) 70%,rgb(${Math.round(bgR*0.3)},${Math.round(bgG*0.3)},${Math.round(bgB*0.4)}) 100%)`;
+  // Depth-aware: only paint ocean-bg gradient when descended (depth canvas handles surface)
+  if(depthProgress>=0.9){
+    $('oceanBg').style.background=`linear-gradient(180deg,rgb(${Math.round(bgR*0.3)},${Math.round(bgG*0.3)},${Math.round(bgB*0.4)}) 0%,rgb(${Math.round(bgR*0.5)},${Math.round(bgG*0.5)},${Math.round(bgB*0.6)}) 40%,rgb(${Math.round(bgR*0.6)},${Math.round(bgG*0.6)},${Math.round(bgB*0.7)}) 70%,rgb(${Math.round(bgR*0.3)},${Math.round(bgG*0.3)},${Math.round(bgB*0.4)}) 100%)`;
+  }else{
+    $('oceanBg').style.background='transparent';
+  }
+  // Depth-aware: v8.1 CSS children hidden at surface, fade in during descent
+  const _dp=depthProgress;
+  const _depthStars=Math.max(0,Math.min(1,(_dp-0.15)/0.35));
+  const _depthWaves=Math.max(0,Math.min(1,(_dp-0.3)/0.35));
+  const _depthPlk=Math.max(0,Math.min(1,(_dp-0.4)/0.35));
+  const _depthAurora=Math.max(0,Math.min(1,(_dp-0.6)/0.3));
+  $('stars').style.opacity=String(_depthStars);
+  $('waves').style.opacity=String(_depthWaves);
+  $('plkLayer').style.opacity=String(_depthPlk);
   const waveCol=lunoColor(I*0.6),waveWarm=lunaColor(I*0.4);
   document.querySelectorAll('.wave').forEach((w,i)=>{const t=i/14;const uw=t>0.5;const c=uw?[lerp(waveCol[0],waveWarm[0],warmBleed),lerp(waveCol[1],waveWarm[1],warmBleed*0.6),lerp(waveCol[2],waveWarm[2],warmBleed*0.4)]:waveCol;w.style.opacity=0.03+I*0.14;w.style.background=rgb(c)});
   document.querySelectorAll('.particle').forEach(p=>{const isCool=p.dataset.side==='luno';const col=isCool?lunoColor(I):lunaColor(I);const glow=4+I*18;const base=parseFloat(p.dataset.b);const sz=base+I*8+(isCool?0:warmBleed*4);p.style.background=rgb(col);p.style.boxShadow=`0 0 ${glow}px ${rgba(col,0.7)}`;p.style.setProperty('--max-op',`${0.15+I*0.65}`);p.style.setProperty('--min-op',`${F*0.3+0.05}`);p.style.width=sz+'px';p.style.height=sz+'px'});
-  const aT=clamp((I-0.3)/0.7,0,1);$('auroraCon').style.opacity=aT;
+  const aT=clamp((I-0.3)/0.7,0,1)*_depthAurora;$('auroraCon').style.opacity=aT;
   $('ab1').style.background=`radial-gradient(ellipse 55% 100% at 25% 50%,${rgba(lunoColor(0.7),aT*0.35)} 0%,transparent 70%)`;
   $('ab2').style.background=`radial-gradient(ellipse 45% 100% at 55% 50%,${rgba(lunoColor(0.9),aT*0.3)} 0%,transparent 65%)`;
   $('ab3').style.background=`radial-gradient(ellipse 40% 100% at 40% 50%,${rgba(lunaColor(0.6),aT*warmBleed*0.3)} 0%,transparent 65%)`;
@@ -1065,7 +1088,27 @@ window.showPhase=function(p){
     shiftTimer=setTimeout(()=>{advancePhase();},8000);
   }
   // Set session start time on first real phase
-  if(p==='arrival'){sessionStartTime=Date.now();}
+  if(p==='arrival'){sessionStartTime=Date.now();depthProgress=0;setOceanBgDepthBlend(0);render();}
+
+  // ── TTS: speak phase dialogue ──
+  // Strip HTML tags for speech. Use ABI content when available, else default text.
+  const _stripHtml=function(html){if(!html)return'';return html.replace(/<br\s*\/?>/gi,'. ').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim()};
+  if(typeof speakLuno==='function'){
+    const abiC=window._abiSessionContent;
+    if(p==='arrival'){
+      const txt=abiC?.luno_arrival||_stripHtml(x.t);
+      if(txt)speakLuno(txt,'arrival');
+    }else if(p==='opening'){
+      const txt=abiC?.luno_opening||_stripHtml(x.t);
+      if(txt)speakLuno(txt,'opening');
+    }else if(p==='resistance'){
+      const txt=_stripHtml(x.t);
+      if(txt)speakLuno(txt,'opening');
+    }else if(p==='shift'){
+      const txt=abiC?.luno_close||_stripHtml(x.t);
+      if(txt)speakLuno(txt,'closing');
+    }
+  }
 };
 
 function genStars(){const c=$('stars');for(let i=0;i<80;i++){const s=document.createElement('div');s.className='star';const ly=i<40?0:i<64?1:2;const sz=[1,1.5,2.5][ly];s.style.cssText=`left:${Math.random()*100}%;top:${Math.random()*45}%;width:${sz}px;height:${sz}px;background:${['#7090B0','#A0C4E8','#C8E6FF'][ly]};--speed:${2+Math.random()*4}s;--max-op:${[0.3,0.5,0.8][ly]};`;c.appendChild(s)}}
@@ -1073,6 +1116,306 @@ function genWaves(){const c=$('waves');for(let i=0;i<14;i++){const w=document.cr
 function genPlankton(){const c=$('plkLayer');for(let i=0;i<60;i++){const p=document.createElement('div');p.className='particle';const sz=2+Math.random()*5;p.dataset.b=sz;p.dataset.side=Math.random()<0.5?'luno':'luna';p.style.cssText=`left:${Math.random()*100}%;top:${20+Math.random()*65}%;width:${sz}px;height:${sz}px;--speed:${3+Math.random()*5}s;--pulse:${1.5+Math.random()*3}s;--dx:${(Math.random()-0.5)*60}px;--dy:${(Math.random()-0.5)*30}px;--min-op:0.1;--max-op:0.4;`;c.appendChild(p)}}
 
 genStars();genWaves();genPlankton();render();updateP();
+
+/* ================================================================
+   DEPTH METAPHOR — Canvas-based surface-to-deep descent
+   Ported from DescentAnimation.jsx (locked UX spec)
+   10s descent / 8s ascent. This IS the first exercise.
+================================================================ */
+
+const DEPTH_ZONES=[
+  {name:'surface',  t:0.0, sky:[135,206,250],water:[45,185,185], deep:[18,85,115], sunStr:1.0, rayStr:1.0, planktonMul:0.3},
+  {name:'shallow',  t:0.17,sky:[100,180,220],water:[30,160,170], deep:[12,70,100], sunStr:0.7, rayStr:0.75,planktonMul:0.45},
+  {name:'upperBlue',t:0.35,sky:[60,130,190], water:[15,120,150], deep:[8,55,85],   sunStr:0.35,rayStr:0.4, planktonMul:0.6},
+  {name:'midBlue',  t:0.55,sky:[30,70,130],  water:[8,60,100],   deep:[4,35,65],   sunStr:0.1, rayStr:0.1, planktonMul:0.8},
+  {name:'twilight', t:0.75,sky:[15,25,60],   water:[5,20,55],    deep:[3,12,35],   sunStr:0.0, rayStr:0.0, planktonMul:0.95},
+  {name:'midnight', t:1.0, sky:[2,8,18],     water:[2,8,18],     deep:[2,8,18],    sunStr:0.0, rayStr:0.0, planktonMul:1.0}
+];
+const DEPTH_ZONES_LUNA=[
+  {name:'surface',  t:0.0, sky:[220,180,190],water:[145,105,125],deep:[65,38,58],  sunStr:1.0, rayStr:1.0, planktonMul:0.3},
+  {name:'shallow',  t:0.17,sky:[180,140,160],water:[120,80,100], deep:[50,30,48],  sunStr:0.7, rayStr:0.75,planktonMul:0.45},
+  {name:'upperBlue',t:0.35,sky:[130,90,120], water:[80,50,75],   deep:[35,20,38],  sunStr:0.35,rayStr:0.4, planktonMul:0.6},
+  {name:'midBlue',  t:0.55,sky:[70,40,65],   water:[40,20,40],   deep:[22,10,25],  sunStr:0.1, rayStr:0.1, planktonMul:0.8},
+  {name:'twilight', t:0.75,sky:[30,12,28],   water:[18,8,20],    deep:[10,4,12],   sunStr:0.0, rayStr:0.0, planktonMul:0.95},
+  {name:'midnight', t:1.0, sky:[8,3,8],      water:[8,3,8],      deep:[8,3,8],     sunStr:0.0, rayStr:0.0, planktonMul:1.0}
+];
+const DESCENT_WORDS=[
+  {t:0.08,text:'Breathe.',duration:2500},
+  {t:0.28,text:'Deeper.',duration:2500},
+  {t:0.48,text:'Safe here.',duration:2800},
+  {t:0.78,text:'Your light.',duration:3000}
+];
+const ASCENT_WORDS=[{t:0.2,text:'Surfacing.',duration:3000}];
+const DESCENT_DURATION=10000;
+const ASCENT_DURATION=8000;
+
+let depthProgress=0; // 0=surface, 1=midnight
+let depthAnimating=false;
+let depthRAF=null;
+let depthParticles=[];
+let depthCanvasInitd=false;
+
+function depthLerp(a,b,t){return a+(b-a)*t}
+function depthLerpC(a,b,t){return[depthLerp(a[0],b[0],t),depthLerp(a[1],b[1],t),depthLerp(a[2],b[2],t)]}
+function depthEaseInOut(t){return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2}
+function depthLunoC(t){return[14+t*90,50+t*170,80+t*175]}
+function depthLunaC(t){return[120+t*110,60+t*100,80+t*90]}
+
+function getDepthZoneValue(zones,progress,field){
+  let lo=zones[0],hi=zones[zones.length-1];
+  for(let i=0;i<zones.length-1;i++){
+    if(progress>=zones[i].t&&progress<=zones[i+1].t){lo=zones[i];hi=zones[i+1];break}
+  }
+  const localT=(progress-lo.t)/(hi.t-lo.t||1);
+  const eased=depthEaseInOut(Math.max(0,Math.min(1,localT)));
+  if(Array.isArray(lo[field]))return depthLerpC(lo[field],hi[field],eased);
+  return depthLerp(lo[field],hi[field],eased);
+}
+
+function initDepthCanvas(){
+  if(depthCanvasInitd)return;
+  depthCanvasInitd=true;
+  const c=$('depthCanvas');if(!c)return;
+  const ctx=c.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  let w,h;
+  function resize(){
+    w=c.offsetWidth;h=c.offsetHeight;
+    c.width=w*dpr;c.height=h*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize();window.addEventListener('resize',resize);
+  // Init particles
+  for(let i=0;i<90;i++){
+    depthParticles.push({
+      x:Math.random()*(w||430),y:Math.random()*(h||800),
+      sz:1+Math.random()*3.5,vx:(Math.random()-0.5)*0.15,
+      vy:(Math.random()-0.5)*0.06,ph:Math.random()*Math.PI*2,
+      ps:0.003+Math.random()*0.005,isLuno:Math.random()<0.55,
+      dp:0.2+Math.random()*0.8
+    });
+  }
+  function draw(){
+    if(!w||!h){depthRAF=requestAnimationFrame(draw);return}
+    const prog=depthProgress;
+    const isL=currentChar==='luno';
+    const co=Math.max(0.05,cohPct/100);
+    const zones=isL?DEPTH_ZONES:DEPTH_ZONES_LUNA;
+    const t=Date.now()*0.001;
+    ctx.clearRect(0,0,w,h);
+    const skyCol=getDepthZoneValue(zones,prog,'sky');
+    const waterCol=getDepthZoneValue(zones,prog,'water');
+    const deepCol=getDepthZoneValue(zones,prog,'deep');
+    const sunStr=getDepthZoneValue(zones,prog,'sunStr');
+    const rayStr=getDepthZoneValue(zones,prog,'rayStr');
+    const planktonMul=getDepthZoneValue(zones,prog,'planktonMul');
+    const skyH=h*Math.max(0,0.44*(1-prog*1.3));
+    // SKY
+    if(skyH>2){
+      const sg=ctx.createLinearGradient(0,0,0,skyH);
+      sg.addColorStop(0,`rgb(${skyCol[0]|0},${skyCol[1]|0},${skyCol[2]|0})`);
+      const horizonCol=depthLerpC([255,218,160],[100,100,120],prog);
+      sg.addColorStop(1,`rgb(${horizonCol[0]|0},${horizonCol[1]|0},${horizonCol[2]|0})`);
+      ctx.fillStyle=sg;ctx.fillRect(0,0,w,skyH);
+      // Sun
+      if(sunStr>0.02){
+        const sx=w*0.62,sy=skyH*0.3,sr=25+sunStr*28;
+        const sunG=ctx.createRadialGradient(sx,sy,0,sx,sy,sr*3);
+        sunG.addColorStop(0,`rgba(255,242,205,${sunStr*0.6})`);
+        sunG.addColorStop(0.3,`rgba(255,225,165,${sunStr*0.25})`);
+        sunG.addColorStop(1,'rgba(255,200,120,0)');
+        ctx.fillStyle=sunG;ctx.fillRect(0,0,w,skyH);
+        ctx.beginPath();ctx.arc(sx,sy,sr*0.3,0,Math.PI*2);
+        ctx.fillStyle=`rgba(255,248,225,${sunStr*0.7})`;ctx.fill();
+      }
+      // Clouds
+      const cloudOp=Math.max(0,1-prog*2.5)*0.5;
+      if(cloudOp>0.02){
+        for(let i=0;i<5;i++){
+          const cx=((i*127+t*2)%(w+200))-100;
+          const cy=skyH*(0.15+(i%3)*0.2);
+          ctx.beginPath();
+          ctx.ellipse(cx,cy,70+i*20,16+(i%3)*8,0,0,Math.PI*2);
+          ctx.fillStyle=`rgba(235,238,245,${cloudOp})`;ctx.fill();
+        }
+      }
+    }
+    // WATER
+    const waterTop=Math.max(0,skyH);
+    ctx.beginPath();
+    const waveAmp=Math.max(0,3*(1-prog*1.5));
+    if(waterTop>0&&waveAmp>0.1){
+      ctx.moveTo(0,waterTop);
+      for(let x=0;x<=w;x+=3)ctx.lineTo(x,waterTop+Math.sin(x*0.018+t*0.6)*waveAmp);
+    }else{ctx.moveTo(0,waterTop);ctx.lineTo(w,waterTop)}
+    ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.closePath();
+    const wg=ctx.createLinearGradient(0,waterTop,0,h);
+    wg.addColorStop(0,`rgb(${waterCol[0]|0},${waterCol[1]|0},${waterCol[2]|0})`);
+    wg.addColorStop(0.5,`rgb(${deepCol[0]|0},${deepCol[1]|0},${deepCol[2]|0})`);
+    wg.addColorStop(1,`rgb(${Math.max(0,deepCol[0]-5)|0},${Math.max(0,deepCol[1]-5)|0},${Math.max(0,deepCol[2]-5)|0})`);
+    ctx.fillStyle=wg;ctx.fill();
+    // LIGHT RAYS
+    if(rayStr>0.02){
+      const rayCount=Math.round(rayStr*6);
+      for(let i=0;i<rayCount;i++){
+        const rx=w*(0.2+i*0.13)+Math.sin(t*0.2+i*1.3)*10;
+        const rw=5+rayStr*12;
+        const rayLen=h*(0.3+rayStr*0.4);
+        const rg=ctx.createLinearGradient(rx,waterTop,rx+20,waterTop+rayLen);
+        const rayColor=isL?[255,232,175]:[240,200,190];
+        rg.addColorStop(0,`rgba(${rayColor[0]},${rayColor[1]},${rayColor[2]},${rayStr*0.12})`);
+        rg.addColorStop(1,`rgba(${rayColor[0]},${rayColor[1]},${rayColor[2]},0)`);
+        ctx.save();ctx.beginPath();
+        ctx.moveTo(rx-rw/2,waterTop);ctx.lineTo(rx+rw*1.2,waterTop+rayLen);ctx.lineTo(rx+rw*0.3,waterTop+rayLen);
+        ctx.closePath();ctx.fillStyle=rg;ctx.fill();ctx.restore();
+      }
+    }
+    // DEPTH PLANKTON (canvas-based, independent of CSS particles)
+    const visCount=Math.round(planktonMul*80);
+    for(let i=0;i<depthParticles.length;i++){
+      const p=depthParticles[i];
+      p.ph+=p.ps;
+      p.x+=p.vx+Math.sin(p.ph*0.5)*0.06;
+      p.y+=p.vy+Math.cos(p.ph*0.3)*0.03;
+      if(p.x<-15)p.x=w+15;if(p.x>w+15)p.x=-15;
+      if(p.y<waterTop+5)p.y=h-5;if(p.y>h+10)p.y=waterTop+10;
+      if(i>=visCount)continue;
+      const useL=isL?p.isLuno:!p.isLuno;
+      const col=useL?depthLunoC(co):depthLunaC(co*0.75);
+      const glowBoost=prog*0.6;
+      const alpha=(0.08+co*0.4+glowBoost*0.3+Math.sin(p.ph)*0.12)*p.dp;
+      const sz=(p.sz+co*2+glowBoost*1.5)*(0.5+p.dp*0.6);
+      const glow=(2+co*10+glowBoost*10)*p.dp;
+      ctx.beginPath();ctx.arc(p.x,p.y,sz,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${col[0]|0},${col[1]|0},${col[2]|0},${Math.max(0,alpha).toFixed(3)})`;
+      if(glow>1.5){ctx.shadowColor=`rgba(${col[0]|0},${col[1]|0},${col[2]|0},${(alpha*0.5).toFixed(3)})`;ctx.shadowBlur=glow}
+      ctx.fill();ctx.shadowBlur=0;
+    }
+    // LUNO GLOW (emerges as sole light at depth)
+    if(prog>0.4){
+      const lunoStr=Math.max(0,(prog-0.4)/0.6);
+      const lCol=isL?depthLunoC(co):depthLunaC(co);
+      const cx=w/2,cy=h*0.72;
+      const lr=40+lunoStr*60+co*30;
+      const lg=ctx.createRadialGradient(cx,cy,0,cx,cy,lr);
+      lg.addColorStop(0,`rgba(${lCol[0]|0},${lCol[1]|0},${lCol[2]|0},${lunoStr*0.5})`);
+      lg.addColorStop(0.4,`rgba(${lCol[0]|0},${lCol[1]|0},${lCol[2]|0},${lunoStr*0.2})`);
+      lg.addColorStop(1,`rgba(${lCol[0]|0},${lCol[1]|0},${lCol[2]|0},0)`);
+      ctx.fillStyle=lg;ctx.fillRect(cx-lr,cy-lr,lr*2,lr*2);
+    }
+    depthRAF=requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+// Depth blend — controls ocean-bg background + child container visibility
+// NEVER sets parent opacity (kills children). Controls each layer independently.
+function setOceanBgDepthBlend(prog){
+  const bg=$('oceanBg');if(!bg)return;
+  // Ocean-bg background: transparent at surface, let render() paint gradient at depth
+  if(prog<0.9){
+    bg.style.background='transparent';
+  }
+  // Child containers fade in at different depth thresholds
+  $('stars').style.opacity=String(Math.max(0,Math.min(1,(prog-0.15)/0.35)));
+  $('waves').style.opacity=String(Math.max(0,Math.min(1,(prog-0.3)/0.35)));
+  $('plkLayer').style.opacity=String(Math.max(0,Math.min(1,(prog-0.4)/0.35)));
+  $('auroraCon').style.opacity=String(Math.max(0,Math.min(1,(prog-0.6)/0.3)));
+}
+
+function runDescent(onComplete){
+  initDepthCanvas();
+  depthAnimating=true;
+  depthProgress=0;
+  setOceanBgDepthBlend(0);
+  const overlay=$('descentOverlay');
+  overlay.classList.add('active');
+  // Hide normal dialogue/UI during descent
+  $('dialogue').style.display='none';
+  $('tapP').style.display='none';
+  $('phaseLabel').textContent='DESCENDING';
+  const wordsFired=new Set();
+  const startTime=Date.now();
+  function tick(){
+    const elapsed=Date.now()-startTime;
+    const t=Math.min(1,elapsed/DESCENT_DURATION);
+    const eased=depthEaseInOut(t);
+    depthProgress=eased;
+    setOceanBgDepthBlend(eased);
+    // Drifting words
+    for(const word of DESCENT_WORDS){
+      if(t>=word.t&&!wordsFired.has(word.text)){
+        wordsFired.add(word.text);
+        const el=document.createElement('div');
+        el.className='depth-word';
+        el.textContent=word.text;
+        el.style.setProperty('--word-dur',(word.duration-800)+'ms');
+        overlay.appendChild(el);
+        setTimeout(()=>{if(el.parentNode)el.parentNode.removeChild(el)},word.duration);
+      }
+    }
+    if(t<1){requestAnimationFrame(tick)}
+    else{
+      depthAnimating=false;
+      depthProgress=1;
+      overlay.classList.remove('active');
+      overlay.innerHTML='';
+      // At depth: render() will paint the ocean-bg gradient + children
+      render();
+      if(onComplete)onComplete();
+    }
+  }
+  // VOICE_HOOK: speak descent start
+  if(typeof speakLuno==='function')speakLuno('Going deeper now.','arrival');
+  requestAnimationFrame(tick);
+}
+
+function runAscent(onComplete){
+  initDepthCanvas();
+  depthAnimating=true;
+  depthProgress=1;
+  setOceanBgDepthBlend(1);
+  const overlay=$('descentOverlay');
+  overlay.classList.add('active');
+  $('phaseLabel').textContent='SURFACING';
+  if(typeof speakLuno==='function')speakLuno('Surfacing.','closing');
+  const wordsFired=new Set();
+  const startTime=Date.now();
+  function tick(){
+    const elapsed=Date.now()-startTime;
+    const t=Math.min(1,elapsed/ASCENT_DURATION);
+    const eased=depthEaseInOut(t);
+    depthProgress=1-eased;
+    setOceanBgDepthBlend(1-eased);
+    for(const word of ASCENT_WORDS){
+      if(t>=word.t&&!wordsFired.has(word.text)){
+        wordsFired.add(word.text);
+        const el=document.createElement('div');
+        el.className='depth-word';
+        el.textContent=word.text;
+        el.style.setProperty('--word-dur',(word.duration-800)+'ms');
+        overlay.appendChild(el);
+        setTimeout(()=>{if(el.parentNode)el.parentNode.removeChild(el)},word.duration);
+      }
+    }
+    if(t<1){requestAnimationFrame(tick)}
+    else{
+      depthAnimating=false;
+      depthProgress=0;
+      overlay.classList.remove('active');
+      overlay.innerHTML='';
+      setOceanBgDepthBlend(0);render();
+      if(onComplete)onComplete();
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+// Initialize depth canvas at surface on load
+initDepthCanvas();
+depthProgress=0;
+setOceanBgDepthBlend(0);
+// Surface state: ocean-bg transparent, depth canvas paints sunny sky
 
 /* ================================================================
    STATE MACHINE — Auto-advancing phase flow
@@ -1084,17 +1427,23 @@ let shiftTimer=null;
 function advancePhase(){
   const nextIdx=currentPhaseIdx+1;
   if(nextIdx>=PHASE_ORDER.length){
-    // Session complete — loop back to arrival, clean up ABI
-    currentPhaseIdx=0;
-    abiCleanup();
-    showPhase('arrival');
+    // Session complete — ascent animation, then loop back to arrival
+    runAscent(()=>{
+      currentPhaseIdx=0;
+      abiCleanup();
+      showPhase('arrival');
+    });
     return;
   }
 
-  // ABI hook: when advancing FROM arrival, start ABI session
-  if(abiMode&&currentPhaseIdx===0&&!abiSessionActive){
-    abiStartSession().then(ok=>{
-      // Continue advancing regardless — biometrics collect in background
+  // When advancing FROM arrival: descent animation + ABI start
+  if(currentPhaseIdx===0){
+    // Start ABI session (if enabled) in parallel with descent
+    if(abiMode&&!abiSessionActive){
+      abiStartSession();
+    }
+    // Run 10s descent — the first exercise
+    runDescent(()=>{
       currentPhaseIdx=nextIdx;
       showPhase(PHASE_ORDER[nextIdx]);
     });
@@ -1242,6 +1591,7 @@ window.selectApiSession=function(snum){
 
 // Vault seal
 $('vaultSeal').addEventListener('click',async function(){
+  if(typeof speakLuno==='function')speakLuno('Your session has been stored.','closing');
   const text=$('vaultInput').value||'';
   if(text.trim()&&activeApiSession){
     await apiPost('/api/fr/vault',{user_id:userId,session_number:activeApiSession.session_number,vault_response:text,session_type:'individual'}).catch(()=>null);
@@ -1344,51 +1694,23 @@ if(window.speechSynthesis)window.speechSynthesis.onvoiceschanged=()=>window.spee
 
 async function speakLuno(text,phase){
   if(!text)return;
+  console.log('[TTS] Requesting:',phase,'→',text.substring(0,60)+(text.length>60?'...':''));
   if(ttsAvailable){
     try{
       const params=new URLSearchParams({text,phase:phase||'breathing_milestone',character:'luno',session_number:String(sessNum||1)});
       const res=await fetch((window.location.origin||DEFAULT_BASE)+'/api/tts/generate?'+params.toString());
-      if(res.ok){const d=await res.json();if(d.audio_url){const a=new Audio(d.audio_url);a.volume=0.7;await a.play();return;}}
-    }catch{}
+      if(res.ok){const d=await res.json();if(d.audio_url){console.log('[TTS] Playing ElevenLabs:',d.audio_url);const a=new Audio(d.audio_url);a.volume=0.7;await a.play();return;}}
+      console.log('[TTS] ElevenLabs failed, falling back to browser speech');
+    }catch(e){console.warn('[TTS] ElevenLabs error:',e.message||e)}
   }
+  console.log('[TTS] Using browser speech');
   speakBrowser(text);
 }
 
-// ════════════════════════════════════════════════════════════════
-// SESSION CONTENT — Wire Luno dialogue from server into phases
-// ════════════════════════════════════════════════════════════════
-
-// Store session_content from /api/abi/session/start response
-// The AbiService.startSession already returns session_content.
-// Hook into phase transitions to speak session-specific content.
-
-const _origAbiStart=typeof abiStartSession==='function'?abiStartSession:null;
-if(_origAbiStart){
-  // After session start, capture session_content for TTS
-  const _wrapStart=async function(){
-    const result=await _origAbiStart();
-    // session_content is on the start response, stored by AbiService
-    // Speak arrival dialogue when entering opening phase
-    return result;
-  };
-}
-
-// Phase transition voice hooks
-const _origShowPhase=typeof showPhase==='function'?showPhase:null;
-if(_origShowPhase){
-  const _showPhaseOrig=showPhase;
-  showPhase=function(phase){
-    _showPhaseOrig(phase);
-    // Speak Luno dialogue based on phase
-    if(phase==='arrival'||phase==='opening'){
-      const content=window._abiSessionContent;
-      if(content?.luno_arrival)speakLuno(content.luno_arrival,'arrival');
-    }else if(phase==='shift'){
-      const content=window._abiSessionContent;
-      if(content?.luno_close)speakLuno(content.luno_close,'closing');
-    }
-  };
-}
+// TTS voice hooks now live directly in showPhase() — no monkey-patch needed.
+// ABI session content (_abiSessionContent) is checked there for arrival/opening/shift.
+// Descent/ascent TTS is in runDescent() and runAscent().
+// Vault TTS is in the vaultSeal click handler.
 </script>
 </body>
 </html>
