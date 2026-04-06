@@ -42,14 +42,16 @@ function getFilePriority(filename) {
 function parseMarkdown(content, filename) {
   const sessions = {};
 
-  // Split by session headers (### SESSION N or ## SESSION N or --- followed by session block)
-  const sessionBlocks = content.split(/(?=^###?\s+SESSION\s+\d+)/mi);
+  // Split by session headers:
+  // - ### SESSION N or ## SESSION N (canonical format)
+  // - # S102 — Title (condensed format inside grouped blocks)
+  const sessionBlocks = content.split(/(?=^#{1,3}\s+(?:SESSION\s+\d+|S\d+\s*[—–-]))/mi);
 
   for (const block of sessionBlocks) {
-    // Extract session number
-    const headerMatch = block.match(/^###?\s+SESSION\s+(\d+)/mi);
+    // Extract session number from either format
+    const headerMatch = block.match(/^#{1,3}\s+(?:SESSION\s+(\d+)|S(\d+)\s*[—–-])/mi);
     if (!headerMatch) continue;
-    const sessionNum = parseInt(headerMatch[1]);
+    const sessionNum = parseInt(headerMatch[1] || headerMatch[2]);
 
     // Extract title
     const titleMatch = block.match(/(?:title:\s*"?([^"\n]+)"?|—\s*(.+)$)/mi);
@@ -135,15 +137,30 @@ function extractBreathingCues(block) {
   const cues = [];
   // Look for luno_breath section with round_N entries
   const breathMatch = block.match(/luno_breath:\s*\n((?:.*?\n)*?)(?=\n\S|\n\n\S|$)/mi);
-  if (!breathMatch) return cues;
+  if (breathMatch) {
+    const breathBlock = breathMatch[1];
+    const roundRegex = /round_\d+:\s*"?(.*?)"?\s*$/gm;
+    let roundMatch;
+    while ((roundMatch = roundRegex.exec(breathBlock)) !== null) {
+      let cue = roundMatch[1].trim();
+      if (cue.endsWith('"')) cue = cue.slice(0, -1);
+      if (cue) cues.push(cue);
+    }
+  }
 
-  const breathBlock = breathMatch[1];
-  const roundRegex = /round_\d+:\s*"?(.*?)"?\s*$/gm;
-  let roundMatch;
-  while ((roundMatch = roundRegex.exec(breathBlock)) !== null) {
-    let cue = roundMatch[1].trim();
-    if (cue.endsWith('"')) cue = cue.slice(0, -1);
-    if (cue) cues.push(cue);
+  // Also check pendulation_cues (condensed format)
+  if (cues.length === 0) {
+    const pendMatch = block.match(/pendulation_cues:\s*\n((?:.*?\n)*?)(?=\n\S{1,20}:|\n\n\S|$)/mi);
+    if (pendMatch) {
+      const pendBlock = pendMatch[1];
+      const touchRegex = /touch:\s*"?(.*?)"?\s*$/gm;
+      let touchMatch;
+      while ((touchMatch = touchRegex.exec(pendBlock)) !== null) {
+        let cue = touchMatch[1].trim();
+        if (cue.endsWith('"')) cue = cue.slice(0, -1);
+        if (cue) cues.push(cue);
+      }
+    }
   }
 
   return cues;
