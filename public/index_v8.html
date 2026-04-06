@@ -1579,9 +1579,9 @@ var Integration = (function() {
     var sessions = await Integration.loadSessions();
     if (sessions && sessions.length > 0) {
       SessionUI.setApiStatus('live');
-      // Auto-select first session so dialogue has content
-      var firstSession = sessions[0];
-      var sessNum = firstSession.session_number || 1;
+      // Auto-select session 1 (skip session 0 placeholder)
+      var firstSession = sessions.find(function(s){return s.session_number===1}) || sessions.find(function(s){return s.session_number>0}) || sessions[0];
+      var sessNum = firstSession.session_number != null ? firstSession.session_number : 1;
       Dialogue.setSessionContext(sessNum, firstSession);
       SessionUI.updateSessionTitle(sessNum, firstSession.title);
       BioBridge.initBiometricBridge(sessNum, firstSession);
