@@ -1114,7 +1114,7 @@ var Dialogue = (function() {
 
   var DEFAULT_DIALOGUE={arrival:["Luno's checking in with you.","You don't have to do anything yet.","Just land."],opening:["You made it here.","","The people who came before you \u2014 they survived things that would break most people.","","They made it through. And because they made it through \u2014 you are here."],resistance:["Your body might not trust this yet.","","The part of you that stays ready \u2014 that part kept you here.","","Don't ask it to stand down. Just breathe alongside it."],before_the_breath:["Follow Luno.","","Breathe in \u2014 like receiving something always meant for you.","","Let it go \u2014 slow, longer than the inhale."],breathing:[],shift:["Your body just did something real."],close:["You showed up. That's the work."]};
   var DISPLAY_MODES={arrival:'visible',opening:'fade',resistance:'fade',before_the_breath:'visible',breathing:'none',shift:'slow_fade',close:'visible'};
-  var FADE_IN_MS=800,FADE_HOLD_MS=3000,FADE_OUT_MS=1200,SLOW_FADE_IN_MS=2000,EMPTY_LINE_PAUSE=1500,POST_TTS_HOLD_MS=500;
+  var FADE_IN_MS=800,FADE_HOLD_MS=3000,FADE_OUT_MS=1200,SLOW_FADE_IN_MS=2000,EMPTY_LINE_PAUSE=800,POST_TTS_HOLD_MS=600;
   var VOICE_IDS={luno:'7FZFrYtZRrKLHTp9VJka',luna:'qSeXEcewz7tA0Q0qk9fH'};
 
   var _apiBaseUrl='',_ttsAvailable=false,_audioUnlocked=false;

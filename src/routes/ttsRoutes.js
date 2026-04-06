@@ -74,7 +74,8 @@ router.get('/generate', async (req, res) => {
   }
 });
 
-// POST /api/tts/generate — generate or retrieve cached TTS audio (POST variant)
+// POST /api/tts/generate — return raw audio bytes (Content-Type: audio/mpeg)
+// Frontend decodes via AudioContext._playAudioBuffer()
 router.post('/generate', async (req, res) => {
   try {
     const { session_number, character, phase, text } = req.body;
@@ -85,7 +86,7 @@ router.post('/generate', async (req, res) => {
 
     const tenantId = req.tenantId || req.user?.tenantId;
 
-    const result = await ttsService.generateOrCache({
+    const result = await ttsService.generateAudioBuffer({
       text,
       tenantId,
       character: character || 'luno',
@@ -93,7 +94,13 @@ router.post('/generate', async (req, res) => {
       sessionNumber: parseInt(session_number) || null
     });
 
-    res.json(result);
+    if (!result || !result.buffer) {
+      return res.status(500).json({ error: 'TTS generation failed' });
+    }
+
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('Content-Length', result.buffer.length);
+    res.send(result.buffer);
   } catch (err) {
     console.error('[TTS] Generate (POST) error:', err.message);
     res.status(500).json({ error: 'Failed to generate TTS audio' });

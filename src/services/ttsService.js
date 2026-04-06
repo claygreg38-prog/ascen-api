@@ -262,4 +262,131 @@ async function cleanupCache() {
   }
 }
 
-module.exports = { initTTS, isAvailable, generateOrCache, prewarmSession, cleanupCache };
+/**
+ * Generate or retrieve cached TTS audio as raw Buffer.
+ * Returns { buffer: Buffer, cached: boolean } or null on failure.
+ * Used by POST /api/tts/generate to stream audio bytes directly.
+ */
+async function generateAudioBuffer({ text, tenantId, character, phase, sessionNumber }) {
+  if (!elevenLabsAvailable || !text) return null;
+
+  // Resolve voice ID (same logic as generateOrCache)
+  let voiceId = null;
+  let charConfig = {};
+
+  const envVoiceId = character === 'luna'
+    ? process.env.ELEVENLABS_LUNA_VOICE_ID
+    : process.env.ELEVENLABS_LUNO_VOICE_ID;
+  if (envVoiceId) {
+    voiceId = envVoiceId;
+    charConfig = { stability: 0.75, similarity_boost: 0.8, style: 0.3 };
+  }
+
+  if (!voiceId && tenantId) {
+    try {
+      const tenant = await pool.query('SELECT voice_config FROM tenants WHERE id = $1', [tenantId]);
+      const voiceConfig = tenant.rows[0]?.voice_config || {};
+      charConfig = voiceConfig[character] || voiceConfig.luno || {};
+      voiceId = charConfig.voice_id || null;
+    } catch { /* non-blocking */ }
+  }
+
+  if (!voiceId) {
+    try {
+      const ascen = await pool.query("SELECT voice_config FROM tenants WHERE slug = 'ascen' LIMIT 1");
+      const vc = ascen.rows[0]?.voice_config || {};
+      charConfig = vc[character] || vc.luno || {};
+      voiceId = charConfig.voice_id || null;
+    } catch { /* non-blocking */ }
+  }
+
+  if (!voiceId) return null;
+
+  // Cache key
+  const cacheKey = crypto.createHash('sha256')
+    .update(JSON.stringify({ text, voiceId, character, phase }))
+    .digest('hex')
+    .slice(0, 32);
+
+  // Check file cache
+  const cachedFile = path.join(AUDIO_DIR, `${cacheKey}.mp3`);
+  if (fs.existsSync(cachedFile)) {
+    console.log('[TTS] Buffer cache hit (file):', cacheKey.substring(0, 8));
+    return { buffer: fs.readFileSync(cachedFile), cached: true };
+  }
+
+  // Check DB cache for data URI
+  try {
+    const cached = await pool.query(
+      'SELECT audio_url, audio_duration_ms FROM tts_cache WHERE cache_key = $1',
+      [cacheKey]
+    );
+    if (cached.rows.length && cached.rows[0].audio_url) {
+      pool.query('UPDATE tts_cache SET last_used_at = NOW(), use_count = use_count + 1 WHERE cache_key = $1', [cacheKey]).catch(() => {});
+      const url = cached.rows[0].audio_url;
+      // If it's a data URI, decode it
+      if (url.startsWith('data:audio/')) {
+        const base64 = url.split(',')[1];
+        return { buffer: Buffer.from(base64, 'base64'), cached: true };
+      }
+      // If it's a file path, try to read it
+      if (url.startsWith('/audio/tts/')) {
+        const filePath = path.join(__dirname, '../../public', url);
+        if (fs.existsSync(filePath)) {
+          return { buffer: fs.readFileSync(filePath), cached: true };
+        }
+      }
+    }
+  } catch { /* table may not exist */ }
+
+  // Generate from ElevenLabs
+  try {
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    console.log('[TTS] Generating audio buffer:', { voiceId: voiceId.substring(0, 8) + '...', textLen: text.length });
+
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'xi-api-key': apiKey },
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: {
+          stability: charConfig.stability || 0.75,
+          similarity_boost: charConfig.similarity_boost || 0.8,
+          style: charConfig.style || 0.3,
+          use_speaker_boost: true
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[TTS] ElevenLabs error:', response.status, errorText.substring(0, 200));
+      return null;
+    }
+
+    const audioBuffer = Buffer.from(await response.arrayBuffer());
+    const durationMs = Math.round((audioBuffer.length / 16000) * 1000);
+    console.log(`[TTS] Generated buffer: ${phase} (${audioBuffer.length} bytes, ~${durationMs}ms)`);
+
+    // Best-effort file cache
+    try {
+      if (!fs.existsSync(AUDIO_DIR)) fs.mkdirSync(AUDIO_DIR, { recursive: true });
+      fs.writeFileSync(cachedFile, audioBuffer);
+    } catch { /* ephemeral filesystem — expected on Railway */ }
+
+    // Best-effort DB cache
+    pool.query(`
+      INSERT INTO tts_cache (cache_key, tenant_id, voice_id, text_content, phase, session_number, character, audio_url, audio_duration_ms, generated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      ON CONFLICT (cache_key) DO NOTHING
+    `, [cacheKey, tenantId, voiceId, text, phase, sessionNumber, character, null, durationMs]).catch(() => {});
+
+    return { buffer: audioBuffer, cached: false };
+  } catch (err) {
+    console.error('[TTS] generateAudioBuffer error:', err.message);
+    return null;
+  }
+}
+
+module.exports = { initTTS, isAvailable, generateOrCache, generateAudioBuffer, prewarmSession, cleanupCache };
