@@ -57,7 +57,7 @@
 .source-text { position: absolute; bottom: 17%; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 300; color: rgba(200,220,240,0.55); letter-spacing: 2.5px; z-index: 21; pointer-events: none; text-align: center; opacity: 0; transition: opacity 4s ease; font-style: italic; white-space: nowrap; text-shadow: 0 0 20px rgba(120,180,220,0.4); }
 .source-text.visible { opacity: 1; }
 
-.luno-container { position: absolute; bottom: 8%; left: 50%; transform: translateX(-50%); z-index: 10; transition: all 2s; }
+.luno-container { position: absolute; bottom: 8%; left: 50%; transform: translateX(-50%); z-index: 10; transition: width 2s, height 2s, opacity 2s; }
 .luno { position: relative; display: flex; align-items: center; justify-content: center; animation: lunoDrift 8s ease-in-out infinite alternate; }
 @keyframes lunoDrift { 0%{transform:translateX(-5px)} 100%{transform:translateX(5px)} }
 .luno-outer,.luno-mid,.luno-core { position: absolute; border-radius: 50%; transition: all 2s ease; z-index: 1; }
@@ -119,9 +119,10 @@
 
 .breath-pacer { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 200px; height: 200px; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 20; transition: all 2s; }
 .breath-ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid rgba(160,196,232,0.15); transition: all 2s; }
-.breath-fill { width: 70%; height: 70%; border-radius: 50%; background: radial-gradient(circle, rgba(120,170,210,0.25), rgba(80,130,170,0.08) 70%, transparent); display: flex; align-items: center; justify-content: center; }
+.breath-fill { width: 70%; height: 70%; border-radius: 50%; background: radial-gradient(circle, rgba(120,170,210,0.25), rgba(80,130,170,0.08) 70%, transparent); display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .orbit-dot { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: rgba(160,196,232,0.95); box-shadow: 0 0 10px rgba(160,196,232,0.8), 0 0 22px rgba(160,196,232,0.4); transform-origin: center; pointer-events: none; transition: background 0.4s, box-shadow 0.4s; z-index: 21; }
 .bl-text { font-size: 15px; font-weight: 300; color: rgba(200,220,240,0.7); letter-spacing: 1px; }
+.bl-countdown { font-size: 32px; font-weight: 200; color: rgba(200,220,240,0.5); line-height: 1; margin-top: 2px; font-family: 'Outfit', sans-serif; transition: opacity 0.3s; }
 .bl-count { display: none; }
 
 #breathCounter { position: absolute; bottom: -72px; left: 50%; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; z-index: 25; }
@@ -282,7 +283,7 @@
 
   <div style="position:absolute;inset:48px 0 0 0;display:flex;align-items:center;justify-content:center;z-index:20;">
     <div class="dialogue" id="dialogue"><div class="dialogue-text" id="dText">Luno's checking in with you.<br>You don't have to do anything yet.<br>Just land.</div></div>
-    <div class="breath-pacer" id="breathPacer" style="display:none;"><div class="breath-ring" id="breathRing"></div><div class="orbit-dot" id="orbitDot"></div><div class="breath-fill"><div class="bl-text" id="blText">Breathe In</div></div><div class="bl-count" id="blCount">breath 1</div></div>
+    <div class="breath-pacer" id="breathPacer" style="display:none;"><div class="breath-ring" id="breathRing"></div><div class="orbit-dot" id="orbitDot"></div><div class="breath-fill"><div class="bl-text" id="blText">Breathe In</div><div class="bl-countdown" id="blCountdown"></div></div><div class="bl-count" id="blCount">breath 1</div></div>
     <div id="breathCounter">
       <div id="breathNumWrap">
         <div id="breathNum">1</div>
@@ -1277,7 +1278,7 @@ var Dialogue = (function() {
 })();
 
 // ── LUNO PULSE CSS (inject once) ──
-(function(){if(document.getElementById('lunoPulseStyle'))return;var s=document.createElement('style');s.id='lunoPulseStyle';s.textContent='@keyframes lunoPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.06);opacity:0.85}100%{transform:scale(1);opacity:1}}';document.head.appendChild(s);})();
+(function(){if(document.getElementById('lunoPulseStyle'))return;var s=document.createElement('style');s.id='lunoPulseStyle';s.textContent='@keyframes lunoPulse{0%{transform:translateX(-50%) scale(1);opacity:1}50%{transform:translateX(-50%) scale(1.06);opacity:0.85}100%{transform:translateX(-50%) scale(1);opacity:1}}';document.head.appendChild(s);})();
 
 // ================================================================
 // === MODULE 6: SESSION UI ===
@@ -1326,7 +1327,7 @@ var SessionUI = (function() {
 
   function updatePacer(ratio){if(!ratio)return;_pacerRatio={inhale:ratio.inhale_seconds||4,hold:ratio.hold_seconds||0,exhale:ratio.exhale_seconds||6};_pacerCycleMs=(_pacerRatio.inhale+_pacerRatio.hold+_pacerRatio.exhale)*1000;}
   function showPacer(){var bp=$('breathPacer');if(bp){bp.style.display='flex';bp.style.opacity='1';}var bc=$('breathCounter');if(bc)bc.style.display='flex';_startOrbitDot();}
-  function hidePacer(){var bp=$('breathPacer');if(bp)bp.style.display='none';var bc=$('breathCounter');if(bc)bc.style.display='none';_stopOrbitDot();}
+  function hidePacer(){var bp=$('breathPacer');if(bp)bp.style.display='none';var bc=$('breathCounter');if(bc)bc.style.display='none';_stopOrbitDot();_stopCountdown();}
   function _startOrbitDot(){_stopOrbitDot();var dot=$('orbitDot');if(!dot)return;var IN_MS=_pacerRatio.inhale*1000,HOLD_MS=_pacerRatio.hold*1000,OUT_MS=_pacerRatio.exhale*1000,CYCLE_MS=IN_MS+HOLD_MS+OUT_MS;var startTs=null;function frame(ts){if(!startTs)startTs=ts;var elapsed=(ts-startTs)%CYCLE_MS;var isInhale=elapsed<IN_MS,isHold=HOLD_MS>0&&elapsed>=IN_MS&&elapsed<IN_MS+HOLD_MS,angle;if(isInhale)angle=-Math.PI/2+(elapsed/IN_MS)*Math.PI;else if(isHold)angle=Math.PI/2;else angle=Math.PI/2+((elapsed-IN_MS-HOLD_MS)/OUT_MS)*Math.PI;var x=ORBIT_CENTER+ORBIT_RADIUS*Math.cos(angle)-ORBIT_DOT_R,y=ORBIT_CENTER+ORBIT_RADIUS*Math.sin(angle)-ORBIT_DOT_R;dot.style.left=x+'px';dot.style.top=y+'px';dot.style.background=isInhale?INHALE_COL:EXHALE_COL;dot.style.boxShadow=isInhale?INHALE_GLOW:EXHALE_GLOW;_orbitRaf=requestAnimationFrame(frame);}_orbitRaf=requestAnimationFrame(frame);}
   function _stopOrbitDot(){if(_orbitRaf){cancelAnimationFrame(_orbitRaf);_orbitRaf=null;}}
   function _buildDots(total){var dotsEl=$('breathDots');if(!dotsEl)return;dotsEl.innerHTML='';var show=Math.min(total,MAX_DOTS);for(var i=0;i<show;i++){var d=document.createElement('div');d.className='bdot';d.id='bdot_'+i;dotsEl.appendChild(d);}}
@@ -1341,7 +1342,10 @@ var SessionUI = (function() {
   function showCoachingIntervention(coaching,onChoice){var msg=$('coachingMsg');if(msg)msg.textContent=coaching.message||'Your body is telling us something.';var bp=$('breathPacer');if(bp)bp.style.opacity='0.3';showOverlay('coaching');var opts=$('coachingOpts');if(opts){opts.querySelectorAll('.ci-btn').forEach(function(btn){var handler=function(){hideOverlay('coaching');if(bp)bp.style.opacity='1';var choice=btn.textContent.toLowerCase().includes('keep')?'continue':btn.textContent.toLowerCase().includes('ground')?'drill':'exit';if(onChoice)onChoice(choice);};var newBtn=btn.cloneNode(true);newBtn.addEventListener('click',handler);btn.parentNode.replaceChild(newBtn,btn);});}}
 
   function updateBreathCounter(breathCount,totalBreaths){var numEl=$('breathNum'),totalEl=$('breathTotal');if(numEl){numEl.textContent=breathCount;var pct=totalBreaths>0?breathCount/totalBreaths:0;var r=Math.round(160+pct*40),g=Math.round(210+pct*15);numEl.style.color='rgba('+r+','+g+',240,'+(0.7+pct*0.25)+')';numEl.style.textShadow='0 0 '+(20+pct*20)+'px rgba(120,180,220,'+(0.3+pct*0.3)+')';_pulseBreathNum();}if(totalEl)totalEl.textContent=totalBreaths;_updateDots(breathCount,totalBreaths);}
-  function updateBreathPhaseLabel(phase){var blText=$('blText');if(!blText)return;if(phase==='in'){blText.textContent='Breathe In';var bp=$('breathPacer');if(bp)bp.style.transform='translate(-50%,-50%) scale(1.12)';}else if(phase==='hold'){blText.textContent='Hold';}else{blText.textContent='Breathe Out';var bp2=$('breathPacer');if(bp2)bp2.style.transform='translate(-50%,-50%) scale(0.88)';}}
+  var _countdownInterval=null;
+  function updateBreathPhaseLabel(phase){var blText=$('blText');if(!blText)return;if(phase==='in'){blText.textContent='Breathe In';var bp=$('breathPacer');if(bp)bp.style.transform='translate(-50%,-50%) scale(1.12)';_startCountdown(_pacerRatio.inhale);}else if(phase==='hold'){blText.textContent='Hold';_startCountdown(_pacerRatio.hold);}else{blText.textContent='Breathe Out';var bp2=$('breathPacer');if(bp2)bp2.style.transform='translate(-50%,-50%) scale(0.88)';_startCountdown(_pacerRatio.exhale);}}
+  function _startCountdown(seconds){if(_countdownInterval){clearInterval(_countdownInterval);_countdownInterval=null;}var el=$('blCountdown');if(!el)return;if(!seconds||seconds<=0){el.textContent='';return;}var remaining=seconds;el.textContent=remaining;_countdownInterval=setInterval(function(){remaining--;if(remaining>0){el.textContent=remaining;}else{el.textContent='';clearInterval(_countdownInterval);_countdownInterval=null;}},1000);}
+  function _stopCountdown(){if(_countdownInterval){clearInterval(_countdownInterval);_countdownInterval=null;}var el=$('blCountdown');if(el)el.textContent='';}
   function updateSessionTitle(sessionNumber,title){var el=$('sessTitle');if(el)el.textContent='Session '+sessionNumber+(title?' \u2014 '+title:'');}
   function updateDashboard(biometrics){if(!biometrics)return;var hrD=$('hrD');if(hrD&&biometrics.heart_rate)hrD.textContent=Math.round(biometrics.heart_rate);var cohD=$('cohD');if(cohD&&biometrics.coherence!==undefined)cohD.textContent=biometrics.coherence.toFixed(2);var pHR=$('pHR');if(pHR&&biometrics.heart_rate)pHR.textContent=Math.round(biometrics.heart_rate)+' bpm';var pCoh=$('pCoh');if(pCoh&&biometrics.coherence!==undefined)pCoh.textContent=Math.round(biometrics.coherence*100)+'%';}
   function setApiStatus(status){_apiStatus=status;var pip=$('apiPip'),lbl=$('apiLbl');if(!pip||!lbl)return;var map={live:['#4ecdc4','#4ecdc4','live'],offline:['#e87fa3','#e87fa3','offline'],connecting:['#f5a040','#f5a040','connecting']};var c=map[status]||map.connecting;pip.style.background=c[0];pip.style.boxShadow='0 0 8px '+c[1];lbl.textContent=c[2];}
