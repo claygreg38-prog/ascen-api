@@ -684,7 +684,7 @@ app.get('/api/schema', async (req, res) => {
 app.get('/api/sessions', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'No database connection' });
   try {
-    const result = await pool.query('SELECT session_number, title, arc, breath_mode, ratio, duration_seconds FROM session_templates ORDER BY session_number ASC');
+    const result = await pool.query('SELECT session_number, title, arc, breath_mode, ratio, duration_seconds, luno_arrival, luno_mid, luno_close, vault_prompt, dialogue_phases FROM session_templates ORDER BY session_number ASC');
     res.json({ count: result.rows.length, sessions: result.rows });
   } catch (e) {
     res.status(500).json({ error: e.message });

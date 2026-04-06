@@ -41,7 +41,7 @@ router.get('/sessions', async (req, res) => {
       SELECT session_number, track, title, arc,
              breath_mode, ratio, duration_seconds,
              luno_arrival, luno_mid, luno_close,
-             vault_enabled, vault_prompt,
+             vault_enabled, vault_prompt, dialogue_phases,
              family_recording_prompt, station_unlock,
              abi_mode, coherence_target, axis_dashboard_category
       FROM session_templates
@@ -94,7 +94,7 @@ router.get('/sessions/:number', async (req, res) => {
       `SELECT session_number, track, title, arc,
               breath_mode, ratio, duration_seconds,
               luno_arrival, luno_mid, luno_close,
-              vault_enabled, vault_prompt,
+              vault_enabled, vault_prompt, dialogue_phases,
               family_recording_prompt, station_unlock,
               abi_mode, coherence_target, axis_dashboard_category,
               yaml_data

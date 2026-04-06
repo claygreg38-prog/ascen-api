@@ -1131,7 +1131,8 @@ var Dialogue = (function() {
   async function _checkTTSAvailable(){try{var res=await fetch(_apiBaseUrl+'/api/tts/available');if(res.ok){var d=await res.json();_ttsAvailable=d.available===true;}console.log('[TTS] Available:',_ttsAvailable);}catch(e){_ttsAvailable=false;}}
   function setSessionContext(sessionNumber,sessionData,character){_sessionNumber=sessionNumber||1;_sessionData=sessionData||null;_currentCharacter=character||'luno';}
 
-  function resolveDialogue(phase){var sd=_sessionData;if(sd&&sd.dialogue_phases&&sd.dialogue_phases[phase]){var phaseData=sd.dialogue_phases[phase];if(phaseData.ns3_gated&&_biometricBridge){var ns3=_biometricBridge.getCurrentNS3();var threshold=phaseData.ns3_threshold||30;if(ns3<threshold&&phaseData.dialogue_safe_path)return{lines:_toArray(phaseData.dialogue_safe_path),source:'api_safe_path'};if(phaseData.dialogue_standard)return{lines:_toArray(phaseData.dialogue_standard),source:'api_standard'};}var lines=phaseData.lines||phaseData.dialogue||phaseData;if(Array.isArray(lines)&&lines.length>0)return{lines:lines,source:'api'};}if(sd){if(phase==='arrival'&&sd.luno_arrival)return{lines:_htmlToLines(sd.luno_arrival),source:'legacy'};if((phase==='before_the_breath'||phase==='breathing')&&sd.luno_mid)return{lines:_htmlToLines(sd.luno_mid),source:'legacy'};if((phase==='shift'||phase==='close')&&sd.luno_close)return{lines:_htmlToLines(sd.luno_close),source:'legacy'};}if(DEFAULT_DIALOGUE[phase])return{lines:DEFAULT_DIALOGUE[phase].slice(),source:'default'};return{lines:[],source:'none'};}
+  function resolveDialogue(phase){var sd=_sessionData;if(sd&&sd.dialogue_phases&&sd.dialogue_phases[phase]){var phaseData=sd.dialogue_phases[phase];if(phaseData.ns3_gated&&_biometricBridge){var ns3=_biometricBridge.getCurrentNS3();var threshold=phaseData.ns3_threshold||30;if(ns3<threshold&&phaseData.dialogue_safe_path)return{lines:_normalizeLines(phaseData.dialogue_safe_path),source:'api_safe_path'};if(phaseData.dialogue_standard)return{lines:_normalizeLines(phaseData.dialogue_standard),source:'api_standard'};}var lines=phaseData.lines||phaseData.dialogue||phaseData;if(Array.isArray(lines)&&lines.length>0)return{lines:_normalizeLines(lines),source:'api'};}if(sd){if(phase==='arrival'&&sd.luno_arrival)return{lines:_htmlToLines(sd.luno_arrival),source:'legacy'};if((phase==='before_the_breath'||phase==='breathing')&&sd.luno_mid)return{lines:_htmlToLines(sd.luno_mid),source:'legacy'};if((phase==='shift'||phase==='close')&&sd.luno_close)return{lines:_htmlToLines(sd.luno_close),source:'legacy'};}if(DEFAULT_DIALOGUE[phase])return{lines:DEFAULT_DIALOGUE[phase].slice(),source:'default'};return{lines:[],source:'none'};}
+  function _normalizeLines(lines){if(!Array.isArray(lines))return _toArray(lines);return lines.map(function(l){if(typeof l==='string')return l;if(l&&typeof l==='object'&&l.text!==undefined)return l.text;return''});}
   function _toArray(val){if(Array.isArray(val))return val;if(typeof val==='string')return[val];return[];}
   function _htmlToLines(html){if(!html)return[];return html.split(/<br\s*\/?>/gi).map(function(line){return line.replace(/<[^>]*>/g,'').trim()}).filter(function(line){return line.length>0})}
   function _stripHtml(html){if(!html)return'';return html.replace(/<br\s*\/?>/gi,'. ').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim();}
@@ -1578,7 +1579,13 @@ var Integration = (function() {
     var sessions = await Integration.loadSessions();
     if (sessions && sessions.length > 0) {
       SessionUI.setApiStatus('live');
-      console.log('[ASCEN] Sessions loaded:', sessions.length, 'sessions');
+      // Auto-select first session so dialogue has content
+      var firstSession = sessions[0];
+      var sessNum = firstSession.session_number || 1;
+      Dialogue.setSessionContext(sessNum, firstSession);
+      SessionUI.updateSessionTitle(sessNum, firstSession.title);
+      BioBridge.initBiometricBridge(sessNum, firstSession);
+      console.log('[ASCEN] Sessions loaded:', sessions.length, '— auto-selected S' + sessNum);
     } else {
       SessionUI.setApiStatus('offline');
       console.log('[ASCEN] No sessions loaded — offline mode');
