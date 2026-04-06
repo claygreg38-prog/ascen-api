@@ -1162,7 +1162,7 @@ var Dialogue = (function() {
   function _mapPhaseToVoicePhase(phase){if(phase==='arrival')return'arrival';if(phase==='opening'||phase==='resistance'||phase==='before_the_breath')return'opening';if(phase==='shift'||phase==='close')return'closing';if(phase==='breathing')return'breathing_milestone';return'opening';}
 
   // ── LUNO ORB PULSE (visual feedback while speaking) ──
-  function _setLunoPulse(active){var el=document.getElementById('lunoCon');if(!el)return;if(active){el.style.animation='lunoPulse 1.5s ease-in-out infinite';}else{el.style.animation='';}}
+  function _setLunoPulse(active){return;}
 
   // ── SPEAK LUNO (main TTS entry point) ──
   async function speakLuno(text,voicePhase){
