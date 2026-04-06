@@ -74,6 +74,32 @@ router.get('/generate', async (req, res) => {
   }
 });
 
+// POST /api/tts/generate — generate or retrieve cached TTS audio (POST variant)
+router.post('/generate', async (req, res) => {
+  try {
+    const { session_number, character, phase, text } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ error: 'text is required' });
+    }
+
+    const tenantId = req.tenantId || req.user?.tenantId;
+
+    const result = await ttsService.generateOrCache({
+      text,
+      tenantId,
+      character: character || 'luno',
+      phase: phase || 'breathing_milestone',
+      sessionNumber: parseInt(session_number) || null
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[TTS] Generate (POST) error:', err.message);
+    res.status(500).json({ error: 'Failed to generate TTS audio' });
+  }
+});
+
 // GET /api/tts/available — check if TTS is available
 router.get('/available', (req, res) => {
   res.json({ available: ttsService.isAvailable() });

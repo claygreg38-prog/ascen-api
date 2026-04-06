@@ -107,6 +107,11 @@
 .top-bar { position: absolute; top: 0; left: 0; right: 0; height: 48px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; z-index: 30; }
 .phase-lbl { font-size: 11px; font-weight: 600; letter-spacing: 3px; color: rgba(160,196,232,0.6); text-transform: uppercase; }
 .sess-title { font-size: 11px; font-weight: 300; color: rgba(160,196,232,0.3); position: absolute; left: 50%; transform: translateX(-50%); }
+#bleBtn { font-size: 10px; font-weight: 400; letter-spacing: 1.5px; color: rgba(160,196,232,0.5); background: rgba(160,196,232,0.06); border: 1px solid rgba(160,196,232,0.12); border-radius: 14px; padding: 4px 12px; cursor: pointer; transition: all 0.3s; font-family: 'Outfit', sans-serif; white-space: nowrap; }
+#bleBtn:hover { color: rgba(160,196,232,0.8); background: rgba(160,196,232,0.12); border-color: rgba(160,196,232,0.25); }
+#bleBtn.ble-connected { color: rgba(78,205,196,0.85); border-color: rgba(78,205,196,0.3); background: rgba(78,205,196,0.08); }
+#bleBtn .ble-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; background: rgba(160,196,232,0.4); }
+#bleBtn.ble-connected .ble-dot { background: rgba(78,205,196,0.9); box-shadow: 0 0 6px rgba(78,205,196,0.6); }
 
 .dialogue { position: absolute; top: 12%; left: 50%; transform: translateX(-50%); max-width: 580px; text-align: center; padding: 0 40px; z-index: 20; }
 .dialogue-text { font-size: 20px; font-weight: 300; line-height: 1.8; color: rgba(200,220,240,0.88); }
@@ -256,6 +261,7 @@
   <div class="top-bar">
     <div class="phase-lbl" id="phaseLabel">ARRIVAL</div>
     <div class="sess-title" id="sessTitle">Session 1 — The First Breath</div>
+    <button id="bleBtn" style="display:none"><span class="ble-dot"></span>CONNECT</button>
   </div>
 
   <div class="porthole" id="porthole">
@@ -1112,6 +1118,7 @@ var Dialogue = (function() {
   var VOICE_IDS={luno:'7FZFrYtZRrKLHTp9VJka',luna:'qSeXEcewz7tA0Q0qk9fH'};
 
   var _apiBaseUrl='',_ttsAvailable=false,_audioUnlocked=false;
+  var _audioCtx=null;
   var _deliveryActive=false,_deliveryPaused=false,_deliveryAborted=false,_currentPhase=null,_currentLineIdx=0;
   var _sessionData=null,_sessionNumber=1,_currentCharacter='luno';
   var _stateMachine=null,_biometricBridge=null,_dialogueTextEl=null;
@@ -1132,13 +1139,106 @@ var Dialogue = (function() {
   async function _displayFade(html,fadeInMs,holdMs,fadeOutMs){if(!_dialogueTextEl)return;_dialogueTextEl.innerHTML=html;_dialogueTextEl.style.opacity='0';_dialogueTextEl.style.transition='opacity '+fadeInMs+'ms ease-in';void _dialogueTextEl.offsetWidth;_dialogueTextEl.style.opacity='1';await _sleep(fadeInMs);await _sleep(holdMs);if(_deliveryAborted)return;_dialogueTextEl.style.transition='opacity '+fadeOutMs+'ms ease-out';_dialogueTextEl.style.opacity='0';await _sleep(fadeOutMs);}
   function _clearText(){if(!_dialogueTextEl)return;_dialogueTextEl.innerHTML='';_dialogueTextEl.style.opacity='0';}
 
-  async function speakLuno(text,voicePhase){if(!text||!_audioUnlocked)return;var voiceId=_currentCharacter==='luna'?VOICE_IDS.luna:VOICE_IDS.luno;if(_ttsAvailable){try{var params=new URLSearchParams({text:text,phase:voicePhase||'breathing_milestone',character:_currentCharacter,session_number:String(_sessionNumber||1)});var res=await fetch(_apiBaseUrl+'/api/tts/generate?'+params.toString());if(res.ok){var d=await res.json();if(d.audio_url){await _playAudio(d.audio_url);return;}}}catch(e){}}var spoke=await speakBrowser(text);if(!spoke)console.log('[TTS] All methods failed');}
-  function _playAudio(url){return new Promise(function(resolve){var a=new Audio(url);a.volume=0.7;a.onended=function(){resolve()};a.onerror=function(){resolve()};a.play().catch(function(){resolve()});})}
-  function speakBrowser(text){return new Promise(function(resolve){if(!window.speechSynthesis||!text){resolve(false);return;}window.speechSynthesis.cancel();var utter=new SpeechSynthesisUtterance(text);utter.rate=0.85;utter.pitch=0.85;utter.volume=0.8;var voices=window.speechSynthesis.getVoices();var preferred=voices.find(function(v){return/daniel|james|google us english|samantha/i.test(v.name)})||voices.find(function(v){return v.lang.startsWith('en')&&v.localService})||voices[0];if(preferred)utter.voice=preferred;utter.onend=function(){resolve(true)};utter.onerror=function(){resolve(false)};window.speechSynthesis.speak(utter);setTimeout(function(){resolve(true)},text.length*80+3000);})}
-  function unlockAudio(){if(_audioUnlocked)return;try{var silence=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');silence.play().catch(function(){});_audioUnlocked=true;console.log('[TTS] Audio unlocked');}catch(e){}}
+  // ── AUDIO CONTEXT ──
+  function _getAudioContext(){if(!_audioCtx){try{_audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){console.warn('[TTS] AudioContext not available:',e.message);}}return _audioCtx;}
+
+  // ── AUDIO UNLOCK (robust — AudioContext + silent Audio + multi-event) ──
+  function unlockAudio(){
+    if(_audioUnlocked)return;
+    var ctx=_getAudioContext();
+    if(ctx&&ctx.state==='suspended'){try{ctx.resume();}catch(e){}}
+    try{var s=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');s.volume=0;s.play().catch(function(){});s.pause();}catch(e){}
+    _audioUnlocked=true;console.log('[TTS] Audio unlocked by user gesture');
+  }
+  function _audioUnlockOnFirstTap(){
+    if(_audioUnlocked)return;
+    var unlock=function(){unlockAudio();document.removeEventListener('click',unlock,true);document.removeEventListener('touchstart',unlock,true);document.removeEventListener('keydown',unlock,true);};
+    document.addEventListener('click',unlock,true);document.addEventListener('touchstart',unlock,true);document.addEventListener('keydown',unlock,true);
+  }
   function setAudioUnlocked(unlocked){_audioUnlocked=!!unlocked;}
   function isTTSAvailable(){return _ttsAvailable}
   function _mapPhaseToVoicePhase(phase){if(phase==='arrival')return'arrival';if(phase==='opening'||phase==='resistance'||phase==='before_the_breath')return'opening';if(phase==='shift'||phase==='close')return'closing';if(phase==='breathing')return'breathing_milestone';return'opening';}
+
+  // ── LUNO ORB PULSE (visual feedback while speaking) ──
+  function _setLunoPulse(active){var el=document.getElementById('lunoCon');if(!el)return;if(active){el.style.animation='lunoPulse 1.5s ease-in-out infinite';}else{el.style.animation='';}}
+
+  // ── SPEAK LUNO (main TTS entry point) ──
+  async function speakLuno(text,voicePhase){
+    if(!text||text.trim()===''||text.trim()==='""')return;
+    if(!_audioUnlocked)return;
+    console.log('[TTS] Requesting:',text.substring(0,50)+(text.length>50?'...':''));
+    // Try ElevenLabs first
+    if(_ttsAvailable){
+      try{var played=await _playElevenLabs(text,voicePhase);if(played)return;}catch(e){console.warn('[TTS] ElevenLabs failed:',e.message);}
+    }
+    // Fallback: browser speechSynthesis
+    try{await speakBrowser(text);}catch(e){console.warn('[TTS] Browser TTS also failed:',e.message);}
+  }
+
+  // ── ELEVENLABS FETCH + PLAY ──
+  async function _playElevenLabs(text,voicePhase){
+    var response;
+    try{
+      response=await fetch(_apiBaseUrl+'/api/tts/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,character:_currentCharacter,phase:voicePhase||'breathing_milestone',session_number:_sessionNumber||1})});
+    }catch(e){console.warn('[TTS] Fetch failed (network):',e.message);return false;}
+    if(!response.ok){console.warn('[TTS] Server returned',response.status);return false;}
+    var contentType=response.headers.get('content-type')||'';
+    if(contentType.includes('application/json')){
+      var data=await response.json();var audioUrl=data.audio_url||data.url||data.audioUrl;
+      if(!audioUrl){console.warn('[TTS] JSON response but no audio URL');return false;}
+      return await _playAudioFromUrl(audioUrl);
+    }else if(contentType.includes('audio/')){
+      var arrayBuffer=await response.arrayBuffer();return await _playAudioBuffer(arrayBuffer);
+    }else{
+      try{var ab=await response.arrayBuffer();if(ab.byteLength>100)return await _playAudioBuffer(ab);}catch(e){}
+      console.warn('[TTS] Unexpected content type:',contentType);return false;
+    }
+  }
+
+  // ── PLAY AUDIO FROM URL (Audio element with pulse + timeout) ──
+  function _playAudioFromUrl(url){
+    return new Promise(function(resolve){
+      var a=new Audio(url);a.volume=1.0;
+      var timeout=setTimeout(function(){a.pause();_setLunoPulse(false);resolve(true);},30000);
+      a.onplay=function(){_setLunoPulse(true);};
+      a.onended=function(){clearTimeout(timeout);_setLunoPulse(false);resolve(true);};
+      a.onerror=function(){clearTimeout(timeout);_setLunoPulse(false);resolve(false);};
+      a.play().catch(function(e){console.warn('[TTS] Audio.play() rejected:',e.message);clearTimeout(timeout);_setLunoPulse(false);resolve(false);});
+    });
+  }
+
+  // ── PLAY AUDIO FROM ARRAYBUFFER (AudioContext — primary path) ──
+  async function _playAudioBuffer(arrayBuffer){
+    var ctx=_getAudioContext();if(!ctx)return false;
+    if(ctx.state==='suspended'){try{await ctx.resume();}catch(e){return false;}}
+    try{
+      var audioBuffer=await ctx.decodeAudioData(arrayBuffer.slice(0));
+      var source=ctx.createBufferSource();source.buffer=audioBuffer;source.connect(ctx.destination);
+      return new Promise(function(resolve){
+        _setLunoPulse(true);
+        var timeout=setTimeout(function(){try{source.stop();}catch(e){}_setLunoPulse(false);resolve(true);},30000);
+        source.onended=function(){clearTimeout(timeout);_setLunoPulse(false);resolve(true);};
+        source.start(0);console.log('[TTS] Playing via AudioContext');
+      });
+    }catch(e){console.warn('[TTS] AudioContext decode/play failed:',e.message);_setLunoPulse(false);return false;}
+  }
+
+  // ── BROWSER SPEECHSYNTHESIS FALLBACK ──
+  function speakBrowser(text){
+    return new Promise(function(resolve){
+      if(!window.speechSynthesis||!text){resolve(false);return;}
+      window.speechSynthesis.cancel();
+      var utter=new SpeechSynthesisUtterance(text);utter.rate=0.9;utter.pitch=0.95;utter.volume=1.0;
+      var voices=window.speechSynthesis.getVoices();
+      var preferred=voices.find(function(v){return/daniel|james|google us english|samantha/i.test(v.name)})||voices.find(function(v){return v.lang.startsWith('en')&&v.localService})||voices[0];
+      if(preferred)utter.voice=preferred;
+      _setLunoPulse(true);
+      var timeout=setTimeout(function(){speechSynthesis.cancel();_setLunoPulse(false);resolve(true);},30000);
+      utter.onend=function(){clearTimeout(timeout);_setLunoPulse(false);resolve(true);};
+      utter.onerror=function(){clearTimeout(timeout);_setLunoPulse(false);resolve(false);};
+      window.speechSynthesis.speak(utter);
+    });
+  }
 
   async function deliverPhaseDialogue(phase,dialogueLines,displayMode){
     _deliveryAborted=true;await _waitFrame();_deliveryAborted=false;_deliveryActive=true;_deliveryPaused=false;_currentPhase=phase;_currentLineIdx=0;
@@ -1169,11 +1269,14 @@ var Dialogue = (function() {
 
   return {
     initDialogueDelivery:initDialogueDelivery,setSessionContext:setSessionContext,deliverPhaseDialogue:deliverPhaseDialogue,
-    speakLuno:speakLuno,speakBrowser:speakBrowser,unlockAudio:unlockAudio,setAudioUnlocked:setAudioUnlocked,isTTSAvailable:isTTSAvailable,
+    speakLuno:speakLuno,speakBrowser:speakBrowser,unlockAudio:unlockAudio,audioUnlockOnFirstTap:_audioUnlockOnFirstTap,setAudioUnlocked:setAudioUnlocked,isTTSAvailable:isTTSAvailable,
     pauseDelivery:pauseDelivery,resumeDelivery:resumeDelivery,deliverRoundCue:deliverRoundCue,deliverInterCycleCue:deliverInterCycleCue,speakLunoCounted:speakLunoCounted,
     connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,on:dlgOn
   };
 })();
+
+// ── LUNO PULSE CSS (inject once) ──
+(function(){if(document.getElementById('lunoPulseStyle'))return;var s=document.createElement('style');s.id='lunoPulseStyle';s.textContent='@keyframes lunoPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.06);opacity:0.85}100%{transform:scale(1);opacity:1}}';document.head.appendChild(s);})();
 
 // ================================================================
 // === MODULE 6: SESSION UI ===
@@ -1202,6 +1305,18 @@ var SessionUI = (function() {
     var mirrorCont=$('mirrorCont');if(mirrorCont){mirrorCont.addEventListener('click',function(){_uiEmit('mirrorContinue',{});if(_stateMachine)_stateMachine.advancePhase();});}
     document.querySelectorAll('#checkinOv .ci-btn').forEach(function(btn){btn.addEventListener('click',function(){var mood=btn.textContent;_uiEmit('checkinResponse',{mood:mood});hideOverlay('checkin');if(_stateMachine)_stateMachine.advancePhase();});});
     document.querySelectorAll('.mode-btn').forEach(function(btn){btn.addEventListener('click',function(){var view=btn.textContent.trim().toLowerCase();setView(view);});});
+    // BLE pairing button
+    var bleBtn=$('bleBtn');
+    if(bleBtn){
+      if(navigator.bluetooth){bleBtn.style.display='';
+        bleBtn.addEventListener('click',async function(){
+          if(_biometricBridge&&_biometricBridge.getActiveSource()==='h10'){_biometricBridge.disconnectH10();_updateBleBtn(false);return;}
+          bleBtn.textContent='SCANNING...';bleBtn.disabled=true;
+          try{var ok=_biometricBridge&&await _biometricBridge.connectH10();_updateBleBtn(!!ok);}catch(e){_updateBleBtn(false);}
+          bleBtn.disabled=false;
+        });
+      }else{bleBtn.style.display='none';}
+    }
     setApiStatus('connecting');
   }
 
@@ -1250,7 +1365,8 @@ var SessionUI = (function() {
     ssm.on('onPhaseChange',function(phase){if(phase==='descent')showDescentOverlay();if(phase==='opening')hideDescentOverlay();if(phase==='surface')hideDescentOverlay();});
     ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');});
   }
-  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);});bio.on('biometricTick',function(data){updateDashboard(data.sample);});}
+  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});}
+  function _updateBleBtn(connected){var btn=$('bleBtn');if(!btn)return;if(connected){btn.className='ble-connected';btn.innerHTML='<span class="ble-dot"></span>H10 CONNECTED';}else{btn.className='';btn.innerHTML='<span class="ble-dot"></span>CONNECT';}}
   function connectToDialogueDelivery(dlg){_dialogueDelivery=dlg;}
 
   return {
@@ -1384,6 +1500,7 @@ var Integration = (function() {
 
   // 4. Dialogue Delivery
   Dialogue.initDialogueDelivery(API_BASE, $('dText'));
+  Dialogue.audioUnlockOnFirstTap();
   console.log('[ASCEN] Dialogue Delivery initialized — TTS: checking...');
 
   // 5. Session UI
