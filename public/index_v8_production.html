@@ -107,7 +107,7 @@
 .top-bar { position: absolute; top: 0; left: 0; right: 0; height: 48px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; z-index: 30; }
 .phase-lbl { font-size: 11px; font-weight: 600; letter-spacing: 3px; color: rgba(160,196,232,0.6); text-transform: uppercase; }
 .sess-title { font-size: 11px; font-weight: 300; color: rgba(160,196,232,0.3); position: absolute; left: 50%; transform: translateX(-50%); }
-#bleBtn { font-size: 10px; font-weight: 400; letter-spacing: 1.5px; color: rgba(160,196,232,0.5); background: rgba(160,196,232,0.06); border: 1px solid rgba(160,196,232,0.12); border-radius: 14px; padding: 4px 12px; cursor: pointer; transition: all 0.3s; font-family: 'Outfit', sans-serif; white-space: nowrap; }
+#bleBtn { font-size: 11px; font-weight: 500; letter-spacing: 1.5px; color: rgba(160,196,232,0.7); background: rgba(160,196,232,0.1); border: 1px solid rgba(160,196,232,0.2); border-radius: 14px; padding: 5px 14px; cursor: pointer; transition: all 0.3s; font-family: 'Outfit', sans-serif; white-space: nowrap; }
 #bleBtn:hover { color: rgba(160,196,232,0.8); background: rgba(160,196,232,0.12); border-color: rgba(160,196,232,0.25); }
 #bleBtn.ble-connected { color: rgba(78,205,196,0.85); border-color: rgba(78,205,196,0.3); background: rgba(78,205,196,0.08); }
 #bleBtn .ble-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; background: rgba(160,196,232,0.4); }
@@ -1216,7 +1216,7 @@ var BioBridge = (function() {
     if(_arrivalInterval){clearInterval(_arrivalInterval);_arrivalInterval=null;}
     var hrs=_arrivalSamples.map(function(s){return s.hr}),hrvs=_arrivalSamples.map(function(s){return s.rmssd});
     _arrivalBaseline={mean_hr:_mean(hrs),mean_hrv:_meanExcludeOutliers(hrvs),initial_coherence:_arrivalSamples[_arrivalSamples.length-1].coherence,arrival_rmssd:_meanExcludeOutliers(hrvs),sample_count:_arrivalSamples.length,source:_activeSource};
-    _arrivalComplete=true;_bioEmit('arrivalComplete',_arrivalBaseline);
+    _arrivalComplete=true;console.log('[BIO] Arrival baseline computed:',_arrivalBaseline);_bioEmit('arrivalComplete',_arrivalBaseline);
   }
 
   function startTicks(){if(_tickInterval)return;_tickCount=0;console.log('[BIO] Starting ticks');_tickInterval=setInterval(function(){_tickCount++;var sample=_getCurrentRawSample();sample.coherence=_lastServerCoherence;if(sample.coherence>_coherencePeak)_coherencePeak=sample.coherence;_updateCoherence(sample.coherence);_bioEmit('biometricTick',{sample:sample,ns3:_currentNS3,coherence:_coherenceDisplay,coherencePeak:_coherencePeak,tickCount:_tickCount});},TICK_INTERVAL_MS);}
@@ -1237,7 +1237,32 @@ var BioBridge = (function() {
   }
   function _buildRatioResult(ratioObj,track,reason,holdSeconds){return{ratio:ratioObj.ratio,inhale_seconds:ratioObj.inhale,exhale_seconds:ratioObj.exhale,hold_seconds:holdSeconds||0,track:track,cycle_seconds:ratioObj.inhale+(holdSeconds||0)+ratioObj.exhale,reason:reason};}
 
-  async function connectH10(){if(!navigator.bluetooth){console.warn('[BLE] Web Bluetooth not available');return false;}try{_bleDevice=await navigator.bluetooth.requestDevice({filters:[{services:[0x180D]}],optionalServices:[0x180D]});var server=await _bleDevice.gatt.connect();var service=await server.getPrimaryService(0x180D);_bleCharacteristic=await service.getCharacteristic(0x2A37);await _bleCharacteristic.startNotifications();_bleConnected=true;_activeSource='h10';_bioEmit('bleConnected',{device:_bleDevice.name});_bioEmit('sourceChanged',{source:'h10',previous:'synthetic'});return true;}catch(e){console.warn('[BLE] Connection failed:',e.message);_bleConnected=false;_activeSource='synthetic';return false;}}
+  async function connectH10(){
+    if(!navigator.bluetooth){console.warn('[BLE] Web Bluetooth not available');return false;}
+    try{
+      _bleDevice=await navigator.bluetooth.requestDevice({filters:[{services:[0x180D]}],optionalServices:[0x180D]});
+      var server=await _bleDevice.gatt.connect();
+      var service=await server.getPrimaryService(0x180D);
+      _bleCharacteristic=await service.getCharacteristic(0x2A37);
+      _bleCharacteristic.addEventListener('characteristicvaluechanged',function(event){
+        var value=event.target.value;
+        var flags=value.getUint8(0);
+        var hr=(flags&1)?value.getUint16(1,true):value.getUint8(1);
+        var offset=(flags&1)?3:2;
+        var rrs=[];
+        while(offset+1<value.byteLength){rrs.push(value.getUint16(offset,true)/1024*1000);offset+=2;}
+        var rmssd=0;
+        if(rrs.length>=2){var sumSqDiff=0;for(var i=1;i<rrs.length;i++){var d=rrs[i]-rrs[i-1];sumSqDiff+=d*d;}rmssd=Math.sqrt(sumSqDiff/(rrs.length-1));}
+        _currentSample={heart_rate:hr,hrv_rmssd:rmssd,rr_intervals:rrs,coherence:_coherenceDisplay,respiratory_rate:hr/4.5,timestamp:Date.now(),source:'h10'};
+      });
+      await _bleCharacteristic.startNotifications();
+      _bleConnected=true;_activeSource='h10';
+      _bioEmit('bleConnected',{device:_bleDevice.name});
+      _bioEmit('sourceChanged',{source:'h10',previous:'synthetic'});
+      console.log('[BLE] H10 connected, HR notifications active');
+      return true;
+    }catch(e){console.warn('[BLE] Connection failed:',e.message);_bleConnected=false;_activeSource='synthetic';return false;}
+  }
   function disconnectH10(){if(_bleCharacteristic){try{_bleCharacteristic=null;}catch(e){}_bleCharacteristic=null;}if(_bleDevice&&_bleDevice.gatt&&_bleDevice.gatt.connected)_bleDevice.gatt.disconnect();_bleDevice=null;_bleConnected=false;if(_activeSource==='h10'){_activeSource='synthetic';_bioEmit('sourceChanged',{source:'synthetic',previous:'h10'});}}
 
   function getActiveSource(){return _activeSource}
@@ -1537,7 +1562,7 @@ var SessionUI = (function() {
     ssm.on('onPhaseChange',function(phase){if(phase==='descent')showDescentOverlay();if(phase==='opening')hideDescentOverlay();if(phase==='surface')hideDescentOverlay();});
     ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');});
   }
-  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});}
+  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);if(!bio.getArrivalBaseline()){bio.startArrivalCollection();console.log('[BIO] BLE connected — starting arrival collection with real H10 data');}});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});}
   function _updateBleBtn(connected){var btn=$('bleBtn');if(!btn)return;if(connected){btn.className='ble-connected';btn.innerHTML='<span class="ble-dot"></span>H10 CONNECTED';}else{btn.className='';btn.innerHTML='<span class="ble-dot"></span>CONNECT';}}
   function connectToDialogueDelivery(dlg){_dialogueDelivery=dlg;}
 
