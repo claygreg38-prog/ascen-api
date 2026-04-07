@@ -1490,6 +1490,9 @@ var SessionUI = (function() {
   var _containerEl=null,_activeView='immersive',_pacerRatio={inhale:4,hold:0,exhale:6},_pacerCycleMs=10000,_orbitRaf=null;
   var _lunoTapCount=0,_lunoTapTimer=null,_apiBaseUrl='',_apiStatus='connecting',_apiSessions=[],_completedSessions={};
   var _stateMachine=null,_biometricBridge=null,_dialogueDelivery=null;
+  var _baselineReady=false,_synthFallbackTimer=null;
+  function _enableTapButton(source){_baselineReady=true;if(_synthFallbackTimer){clearTimeout(_synthFallbackTimer);_synthFallbackTimer=null;}var tp=$('tapP');if(tp){tp.classList.remove('tap-disabled');}var sub=$('tapSub');if(sub){sub.textContent='Ready. Tap when you are.';}console.log('[UI] Session start button enabled — baseline:',source);}
+  function _updateTapSubtitle(text){var sub=$('tapSub');if(sub)sub.textContent=text;}
 
   function initSessionUI(containerElement,apiBaseUrl){
     _containerEl=containerElement;_apiBaseUrl=(apiBaseUrl||window.location.origin||'').replace(/\/$/,'');
@@ -1497,10 +1500,7 @@ var SessionUI = (function() {
     var lunoCon=$('lunoCon');if(lunoCon){lunoCon.addEventListener('click',function(e){e.stopPropagation();_lunoTapCount++;if(_lunoTapTimer)clearTimeout(_lunoTapTimer);_lunoTapTimer=setTimeout(function(){_lunoTapCount=0},500);if(_lunoTapCount>=3){_lunoTapCount=0;var ctrls=document.querySelector('.ctrls');if(ctrls)ctrls.classList.toggle('dev-visible');}});}
     var tapP=$('tapP');if(tapP){tapP.addEventListener('click',async function(){if(tapP.classList.contains('tap-disabled'))return;if(_dialogueDelivery)await _dialogueDelivery.unlockAudio();if(_stateMachine)_stateMachine.advancePhase();});}
     // Synthetic baseline fallback: enable tap after 15s if no BLE connects
-    var _baselineReady=false,_synthFallbackTimer=null;
     _synthFallbackTimer=setTimeout(function(){if(!_baselineReady){_enableTapButton('synthetic');console.log('[UI] Synthetic baseline fallback — 15s elapsed, no BLE');}},15000);
-    function _enableTapButton(source){_baselineReady=true;if(_synthFallbackTimer){clearTimeout(_synthFallbackTimer);_synthFallbackTimer=null;}var tp=$('tapP');if(tp){tp.classList.remove('tap-disabled');}var sub=$('tapSub');if(sub){sub.textContent='Ready. Tap when you are.';}console.log('[UI] Session start button enabled — baseline:',source);}
-    function _updateTapSubtitle(text){var sub=$('tapSub');if(sub)sub.textContent=text;}
     var vaultSeal=$('vaultSeal');if(vaultSeal){vaultSeal.addEventListener('click',async function(){var vaultInput=$('vaultInput');var text=vaultInput?vaultInput.value||'':'';_uiEmit('vaultSealed',{text:text});if(_stateMachine)_stateMachine.sealVault();});}
     var vaultSkip=document.querySelector('.v-skip');if(vaultSkip){vaultSkip.addEventListener('click',function(){if(_stateMachine)_stateMachine.sealVault();});}
     var mirrorCont=$('mirrorCont');if(mirrorCont){mirrorCont.addEventListener('click',function(){_uiEmit('mirrorContinue',{});if(_stateMachine)_stateMachine.advancePhase();});}
