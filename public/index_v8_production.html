@@ -763,6 +763,7 @@ var SSM = (function() {
     _timers=[]; _intervals=[]; _rafs=[];
     if (_breathTimer) { clearTimeout(_breathTimer); _breathTimer = null; }
     if (_shiftTimer) { clearTimeout(_shiftTimer); _shiftTimer = null; }
+    _cancelPendulationTimers();
   }
 
   function _setPhase(phase) {
@@ -828,32 +829,183 @@ var SSM = (function() {
     _trackRAF(tick);
   }
 
+  // ── BREATH MODE RESOLUTION ──
+  // DB mode names → internal mode names
+  var MODE_MAP = {
+    'simple_pacer':'simple_pacer','somatic_release':'somatic_release',
+    'box':'hold_breath','hold_breath':'hold_breath',
+    'box_extended':'extended_hold','extended_hold':'extended_hold',
+    'pendulation_loop':'pendulation','pendulation':'pendulation',
+    'user_chosen':'user_chosen','user_choice':'user_chosen',
+    'coherent':'coherence','coherence':'coherence',
+    'calm':'capacity_gentle','capacity_gentle':'capacity_gentle'
+  };
+
+  function _resolveBreathMode(sessionData) {
+    var rawMode = (sessionData && sessionData.breath_mode) || 'simple_pacer';
+    var mode = MODE_MAP[rawMode] || 'simple_pacer';
+    var baseline = null; // arrival baseline if available
+    try { if (typeof BioBridge !== 'undefined') baseline = BioBridge.getArrivalBaseline(); } catch(e) {}
+    var hrv = baseline ? (baseline.mean_hrv || baseline.arrival_rmssd || null) : null;
+    var sessCount = (sessionData && sessionData.session_number) || 0;
+
+    // HRV gates with fallback chain
+    // SAFETY: null HRV (no BLE) = below threshold = fall back to safer mode
+    if (mode === 'somatic_release' && (hrv === null || hrv < 30)) {
+      console.log('[BREATH] Mode:', rawMode, '→ simple_pacer | HRV:', hrv, '| Sessions:', sessCount, '| Ratio: 4:0:6 | Reason: hrv null or <30');
+      return { name: 'simple_pacer', ratio: [4, 0, 6], holdBottom: 0, reason: 'hrv null or <30' };
+    }
+    if (mode === 'hold_breath' && (hrv === null || hrv < 35)) {
+      console.log('[BREATH] Mode:', rawMode, '→ simple_pacer | HRV:', hrv, '| Sessions:', sessCount, '| Ratio: 4:0:6 | Reason: hrv null or <35');
+      return { name: 'simple_pacer', ratio: [4, 0, 6], holdBottom: 0, reason: 'hrv null or <35' };
+    }
+    if (mode === 'extended_hold' && (hrv === null || hrv < 45 || sessCount < 100)) {
+      console.log('[BREATH] Mode:', rawMode, '→ somatic_release | HRV:', hrv, '| Sessions:', sessCount, '| Ratio: 4:0:8 | Reason: hrv null or <45 or sessions<100');
+      return { name: 'somatic_release', ratio: [4, 0, 8], holdBottom: 0, pauseBottom: 1, reason: 'hrv null or <45 or sessions<100' };
+    }
+    if (mode === 'pendulation' && (hrv === null || hrv < 35 || sessCount < 50)) {
+      console.log('[BREATH] Mode:', rawMode, '→ somatic_release | HRV:', hrv, '| Sessions:', sessCount, '| Ratio: 4:0:8 | Reason: hrv null or <35 or sessions<50');
+      return { name: 'somatic_release', ratio: [4, 0, 8], holdBottom: 0, pauseBottom: 1, reason: 'hrv null or <35 or sessions<50' };
+    }
+    if (mode === 'coherence') {
+      var ceremonyOverride = sessionData && (sessionData.ceremony_override === true || sessionData.ceremony_override === 'true');
+      if (!ceremonyOverride && (hrv === null || hrv < 50 || sessCount < 125)) {
+        console.log('[BREATH] Mode:', rawMode, '→ somatic_release | HRV:', hrv, '| Sessions:', sessCount, '| Ratio: 4:0:8 | Reason: hrv null or <50 or sessions<125');
+        return { name: 'somatic_release', ratio: [4, 0, 8], holdBottom: 0, pauseBottom: 1, reason: 'hrv null or <50 or sessions<125' };
+      }
+      return { name: 'coherence', ratio: [6, 0, 6], holdBottom: 0, reason: ceremonyOverride ? 'ceremony_override' : 'qualified' };
+    }
+    if (mode === 'user_chosen' && (hrv === null || sessCount < 75)) {
+      console.log('[BREATH] Mode:', rawMode, '→ simple_pacer | HRV:', hrv, '| Sessions:', sessCount, '| Ratio: 4:0:6 | Reason: hrv null or sessions<75');
+      return { name: 'simple_pacer', ratio: [4, 0, 6], holdBottom: 0, reason: 'hrv null or sessions<75' };
+    }
+
+    // Mode passed gates — build ratio
+    var ratioMap = {
+      'simple_pacer': [4, 0, 6],
+      'somatic_release': [4, 0, 8],
+      'hold_breath': [4, 4, 4],
+      'extended_hold': [4, 7, 8],
+      'capacity_gentle': [3, 0, 5],
+      'pendulation': [4, 0, 6],
+      'user_chosen': [4, 0, 6]
+    };
+    var ratio = ratioMap[mode] || [4, 0, 6];
+    var holdBottom = (mode === 'hold_breath') ? 4 : 0;
+    var pauseBottom = (mode === 'somatic_release') ? 1 : 0;
+
+    console.log('[BREATH] Mode:', rawMode, '→', mode, '| HRV:', hrv, '| Sessions:', sessCount, '| Ratio:', ratio.join(':'), '| Reason: qualified');
+    return { name: mode, ratio: ratio, holdBottom: holdBottom, pauseBottom: pauseBottom, reason: 'qualified' };
+  }
+
+  var _pendulationTimers = [];
+  function _cancelPendulationTimers() { _pendulationTimers.forEach(function(id){clearTimeout(id)}); _pendulationTimers=[]; }
+
   function _startBreathingTimer() {
     breathCount = 0;
-    var ratio = _parseRatio(sessionData && sessionData.ratio);
-    var bIn=ratio[0], bHold=ratio[1], bOut=ratio[2]; var cycleSec=bIn+bHold+bOut;
+    var resolved = _resolveBreathMode(sessionData);
+    console.log('[BREATH] Resolved:', resolved.name, 'ratio:', resolved.ratio.join(':'), 'reason:', resolved.reason);
+
+    // Pendulation mode has its own cycle structure
+    if (resolved.name === 'pendulation') {
+      _startPendulationMode(resolved, sessionData);
+      return;
+    }
+
+    var bIn=resolved.ratio[0], bHold=resolved.ratio[1], bOut=resolved.ratio[2];
+    var holdBottom = resolved.holdBottom || 0;
+    var pauseBottom = resolved.pauseBottom || 0;
+    var cycleSec = bIn + bHold + bOut + holdBottom + pauseBottom;
     var durSec = (sessionData && sessionData.duration_seconds) || MAX_BREATHING_SECONDS;
     if (durSec > MAX_BREATHING_SECONDS) durSec = MAX_BREATHING_SECONDS;
     totalBreaths = Math.round(durSec / cycleSec);
-    _ssmEmit('onBreathingStart', { totalBreaths: totalBreaths, ratio: ratio, durationSeconds: durSec, cycleSec: cycleSec });
-    _runBreathCycle(ratio);
+
+    _ssmEmit('onBreathingStart', { totalBreaths: totalBreaths, ratio: resolved.ratio, durationSeconds: durSec, cycleSec: cycleSec, mode: resolved.name });
+    _runBreathCycle(bIn, bHold, bOut, holdBottom, pauseBottom);
   }
 
-  function _runBreathCycle(ratio) {
-    var bIn=ratio[0], bHold=ratio[1], bOut=ratio[2];
-    var phases=['in']; if(bHold>0) phases.push('hold'); phases.push('out');
-    var phaseIdx=0;
-    function phaseDuration(p) { if(p==='in')return bIn*1000; if(p==='hold')return bHold*1000; if(p==='out')return bOut*1000; return 3000; }
+  function _runBreathCycle(bIn, bHold, bOut, holdBottom, pauseBottom) {
+    var phases = ['in'];
+    if (bHold > 0) phases.push('hold');
+    phases.push('out');
+    if (holdBottom > 0) phases.push('hold_bottom');
+    if (pauseBottom > 0 && holdBottom <= 0) phases.push('pause_bottom');
+    var phaseIdx = 0;
+
+    function phaseDuration(p) {
+      if (p === 'in') return bIn * 1000;
+      if (p === 'hold') return bHold * 1000;
+      if (p === 'out') return bOut * 1000;
+      if (p === 'hold_bottom') return holdBottom * 1000;
+      if (p === 'pause_bottom') return pauseBottom * 1000;
+      return 3000;
+    }
     function runPhase() {
       if (paused) { _breathTimer = _trackTimeout(runPhase, 100); return; }
-      var p=phases[phaseIdx];
-      _ssmEmit('onBreathPhase', { phase: p, breathCount: breathCount, totalBreaths: totalBreaths });
-      if (p==='out') { breathCount++; _ssmEmit('onBreathTick', { breathCount: breathCount, totalBreaths: totalBreaths }); }
+      var p = phases[phaseIdx];
+      // Map hold_bottom and pause_bottom to 'hold' for event consumers
+      var emitPhase = (p === 'hold_bottom' || p === 'pause_bottom') ? 'hold' : p;
+      _ssmEmit('onBreathPhase', { phase: emitPhase, breathCount: breathCount, totalBreaths: totalBreaths });
+      if (p === 'out') { breathCount++; _ssmEmit('onBreathTick', { breathCount: breathCount, totalBreaths: totalBreaths }); }
       phaseIdx = (phaseIdx + 1) % phases.length;
-      if (breathCount >= totalBreaths) { _breathTimer=null; _trackTimeout(function(){ advancePhase(); }, 1500); return; }
+      if (breathCount >= totalBreaths) { _breathTimer = null; _trackTimeout(function(){ advancePhase(); }, 1500); return; }
       _breathTimer = _trackTimeout(runPhase, phaseDuration(p));
     }
     runPhase();
+  }
+
+  // ── PENDULATION MODE ──
+  function _startPendulationMode(resolved, sd) {
+    var cyclesCount = (sd && sd.pendulation_cycles) || 4;
+    var anchorSec = 30, touchSec = 15, returnSec = 30;
+    var anchorRatio = [4, 0, 6], returnRatio = [4, 0, 8];
+
+    // Pregnancy override
+    if (sd && sd.expecting_parent === true) { touchSec = 10; returnSec = 45; }
+
+    var totalCycleSec = anchorSec + touchSec + returnSec;
+    var durSec = totalCycleSec * cyclesCount;
+    totalBreaths = cyclesCount; // each cycle = one "breath"
+    breathCount = 0;
+
+    _ssmEmit('onBreathingStart', { totalBreaths: totalBreaths, ratio: anchorRatio, durationSeconds: durSec, cycleSec: totalCycleSec, mode: 'pendulation' });
+
+    var currentCycle = 0;
+    function runPendulationCycle() {
+      if (currentCycle >= cyclesCount || currentPhase !== 'breathing') { _trackTimeout(function(){ advancePhase(); }, 1500); return; }
+
+      // Anchor phase: standard breathing
+      _runBreathCycle(anchorRatio[0], 0, anchorRatio[2], 0, 0);
+
+      // After anchorSec, switch to touch
+      var t1 = setTimeout(function() {
+        if (currentPhase !== 'breathing') return;
+        if (_breathTimer) { clearTimeout(_breathTimer); _breathTimer = null; }
+        _ssmEmit('onBreathPhase', { phase: 'touch', breathCount: currentCycle + 1, totalBreaths: cyclesCount });
+      }, anchorSec * 1000);
+      _pendulationTimers.push(t1);
+
+      // After touch, switch to return breathing
+      var t2 = setTimeout(function() {
+        if (currentPhase !== 'breathing') return;
+        _ssmEmit('onBreathPhase', { phase: 'in', breathCount: currentCycle + 1, totalBreaths: cyclesCount });
+        _runBreathCycle(returnRatio[0], 0, returnRatio[2], 0, 0);
+      }, (anchorSec + touchSec) * 1000);
+      _pendulationTimers.push(t2);
+
+      // After full cycle, count and continue
+      var t3 = setTimeout(function() {
+        if (currentPhase !== 'breathing') return;
+        if (_breathTimer) { clearTimeout(_breathTimer); _breathTimer = null; }
+        currentCycle++;
+        breathCount = currentCycle;
+        _ssmEmit('onBreathTick', { breathCount: breathCount, totalBreaths: cyclesCount });
+        if (currentCycle < cyclesCount) { runPendulationCycle(); }
+        else { _trackTimeout(function(){ advancePhase(); }, 1500); }
+      }, totalCycleSec * 1000);
+      _pendulationTimers.push(t3);
+    }
+    runPendulationCycle();
   }
 
   function recordBreath() {
@@ -1358,7 +1510,7 @@ var SessionUI = (function() {
 
   function updateBreathCounter(breathCount,totalBreaths){var numEl=$('breathNum'),totalEl=$('breathTotal');if(numEl){numEl.textContent=breathCount;var pct=totalBreaths>0?breathCount/totalBreaths:0;var r=Math.round(160+pct*40),g=Math.round(210+pct*15);numEl.style.color='rgba('+r+','+g+',240,'+(0.7+pct*0.25)+')';numEl.style.textShadow='0 0 '+(20+pct*20)+'px rgba(120,180,220,'+(0.3+pct*0.3)+')';_pulseBreathNum();}if(totalEl)totalEl.textContent=totalBreaths;_updateDots(breathCount,totalBreaths);}
   var _countdownInterval=null;
-  function updateBreathPhaseLabel(phase){var blText=$('blText');if(!blText)return;if(phase==='in'){blText.textContent='Breathe In';var bp=$('breathPacer');if(bp)bp.style.transform='translate(-50%,-50%) scale(1.12)';_startCountdown(_pacerRatio.inhale);}else if(phase==='hold'){blText.textContent='Hold';_startCountdown(_pacerRatio.hold);}else{blText.textContent='Breathe Out';var bp2=$('breathPacer');if(bp2)bp2.style.transform='translate(-50%,-50%) scale(0.88)';_startCountdown(_pacerRatio.exhale);}}
+  function updateBreathPhaseLabel(phase){var blText=$('blText');if(!blText)return;if(phase==='in'){blText.textContent='Breathe In';var bp=$('breathPacer');if(bp)bp.style.transform='translate(-50%,-50%) scale(1.12)';_startCountdown(_pacerRatio.inhale);}else if(phase==='hold'){blText.textContent='Hold';var bp3=$('breathPacer');if(bp3)bp3.style.transform='translate(-50%,-50%) scale(1.12)';_startCountdown(_pacerRatio.hold);}else if(phase==='touch'){blText.textContent='Touch';var bp4=$('breathPacer');if(bp4)bp4.style.transform='translate(-50%,-50%) scale(1.0)';_stopCountdown();}else{blText.textContent='Breathe Out';var bp2=$('breathPacer');if(bp2)bp2.style.transform='translate(-50%,-50%) scale(0.88)';_startCountdown(_pacerRatio.exhale);}}
   function _startCountdown(seconds){if(_countdownInterval){clearInterval(_countdownInterval);_countdownInterval=null;}var el=$('blCountdown');if(!el)return;if(!seconds||seconds<=0){el.textContent='';return;}var remaining=seconds;el.textContent=remaining;_countdownInterval=setInterval(function(){remaining--;if(remaining>0){el.textContent=remaining;}else{el.textContent='';clearInterval(_countdownInterval);_countdownInterval=null;}},1000);}
   function _stopCountdown(){if(_countdownInterval){clearInterval(_countdownInterval);_countdownInterval=null;}var el=$('blCountdown');if(el)el.textContent='';}
   function updateSessionTitle(sessionNumber,title){var el=$('sessTitle');if(el)el.textContent='Session '+sessionNumber+(title?' \u2014 '+title:'');}
