@@ -135,7 +135,9 @@
 .bdot.active { background: rgba(200,230,255,0.9); border-color: rgba(200,230,255,1); box-shadow: 0 0 10px rgba(200,230,255,0.7); transform: scale(1.35); }
 @keyframes breathPulseNum { 0%{transform:scale(1);opacity:0.85} 20%{transform:scale(1.12);opacity:1} 100%{transform:scale(1);opacity:0.85} }
 
-.tap-prompt { position: absolute; bottom: 3%; left: 50%; transform: translateX(-50%); font-size: 13px; font-weight: 300; color: rgba(160,196,232,0.35); letter-spacing: 1px; z-index: 20; cursor: pointer; animation: tp 3s ease-in-out infinite; }
+.tap-prompt { position: absolute; bottom: 3%; left: 50%; transform: translateX(-50%); font-size: 13px; font-weight: 300; color: rgba(160,196,232,0.35); letter-spacing: 1px; z-index: 20; cursor: pointer; animation: tp 3s ease-in-out infinite; text-align: center; }
+.tap-prompt.tap-disabled { pointer-events: none; opacity: 0.4; animation: none; }
+.tap-subtitle { font-size: 10px; color: rgba(160,196,232,0.25); letter-spacing: 0.5px; margin-top: 4px; }
 @keyframes tp { 0%,100%{opacity:0.35} 50%{opacity:0.6} }
 
 .ov { position: absolute; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center; flex-direction: column; }
@@ -329,7 +331,7 @@
     </div>
   </div>
 
-  <div class="tap-prompt" id="tapP">Tap when you're ready</div>
+  <div class="tap-prompt tap-disabled" id="tapP">Tap when you're ready<div class="tap-subtitle" id="tapSub">Pair your sensor or wait for baseline...</div></div>
 
   <div class="ov" id="checkinOv"><div class="ov-bg"></div><div class="ov-c"><div class="ci-q">One word for how that felt:</div><div class="ci-opts"><div class="ci-btn">Calm</div><div class="ci-btn">Weird</div><div class="ci-btn">Hard</div><div class="ci-btn">Good</div><div class="ci-btn">Nothing</div><div class="ci-btn">Different</div></div></div></div>
   <div class="ov" id="mirrorOv"><div class="ov-bg"></div><div class="ov-c"><div class="m-stats"><div class="m-stat"><div class="m-val" id="mirrorBreaths">0</div><div class="m-lbl">breaths</div></div><div class="m-stat"><div class="m-val gold" id="mirrorCoh">0.72</div><div class="m-lbl">peak coh</div></div><div class="m-stat"><div class="m-val" id="mirrorDur">12m</div><div class="m-lbl">duration</div></div></div><div class="m-truth" id="mirrorTruth">Something shifted in you.<br>Not from outside.<br>From your own breath.</div><div class="m-cont" id="mirrorCont">continue →</div></div></div>
@@ -1493,7 +1495,12 @@ var SessionUI = (function() {
     _containerEl=containerElement;_apiBaseUrl=(apiBaseUrl||window.location.origin||'').replace(/\/$/,'');
     try{_completedSessions=JSON.parse(localStorage.getItem('ascen_progress')||'{}');}catch(e){_completedSessions={};}
     var lunoCon=$('lunoCon');if(lunoCon){lunoCon.addEventListener('click',function(e){e.stopPropagation();_lunoTapCount++;if(_lunoTapTimer)clearTimeout(_lunoTapTimer);_lunoTapTimer=setTimeout(function(){_lunoTapCount=0},500);if(_lunoTapCount>=3){_lunoTapCount=0;var ctrls=document.querySelector('.ctrls');if(ctrls)ctrls.classList.toggle('dev-visible');}});}
-    var tapP=$('tapP');if(tapP){tapP.addEventListener('click',async function(){if(_dialogueDelivery)await _dialogueDelivery.unlockAudio();if(_stateMachine)_stateMachine.advancePhase();});}
+    var tapP=$('tapP');if(tapP){tapP.addEventListener('click',async function(){if(tapP.classList.contains('tap-disabled'))return;if(_dialogueDelivery)await _dialogueDelivery.unlockAudio();if(_stateMachine)_stateMachine.advancePhase();});}
+    // Synthetic baseline fallback: enable tap after 15s if no BLE connects
+    var _baselineReady=false,_synthFallbackTimer=null;
+    _synthFallbackTimer=setTimeout(function(){if(!_baselineReady){_enableTapButton('synthetic');console.log('[UI] Synthetic baseline fallback — 15s elapsed, no BLE');}},15000);
+    function _enableTapButton(source){_baselineReady=true;if(_synthFallbackTimer){clearTimeout(_synthFallbackTimer);_synthFallbackTimer=null;}var tp=$('tapP');if(tp){tp.classList.remove('tap-disabled');}var sub=$('tapSub');if(sub){sub.textContent='Ready. Tap when you are.';}console.log('[UI] Session start button enabled — baseline:',source);}
+    function _updateTapSubtitle(text){var sub=$('tapSub');if(sub)sub.textContent=text;}
     var vaultSeal=$('vaultSeal');if(vaultSeal){vaultSeal.addEventListener('click',async function(){var vaultInput=$('vaultInput');var text=vaultInput?vaultInput.value||'':'';_uiEmit('vaultSealed',{text:text});if(_stateMachine)_stateMachine.sealVault();});}
     var vaultSkip=document.querySelector('.v-skip');if(vaultSkip){vaultSkip.addEventListener('click',function(){if(_stateMachine)_stateMachine.sealVault();});}
     var mirrorCont=$('mirrorCont');if(mirrorCont){mirrorCont.addEventListener('click',function(){_uiEmit('mirrorContinue',{});if(_stateMachine)_stateMachine.advancePhase();});}
@@ -1562,7 +1569,7 @@ var SessionUI = (function() {
     ssm.on('onPhaseChange',function(phase){if(phase==='descent')showDescentOverlay();if(phase==='opening')hideDescentOverlay();if(phase==='surface')hideDescentOverlay();});
     ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');});
   }
-  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);if(!bio.getArrivalBaseline()){bio.startArrivalCollection();console.log('[BIO] BLE connected — starting arrival collection with real H10 data');}});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});}
+  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);_enableTapButton(baseline&&baseline.source||'unknown');});bio.on('arrivalSample',function(data){var remaining=30-data.sampleNumber;if(remaining>0)_updateTapSubtitle('Capturing baseline... ~'+remaining+'s remaining');});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);if(!bio.getArrivalBaseline()){bio.startArrivalCollection();console.log('[BIO] BLE connected — starting arrival collection with real H10 data');}});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});}
   function _updateBleBtn(connected){var btn=$('bleBtn');if(!btn)return;if(connected){btn.className='ble-connected';btn.innerHTML='<span class="ble-dot"></span>H10 CONNECTED';}else{btn.className='';btn.innerHTML='<span class="ble-dot"></span>CONNECT';}}
   function connectToDialogueDelivery(dlg){_dialogueDelivery=dlg;}
 
