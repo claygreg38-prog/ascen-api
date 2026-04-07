@@ -1,0 +1,5 @@
+const { Pool } = require('pg');
+const fs = require('fs');
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const sql = fs.readFileSync(__dirname + '/077_coupling_rows.sql', 'utf8');
+pool.query(sql).then(r => { console.log('✓ Migration 077: 14 coupling rows created'); process.exit(0); }).catch(err => { console.error('Migration 077 failed:', err.message); process.exit(1); });
