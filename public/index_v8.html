@@ -1261,11 +1261,26 @@ var Dialogue = (function() {
   function pauseDelivery(){_deliveryPaused=true;}
   function resumeDelivery(){_deliveryPaused=false;}
 
+  var _cueTimers=[];
+  function _cancelCueTimers(){_cueTimers.forEach(function(id){clearTimeout(id)});_cueTimers=[];}
+  function _scheduleBreathingCues(data){
+    _cancelCueTimers();
+    var cues=null;
+    if(_sessionData&&_sessionData.dialogue_phases&&_sessionData.dialogue_phases.breathing&&_sessionData.dialogue_phases.breathing.round_cues){cues=_sessionData.dialogue_phases.breathing.round_cues;}
+    if(!cues||!cues.length)return;
+    var durMs=data.durationSeconds*1000;var segMs=durMs/Math.max(cues.length,1);
+    for(var i=0;i<cues.length;i++){(function(text,delay){
+      var id=setTimeout(function(){if(_stateMachine&&_stateMachine.getCurrentPhase()==='breathing'&&text){speakLuno(text,'breathing_milestone');}},delay);
+      _cueTimers.push(id);
+    })(cues[i],i*segMs);}
+    console.log('[DLG] Scheduled',cues.length,'breathing cues over',data.durationSeconds+'s');
+  }
   function connectToStateMachine(ssm){
     _stateMachine=ssm;
     ssm.on('onDialogueNeeded',function(phase){deliverPhaseDialogue(phase)});
-    ssm.on('onPhaseChange',function(phase){if(_deliveryActive&&_currentPhase!==phase)_deliveryAborted=true;if(phase==='surface'||phase==='arrival')_interCycleCueIdx=0;});
-    ssm.on('onSessionReset',function(){_deliveryAborted=true;_deliveryActive=false;if(window.speechSynthesis)window.speechSynthesis.cancel();_clearText();_interCycleCueIdx=0;});
+    ssm.on('onBreathingStart',function(data){_scheduleBreathingCues(data)});
+    ssm.on('onPhaseChange',function(phase){if(_deliveryActive&&_currentPhase!==phase)_deliveryAborted=true;if(phase==='surface'||phase==='arrival')_interCycleCueIdx=0;if(phase!=='breathing')_cancelCueTimers();});
+    ssm.on('onSessionReset',function(){_deliveryAborted=true;_deliveryActive=false;_cancelCueTimers();if(window.speechSynthesis)window.speechSynthesis.cancel();_clearText();_interCycleCueIdx=0;});
   }
   function connectToBiometricBridge(bio){_biometricBridge=bio;}
 

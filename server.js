@@ -798,6 +798,18 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// RIPPLE SIGNAL ROUTES — "They showed up today."
+// ═══════════════════════════════════════════════════════════════
+try {
+  const rippleRoutes = require('./src/routes/rippleRoutes');
+  app.use('/api/ripple', authenticateOrApiKey('participant'));
+  app.use('/api/ripple', rippleRoutes);
+  console.log('[RIPPLE] Routes mounted at /api/ripple');
+} catch (err) {
+  console.warn('[RIPPLE] Could not mount:', err.message);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // SESSION MONITOR ROUTES — SSE + Reports (Phase 1)
 // ═══════════════════════════════════════════════════════════════
 try {

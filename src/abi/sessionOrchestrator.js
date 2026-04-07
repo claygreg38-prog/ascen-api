@@ -1642,6 +1642,15 @@ function createOrchestrator(callbacks = {}) {
       }
     }
 
+    // ── RIPPLE SIGNAL: "They showed up today." ────────────
+    try {
+      const rippleService = require('../services/rippleService');
+      await rippleService.fireRippleIfApplicable(userId);
+    } catch (err) {
+      // Non-blocking — ripple failure never blocks session completion
+      console.error('[RIPPLE] Fire failed (non-blocking):', err.message);
+    }
+
     // ── TRACK ADVANCEMENT CHECK ─────────────────────────
     let advancementResult = { action: 'none' };
     const sessCount = (user.total_sessions_completed || 0) + 1;
