@@ -57,7 +57,8 @@
 .source-text { position: absolute; bottom: 17%; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 300; color: rgba(200,220,240,0.55); letter-spacing: 2.5px; z-index: 21; pointer-events: none; text-align: center; opacity: 0; transition: opacity 4s ease; font-style: italic; white-space: nowrap; text-shadow: 0 0 20px rgba(120,180,220,0.4); }
 .source-text.visible { opacity: 1; }
 
-.luno-container { position: absolute; bottom: 8%; left: 50%; transform: translateX(-50%); z-index: 10; transition: width 2s, height 2s, opacity 2s; }
+.luno-container { position: absolute; bottom: 8%; left: 50%; transform: translateX(-50%); z-index: 10; transition: width 2s, height 2s; opacity: 0; }
+.luno-container.lc-revealed { opacity: 1; transition: width 2s, height 2s, opacity 10s ease-in; }
 .luno { position: relative; display: flex; align-items: center; justify-content: center; animation: lunoDrift 8s ease-in-out infinite alternate; }
 @keyframes lunoDrift { 0%{transform:translateX(-5px)} 100%{transform:translateX(5px)} }
 .luno-outer,.luno-mid,.luno-core { position: absolute; border-radius: 50%; transition: all 2s ease; z-index: 1; }
@@ -1573,8 +1574,8 @@ var SessionUI = (function() {
     ssm.on('onBreathingStart',function(data){_buildDots(data.totalBreaths);_updateDots(1,data.totalBreaths);var totalEl=$('breathTotal');if(totalEl)totalEl.textContent=data.totalBreaths;var numEl=$('breathNum');if(numEl)numEl.textContent='1';var counterEl=$('breathCounter');if(counterEl)counterEl.style.display='flex';});
     ssm.on('onSessionComplete',function(metrics){hidePacer();var mirrorData={breathCount:metrics.breathCount,durationSeconds:metrics.durationSeconds,coherencePeak:_biometricBridge?_biometricBridge.getCoherencePeak():0};showOverlay('mirror',mirrorData);});
     ssm.on('onDriftingWord',function(data){showDriftingWord(data.text,data.duration)});
-    ssm.on('onPhaseChange',function(phase){if(phase==='descent')showDescentOverlay();if(phase==='opening')hideDescentOverlay();if(phase==='surface')hideDescentOverlay();});
-    ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');});
+    ssm.on('onPhaseChange',function(phase){if(phase==='descent'){showDescentOverlay();var lc=$('lunoCon');if(lc)lc.classList.add('lc-revealed');}if(phase==='opening')hideDescentOverlay();if(phase==='surface'){hideDescentOverlay();var lc2=$('lunoCon');if(lc2)lc2.classList.remove('lc-revealed');}});
+    ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');var lc=$('lunoCon');if(lc)lc.classList.remove('lc-revealed');});
   }
   function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);_enableTapButton(baseline&&baseline.source||'unknown');});bio.on('arrivalSample',function(data){var remaining=30-data.sampleNumber;if(remaining>0)_updateTapSubtitle('Capturing baseline... ~'+remaining+'s remaining');});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);if(!bio.getArrivalBaseline()){bio.startArrivalCollection();console.log('[BIO] BLE connected — starting arrival collection with real H10 data');}});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});}
   function _updateBleBtn(connected){var btn=$('bleBtn');if(!btn)return;if(connected){btn.className='ble-connected';btn.innerHTML='<span class="ble-dot"></span>H10 CONNECTED';}else{btn.className='';btn.innerHTML='<span class="ble-dot"></span>CONNECT';}}
