@@ -775,8 +775,15 @@ var SSM = (function() {
     _ssmEmit('onPhaseChange', phase);
   }
 
+  function setSessionData(sessNum, sessData) {
+    sessionNumber = sessNum; sessionData = sessData || null;
+    console.log('[SSM] Session data set:', sessNum, '| breath_mode:', (sessData && sessData.breath_mode) || 'none');
+  }
+
   function startSession(sessNum, sessData) {
-    clearAllTimers(); sessionNumber=sessNum; sessionData=sessData||null;
+    clearAllTimers();
+    if (sessionData && sessionNumber === sessNum) { /* data already wired by setSessionData — keep it */ }
+    else { sessionNumber=sessNum; sessionData=sessData||null; }
     activeApiSession=sessData?(sessData.session_key||sessData.session_id||null):null;
     abiSessionActive=false; sessionStartTime=Date.now(); breathCount=0; totalBreaths=0;
     descentProgress=0; ascentProgress=0; sessionComplete=false; paused=false; _pauseSnapshot=null;
@@ -1054,7 +1061,7 @@ var SSM = (function() {
   function setAbiSessionActive(active, sessionKey) { abiSessionActive=!!active; if(sessionKey!==undefined) activeApiSession=sessionKey; }
 
   return {
-    startSession:startSession, advancePhase:advancePhase, dialogueComplete:dialogueComplete, sealVault:sealVault, recordBreath:recordBreath,
+    setSessionData:setSessionData, startSession:startSession, advancePhase:advancePhase, dialogueComplete:dialogueComplete, sealVault:sealVault, recordBreath:recordBreath,
     getCurrentPhase:getCurrentPhase, getSessionState:getSessionState, pauseSession:pauseSession, resumeSession:resumeSession, resetSession:resetSession,
     setAbiSessionActive:setAbiSessionActive, on:ssmOn, clearAllTimers:clearAllTimers,
     MAX_BREATHING_SECONDS:MAX_BREATHING_SECONDS, PHASE_ORDER:PHASE_ORDER, DESCENT_DURATION:DESCENT_DURATION, ASCENT_DURATION:ASCENT_DURATION, SHIFT_DURATION:SHIFT_DURATION, VAULT_MIN_SESSION:VAULT_MIN_SESSION, DESCENT_WORDS:DESCENT_WORDS, ASCENT_WORDS:ASCENT_WORDS
@@ -1768,6 +1775,11 @@ var Integration = (function() {
   function applySession(sessionData) {
     if (!sessionData) { console.error('[ASCEN] applySession called with null sessionData'); return false; }
     var sessNum = sessionData.session_number;
+
+    // 0. SSM — source of truth for session state (breath_mode, session_number)
+    if (typeof SSM !== 'undefined' && SSM.setSessionData) {
+      SSM.setSessionData(sessNum, sessionData);
+    }
 
     // 1. Dialogue system — sets _sessionData for 3-tier resolution
     Dialogue.setSessionContext(sessNum, sessionData);
