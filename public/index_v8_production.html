@@ -1237,6 +1237,7 @@ var BioBridge = (function() {
     var hrs=_arrivalSamples.map(function(s){return s.hr}),hrvs=_arrivalSamples.map(function(s){return s.rmssd});
     _arrivalBaseline={mean_hr:_mean(hrs),mean_hrv:_meanExcludeOutliers(hrvs),initial_coherence:_arrivalSamples[_arrivalSamples.length-1].coherence,arrival_rmssd:_meanExcludeOutliers(hrvs),sample_count:_arrivalSamples.length,source:_activeSource};
     _arrivalComplete=true;console.log('[BIO] Arrival baseline computed:',_arrivalBaseline);_bioEmit('arrivalComplete',_arrivalBaseline);
+    _attemptBaselineUpgrade();
   }
 
   function startTicks(){if(_tickInterval)return;_tickCount=0;console.log('[BIO] Starting ticks');_tickInterval=setInterval(function(){_tickCount++;var sample=_getCurrentRawSample();sample.coherence=_lastServerCoherence;if(sample.coherence>_coherencePeak)_coherencePeak=sample.coherence;_updateCoherence(sample.coherence);_bioEmit('biometricTick',{sample:sample,ns3:_currentNS3,coherence:_coherenceDisplay,coherencePeak:_coherencePeak,tickCount:_tickCount});},TICK_INTERVAL_MS);}
@@ -1297,7 +1298,10 @@ var BioBridge = (function() {
   var _baselineUpgradeTimer=null;
   function _attemptBaselineUpgrade(){
     if(_baselineUpgradeTimer){clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;}
-    if(!_arrivalBaseline||_arrivalBaseline.source!=='synthetic'){return;}
+    if(!_arrivalBaseline){return;}
+    var hrv=_arrivalBaseline.mean_hrv;
+    var isUntrustworthy=(_arrivalBaseline.source==='synthetic'||hrv===null||hrv===undefined||hrv===0||hrv<5);
+    if(!isUntrustworthy){return;}
     // Check SSM phase — only upgrade during surface or arrival
     var phase=null;
     try{if(typeof SSM!=='undefined')phase=SSM.getCurrentPhase();}catch(e){}
