@@ -770,6 +770,7 @@ var SSM = (function() {
   }
 
   function _setPhase(phase) {
+    console.log('[SSM] phase →', phase, '| from:', currentPhase || 'init');
     var idx = PHASE_ORDER.indexOf(phase);
     if (idx < 0) { console.error('[SSM] Unknown phase:', phase); return; }
     currentPhase = phase; currentPhaseIdx = idx;
