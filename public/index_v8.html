@@ -1219,6 +1219,7 @@ var BioBridge = (function() {
 
   function initBiometricBridge(sessionNumber, sessionData){
     _sessionNumber=sessionNumber||0;_sessionData=sessionData||null;_currentSample=null;_arrivalSamples=[];_arrivalBaseline=null;_arrivalComplete=false;_selectedRatio=null;_currentNS3=0;_coherenceDisplay=0.25;_coherencePeak=0;_coherenceHistory=[];_lastServerCoherence=0.25;_tickCount=0;_rrBuffer=[];_rrLogCount=0;
+    if(_baselineUpgradeTimer){clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;}
     stopTicks();if(_arrivalInterval){clearInterval(_arrivalInterval);_arrivalInterval=null;}
   }
 
@@ -1286,10 +1287,48 @@ var BioBridge = (function() {
       _bioEmit('bleConnected',{device:_bleDevice.name});
       _bioEmit('sourceChanged',{source:'h10',previous:'synthetic'});
       console.log('[BLE] H10 connected, HR notifications active');
+      _attemptBaselineUpgrade();
       return true;
     }catch(e){console.warn('[BLE] Connection failed:',e.message);_bleConnected=false;_activeSource='synthetic';return false;}
   }
-  function disconnectH10(){if(_bleCharacteristic){try{_bleCharacteristic=null;}catch(e){}_bleCharacteristic=null;}if(_bleDevice&&_bleDevice.gatt&&_bleDevice.gatt.connected)_bleDevice.gatt.disconnect();_bleDevice=null;_bleConnected=false;_rrBuffer=[];_rrLogCount=0;if(_activeSource==='h10'){_activeSource='synthetic';_bioEmit('sourceChanged',{source:'synthetic',previous:'h10'});}}
+  function disconnectH10(){if(_baselineUpgradeTimer){clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;}if(_bleCharacteristic){try{_bleCharacteristic=null;}catch(e){}_bleCharacteristic=null;}if(_bleDevice&&_bleDevice.gatt&&_bleDevice.gatt.connected)_bleDevice.gatt.disconnect();_bleDevice=null;_bleConnected=false;_rrBuffer=[];_rrLogCount=0;if(_activeSource==='h10'){_activeSource='synthetic';_bioEmit('sourceChanged',{source:'synthetic',previous:'h10'});}}
+
+  var _baselineUpgradeTimer=null;
+  function _attemptBaselineUpgrade(){
+    if(_baselineUpgradeTimer){clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;}
+    if(!_arrivalBaseline||_arrivalBaseline.source!=='synthetic'){return;}
+    // Check SSM phase — only upgrade during surface or arrival
+    var phase=null;
+    try{if(typeof SSM!=='undefined')phase=SSM.getCurrentPhase();}catch(e){}
+    if(phase&&phase!=='surface'&&phase!=='arrival'){
+      console.log('[BIO] BLE connected mid-session, baseline not upgraded (phase:',phase,')');
+      return;
+    }
+    console.log('[BIO] Synthetic baseline detected, waiting for rolling RMSSD to upgrade...');
+    var oldHrv=_arrivalBaseline.mean_hrv;
+    var upgradeStartTime=Date.now();
+    var UPGRADE_TIMEOUT_MS=90000;
+    _baselineUpgradeTimer=setInterval(function(){
+      if(!_bleConnected||_activeSource!=='h10'){clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;return;}
+      if(Date.now()-upgradeStartTime>UPGRADE_TIMEOUT_MS){console.log('[BIO] Baseline upgrade timed out after 90s — keeping synthetic baseline');clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;return;}
+      var rmssd=_computeRollingRMSSD();
+      if(rmssd===null)return;
+      // Check phase again — may have advanced while waiting
+      var phaseNow=null;
+      try{if(typeof SSM!=='undefined')phaseNow=SSM.getCurrentPhase();}catch(e){}
+      if(phaseNow&&phaseNow!=='surface'&&phaseNow!=='arrival'){
+        console.log('[BIO] BLE connected mid-session, baseline not upgraded (phase:',phaseNow,')');
+        clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;return;
+      }
+      var sample=_currentSample;
+      if(!sample||sample.source!=='h10'){return;}
+      _arrivalBaseline={mean_hr:sample.heart_rate,mean_hrv:rmssd,initial_coherence:sample.coherence,arrival_rmssd:rmssd,sample_count:_arrivalBaseline.sample_count,source:'h10_upgraded',upgraded:true};
+      _arrivalComplete=true;
+      console.log('[BIO] Baseline upgraded from synthetic to h10:',oldHrv.toFixed(1),'→',rmssd.toFixed(1));
+      _bioEmit('arrivalComplete',_arrivalBaseline);
+      clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;
+    },500);
+  }
 
   function getActiveSource(){return _activeSource}
   function getCurrentBiometrics(){if(!_currentSample)return _getCurrentRawSample();return _currentSample;}
