@@ -1817,7 +1817,9 @@ var Integration = (function() {
       var urlP=new URLSearchParams(window.location.search);
       var reqSess=parseInt(urlP.get('session'),10);var reqTrack=urlP.get('track');
       var pool=sessions;
-      if(reqTrack&&(reqTrack==='foundation'||reqTrack==='fr_apprentice')){pool=sessions.filter(function(s){return s.track===reqTrack});if(!pool.length)pool=sessions;}
+      var validTracks=['foundation','fr_apprentice','coupling','capacity'];
+      if(reqTrack&&validTracks.indexOf(reqTrack)>=0){pool=sessions.filter(function(s){return s.track===reqTrack});if(!pool.length)pool=sessions;}
+      else{pool=sessions.filter(function(s){return s.track==='foundation'});if(!pool.length)pool=sessions;}
       var firstSession;
       if(reqSess&&reqSess>0){firstSession=pool.find(function(s){return s.session_number===reqSess});if(!firstSession){console.warn('[ASCEN] Requested session '+reqSess+' not found, falling back');firstSession=pool.find(function(s){return s.session_number===1})||pool.find(function(s){return s.session_number>0})||pool[0];}else{console.log('[ASCEN] URL override: session='+reqSess+(reqTrack?' track='+reqTrack:''));}}
       else{firstSession=pool.find(function(s){return s.session_number===1})||pool.find(function(s){return s.session_number>0})||pool[0];}
