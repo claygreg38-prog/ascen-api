@@ -1021,6 +1021,7 @@ function createOrchestrator(callbacks = {}) {
           result.ns3 = {
             score: ns3Result.ns3Score,
             zone: ns3Result.zone,
+            coherence: ns3Result.components?.coherence?.raw ?? null,
           };
 
           // Alert on NS3 crisis zone

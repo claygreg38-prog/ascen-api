@@ -633,9 +633,8 @@ router.post('/session/tick', async (req, res) => {
       somatic_reset,
       graceful_end,
       graceful_end_message: graceful_end ? "You showed up. That's the work." : undefined,
-      // Populate NS3/coherence so frontend can drive plankton feedback
-      ns3: result?.ns3 || null,
-      coherence: biometrics?.coherence || biometrics?.coherence_score || null,
+      ns3: result?.ns3?.score !== undefined ? result.ns3.score : null,
+      coherence: result?.ns3?.coherence !== undefined ? result.ns3.coherence : null,
       breath_count: result?.breath_count || breathCount || 0,
       elapsed: result?.elapsed || 0
     });
