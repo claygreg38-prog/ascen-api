@@ -214,7 +214,7 @@ class LunoIntelligence {
   }
 }
 
-function generateContextPacket(userId, axisData) {
+function generateContextPacket(userId, axisData, tenantId) {
   return {
     user_id: userId,
     generated_at: new Date().toISOString(),
@@ -222,7 +222,8 @@ function generateContextPacket(userId, axisData) {
     track_trajectory: axisData?.track_trajectory || 'stable',
     coaching_bias: axisData?.coaching_bias || 'neutral',
     session_notes: [],
-    trend_flags: axisData?.trend_flags || []
+    trend_flags: axisData?.trend_flags || [],
+    tenant_id: tenantId || null
   };
 }
 

@@ -385,25 +385,13 @@ function createOrchestrator(callbacks = {}) {
     // ── [NEW] INITIALIZE LUNO INTELLIGENCE ──────────────
     let userContext = {};
     try {
-      userContext = await generateContextPacket(userId, pool);
+      userContext = await generateContextPacket(userId, null, user.tenant_id);
     } catch (err) {
       console.error('Luno context packet failed (non-blocking):', err.message);
       Sentry.captureException(err);
     }
 
-    lunoIntelligence = new LunoIntelligence(userContext, stateEngine, {
-      sessionNumber: rawSession.session_number || 1,
-      isFR,
-      track: user.breath_track || 'standard',
-      arc: adaptedSession._arc || null
-    });
-
-    // Load offline context packet for this session
-    try {
-      lunoIntelligence.loadSessionFromPacket(rawSession.session_number || 1);
-    } catch (err) {
-      // Non-blocking — Luno falls back to generic dialogue
-    }
+    lunoIntelligence = new LunoIntelligence(internalId, null, userContext);
 
     // ── [NEW] INITIALIZE COACHING ENGINE ────────────────
     coachingEngine = new CoachingEngine(stateEngine, lunoIntelligence, {
