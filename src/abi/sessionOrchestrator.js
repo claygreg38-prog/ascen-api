@@ -1262,7 +1262,7 @@ function createOrchestrator(callbacks = {}) {
              SET ns3_mean = $1, ns3_peak = $2, ns3_floor = $3,
                  optimal_zone_pct = $4, regulatory_trajectory = $5,
                  sustained_optimal = $6
-             WHERE user_id = $7 AND session_id = $8`,
+             WHERE user_id = $7 AND session_number = $8`,
             [
               ns3Summary.ns3.mean,
               ns3Summary.ns3.peak,
@@ -1271,7 +1271,7 @@ function createOrchestrator(callbacks = {}) {
               ns3Summary.clinical.regulatoryTrajectory,
               ns3Summary.clinical.sustainedOptimal,
               userId,
-              sessionId
+              rawSession.session_number || 0
             ]
           );
         }
@@ -1336,7 +1336,42 @@ function createOrchestrator(callbacks = {}) {
          ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
                    $17, $18, $19, $20, $21, $22, $23, $24,
                    $25, $26, $27, $28, $29, $30,
-                   $31, $32, $33, $34, $35)`,
+                   $31, $32, $33, $34, $35)
+         ON CONFLICT (user_id, session_number) DO UPDATE SET
+           session_id = EXCLUDED.session_id,
+           completed_at = EXCLUDED.completed_at,
+           coherence_score = EXCLUDED.coherence_score,
+           coherence_peak = EXCLUDED.coherence_peak,
+           coherence_end = EXCLUDED.coherence_end,
+           cycle_completion_rate = EXCLUDED.cycle_completion_rate,
+           duration_seconds = EXCLUDED.duration_seconds,
+           active_duration_seconds = EXCLUDED.active_duration_seconds,
+           pause_count = EXCLUDED.pause_count,
+           pause_seconds = EXCLUDED.pause_seconds,
+           panic_event = EXCLUDED.panic_event,
+           exit_type = EXCLUDED.exit_type,
+           breathwork_mode = EXCLUDED.breathwork_mode,
+           breath_track_at_completion = EXCLUDED.breath_track_at_completion,
+           arc_id = EXCLUDED.arc_id,
+           breath_ratio = EXCLUDED.breath_ratio,
+           breath_duration_seconds = EXCLUDED.breath_duration_seconds,
+           session_type = EXCLUDED.session_type,
+           time_to_regulation_sec = EXCLUDED.time_to_regulation_sec,
+           arrival_hr = EXCLUDED.arrival_hr,
+           arrival_hrv = EXCLUDED.arrival_hrv,
+           coherence_trajectory = EXCLUDED.coherence_trajectory,
+           zone_time_profile = EXCLUDED.zone_time_profile,
+           optimal_zone_pct = EXCLUDED.optimal_zone_pct,
+           zone_optimal_pct = EXCLUDED.zone_optimal_pct,
+           approaching_zone_pct = EXCLUDED.approaching_zone_pct,
+           zone_approaching_pct = EXCLUDED.zone_approaching_pct,
+           below_window_zone_pct = EXCLUDED.below_window_zone_pct,
+           zone_below_pct = EXCLUDED.zone_below_pct,
+           packet_hash = EXCLUDED.packet_hash,
+           state_summary = EXCLUDED.state_summary,
+           coaching_summary = EXCLUDED.coaching_summary,
+           immune_flags_snapshot = EXCLUDED.immune_flags_snapshot,
+           biometric_source = EXCLUDED.biometric_source`,
         [
           userId,
           sessionId,
