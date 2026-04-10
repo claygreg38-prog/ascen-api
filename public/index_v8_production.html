@@ -857,6 +857,15 @@ var SSM = (function() {
     var mode = MODE_MAP[rawMode] || 'simple_pacer';
     var baseline = null; // arrival baseline if available
     try { if (typeof BioBridge !== 'undefined') baseline = BioBridge.getArrivalBaseline(); } catch(e) {}
+    // Bug 2 fix: synthetic-sourced baselines refuse qualification for breath modes
+    // beyond simple_pacer. Synthetic HRV is random noise and should not drive
+    // physiologically-gated breath mode selection.
+    var baselineSource = baseline ? baseline.source : null;
+    var isSyntheticSource = (baselineSource==='synthetic'||baselineSource==='h10_timeout_synthetic');
+    if (isSyntheticSource && mode !== 'simple_pacer') {
+      console.log('[BREATH] Mode:',mode,'→ simple_pacer | baseline source:',baselineSource,'| Reason: synthetic baseline — no real HRV data');
+      return { name: 'simple_pacer', ratio: [4, 0, 6], holdBottom: 0, reason: 'synthetic baseline — no real HRV data' };
+    }
     var hrv = baseline ? (baseline.mean_hrv || baseline.arrival_rmssd || null) : null;
     var sessCount = (sessionData && sessionData.session_number) || 0;
 
@@ -1190,6 +1199,10 @@ var BioBridge = (function() {
   function _bioEmit(eventName, data) { var arr=_bioListeners[eventName]; if(arr){for(var i=0;i<arr.length;i++){try{arr[i](data);}catch(e){console.error('[BIO] Event handler error:',eventName,e);}}} }
 
   var ARRIVAL_SAMPLE_COUNT=30, ARRIVAL_INTERVAL_MS=1000, TICK_INTERVAL_MS=1000;
+  var BLE_GRACE_PERIOD_MS=3000;       // reserved for future use — not consumed in this fix
+  var BOOTSTRAP_WAIT_MAX_MS=30000;    // after arrival sample count reached, wait up to 30s more for rolling bootstrap
+  var _arrivalBootstrapDeadline=null; // timestamp marker for bootstrap wait
+  var _arrivalLastSampleSource=null;  // tracks source of most recent arrival sample
   var COHERENCE_RISE_RATE=0.15, COHERENCE_FADE_RATE=0.03, COHERENCE_FLOOR=0.05, NS3_REGULATION_THRESHOLD=30;
   var RATIO_LIBRARY=[{ratio:'2:3',inhale:2,exhale:3,hold:0,total:5,difficulty:1},{ratio:'2:4',inhale:2,exhale:4,hold:0,total:6,difficulty:2},{ratio:'3:4',inhale:3,exhale:4,hold:0,total:7,difficulty:3},{ratio:'3:5',inhale:3,exhale:5,hold:0,total:8,difficulty:4},{ratio:'4:6',inhale:4,exhale:6,hold:0,total:10,difficulty:6},{ratio:'4:7',inhale:4,exhale:7,hold:0,total:11,difficulty:7},{ratio:'4:8',inhale:4,exhale:8,hold:0,total:12,difficulty:8}];
 
@@ -1225,19 +1238,80 @@ var BioBridge = (function() {
   }
 
   function startArrivalCollection(){
-    _arrivalSamples=[];_arrivalComplete=false;_arrivalBaseline=null;console.log('[BIO] Collecting arrival biometrics (~30s)');
+    // Idempotent guard: if already running, don't restart
+    // (use _forceRestartArrivalCollection to bypass this guard)
+    if(_arrivalInterval){
+      console.log('[BIO] Arrival collection already in progress, not restarting');
+      return;
+    }
+    _arrivalSamples=[];_arrivalComplete=false;_arrivalBaseline=null;
+    _arrivalBootstrapDeadline=null;
+    _arrivalLastSampleSource=null;
+    console.log('[BIO] Collecting arrival biometrics (~30s) | source:',_activeSource,'| bleConnected:',_bleConnected);
     _arrivalInterval=setInterval(function(){
-      var sample=_getCurrentRawSample();_arrivalSamples.push({hr:sample.heart_rate,rmssd:sample.hrv_rmssd,respiratory_rate:sample.respiratory_rate,coherence:sample.coherence,timestamp:sample.timestamp});
-      _bioEmit('arrivalSample',{sampleNumber:_arrivalSamples.length,total:ARRIVAL_SAMPLE_COUNT,sample:sample});
-      if(_arrivalSamples.length>=ARRIVAL_SAMPLE_COUNT)_completeArrival();
+      var sample=_getCurrentRawSample();
+      _arrivalLastSampleSource=sample.source;
+      _arrivalSamples.push({hr:sample.heart_rate,rmssd:sample.hrv_rmssd,
+        respiratory_rate:sample.respiratory_rate,coherence:sample.coherence,
+        timestamp:sample.timestamp,sample_source:sample.source});
+      _bioEmit('arrivalSample',{sampleNumber:_arrivalSamples.length,
+        total:ARRIVAL_SAMPLE_COUNT,sample:sample});
+      if(_arrivalSamples.length>=ARRIVAL_SAMPLE_COUNT){
+        // Bug 1 fix: if H10 is connected but rolling bootstrap hasn't
+        // completed, wait for it before computing the baseline
+        if(_activeSource==='h10'&&_bleConnected){
+          var rmssdNow=_computeRollingRMSSD();
+          if(rmssdNow===null){
+            // Bootstrap not yet complete — start waiting
+            if(_arrivalBootstrapDeadline===null){
+              _arrivalBootstrapDeadline=Date.now()+BOOTSTRAP_WAIT_MAX_MS;
+              console.log('[BIO] Arrival sample count reached, holding for rolling RMSSD bootstrap (max',BOOTSTRAP_WAIT_MAX_MS/1000,'s)');
+            } else if(Date.now()>=_arrivalBootstrapDeadline){
+              // Timeout — fall back to synthetic with explicit warning
+              console.log('[BIO] H10 bootstrap wait timed out after',BOOTSTRAP_WAIT_MAX_MS/1000,'s — falling back to synthetic baseline');
+              _completeArrivalWithTimeout();
+              return;
+            }
+            // Still within wait window — keep collecting samples, do not complete yet
+            return;
+          }
+          // Bootstrap complete — proceed to normal completion
+          console.log('[BIO] Rolling RMSSD bootstrap complete during arrival wait:',rmssdNow.toFixed(1),'ms');
+        }
+        _completeArrival();
+      }
     },ARRIVAL_INTERVAL_MS);
   }
   function _completeArrival(){
     if(_arrivalInterval){clearInterval(_arrivalInterval);_arrivalInterval=null;}
+    _arrivalBootstrapDeadline=null;
     var hrs=_arrivalSamples.map(function(s){return s.hr}),hrvs=_arrivalSamples.map(function(s){return s.rmssd});
     _arrivalBaseline={mean_hr:_mean(hrs),mean_hrv:_meanExcludeOutliers(hrvs),initial_coherence:_arrivalSamples[_arrivalSamples.length-1].coherence,arrival_rmssd:_meanExcludeOutliers(hrvs),sample_count:_arrivalSamples.length,source:_activeSource};
     _arrivalComplete=true;console.log('[BIO] Arrival baseline computed:',_arrivalBaseline);_bioEmit('arrivalComplete',_arrivalBaseline);
     _attemptBaselineUpgrade();
+  }
+
+  // Bug 1 fix: timeout completion path when H10 bootstrap wait exceeds BOOTSTRAP_WAIT_MAX_MS
+  function _completeArrivalWithTimeout(){
+    if(_arrivalInterval){clearInterval(_arrivalInterval);_arrivalInterval=null;}
+    _arrivalBootstrapDeadline=null;
+    var hrs=_arrivalSamples.map(function(s){return s.hr});
+    // Do NOT use the null rmssd values from the pre-bootstrap samples.
+    // Synthesize a baseline from the current heart rate and mark source.
+    var currentHr=_currentSample?_currentSample.heart_rate:_mean(hrs);
+    _arrivalBaseline={
+      mean_hr:currentHr,
+      mean_hrv:null,   // explicitly null — breath mode will treat this as synthetic
+      initial_coherence:0.25,
+      arrival_rmssd:null,
+      sample_count:_arrivalSamples.length,
+      source:'h10_timeout_synthetic'
+    };
+    _arrivalComplete=true;
+    console.log('[BIO] Arrival baseline computed (H10 timeout fallback):',_arrivalBaseline);
+    _bioEmit('arrivalComplete',_arrivalBaseline);
+    // Do NOT call _attemptBaselineUpgrade — the upgrade path is for mid-session
+    // reconnections, not timeout recovery
   }
 
   function startTicks(){if(_tickInterval)return;_tickCount=0;console.log('[BIO] Starting ticks');_tickInterval=setInterval(function(){_tickCount++;var sample=_getCurrentRawSample();sample.coherence=_lastServerCoherence;if(sample.coherence>_coherencePeak)_coherencePeak=sample.coherence;_updateCoherence(sample.coherence);_bioEmit('biometricTick',{sample:sample,ns3:_currentNS3,coherence:_coherenceDisplay,coherencePeak:_coherencePeak,tickCount:_tickCount});},TICK_INTERVAL_MS);}
@@ -1247,6 +1321,10 @@ var BioBridge = (function() {
   function determineBreathParams(baseline,sessionConfig,history){
     sessionConfig=sessionConfig||{};history=history||{};
     if(sessionConfig.ratio&&sessionConfig.adaptive_ratio!==true){var parsed=_getRatio(sessionConfig.ratio);return _buildRatioResult(parsed,'hardcoded','Fixed ratio from session config',sessionConfig.hold_seconds||0);}
+    // Bug 2 fix: synthetic-sourced baselines refuse qualification
+    var baselineSource=baseline?baseline.source:null;
+    var isSyntheticSource=(baselineSource==='synthetic'||baselineSource==='h10_timeout_synthetic');
+    if(isSyntheticSource){var _synthTrack='gentle',_synthSelected=_getRatio('3:5'),_synthReason='synthetic baseline — no real HRV data';console.log('[BREATH-PARAMS] Synthetic baseline detected, defaulting to gentle | source:',baselineSource);var _synthHold=sessionConfig.hold_seconds||0;var _synthResult=_buildRatioResult(_synthSelected,_synthTrack,_synthReason,_synthHold);_selectedRatio=_synthResult;return _synthResult;}
     var hrv=baseline?(baseline.mean_hrv||baseline.hrv_rmssd||null):null,capacityState=sessionConfig.capacity_state||null,sessionCount=history.session_count||0;
     var track='standard',selected=_getRatio('4:6'),reason='';
     var isCapacityTrack=sessionConfig.track==='minimal'||sessionConfig.track==='capacity'||capacityState==='capacity_track';
@@ -1301,36 +1379,42 @@ var BioBridge = (function() {
     if(_baselineUpgradeTimer){clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;}
     if(!_arrivalBaseline){return;}
     var hrv=_arrivalBaseline.mean_hrv;
-    var isUntrustworthy=(_arrivalBaseline.source==='synthetic'||hrv===null||hrv===undefined||hrv===0||hrv<5);
+    var isUntrustworthy=(_arrivalBaseline.source==='synthetic'||_arrivalBaseline.source==='h10_timeout_synthetic'||hrv===null||hrv===undefined||hrv===0||hrv<5);
     if(!isUntrustworthy){return;}
-    // Check SSM phase — only upgrade during surface or arrival
+    // Entry phase check — only BEGIN polling during surface or arrival.
+    // Once polling has started, it runs to completion or timeout regardless
+    // of subsequent phase changes (Bug 1 part 2 fix — prevents user taps
+    // from killing in-progress upgrades).
     var phase=null;
     try{if(typeof SSM!=='undefined')phase=SSM.getCurrentPhase();}catch(e){}
     if(phase&&phase!=='surface'&&phase!=='arrival'){
-      console.log('[BIO] BLE connected mid-session, baseline not upgraded (phase:',phase,')');
+      console.log('[BIO] Upgrade attempt skipped — phase is',phase,'(entry check)');
       return;
     }
-    console.log('[BIO] Synthetic baseline detected, waiting for rolling RMSSD to upgrade...');
+    console.log('[BIO] Untrustworthy baseline detected, polling for rolling RMSSD to upgrade... (source:',_arrivalBaseline.source,')');
     var oldHrv=_arrivalBaseline.mean_hrv;
     var upgradeStartTime=Date.now();
     var UPGRADE_TIMEOUT_MS=90000;
     _baselineUpgradeTimer=setInterval(function(){
-      if(!_bleConnected||_activeSource!=='h10'){clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;return;}
-      if(Date.now()-upgradeStartTime>UPGRADE_TIMEOUT_MS){console.log('[BIO] Baseline upgrade timed out after 90s — keeping synthetic baseline');clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;return;}
-      var rmssd=_computeRollingRMSSD();
-      if(rmssd===null)return;
-      // Check phase again — may have advanced while waiting
-      var phaseNow=null;
-      try{if(typeof SSM!=='undefined')phaseNow=SSM.getCurrentPhase();}catch(e){}
-      if(phaseNow&&phaseNow!=='surface'&&phaseNow!=='arrival'){
-        console.log('[BIO] BLE connected mid-session, baseline not upgraded (phase:',phaseNow,')');
+      if(!_bleConnected||_activeSource!=='h10'){
+        console.log('[BIO] Upgrade polling stopped — BLE no longer connected');
         clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;return;
       }
+      if(Date.now()-upgradeStartTime>UPGRADE_TIMEOUT_MS){
+        console.log('[BIO] Baseline upgrade timed out after 90s — keeping current baseline');
+        clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;return;
+      }
+      var rmssd=_computeRollingRMSSD();
+      if(rmssd===null)return;
+      // NOTE: phase check removed from inside polling loop (Bug 1 part 2 fix).
+      // Once polling started, it runs to completion regardless of phase advances.
+      // The entry check at the top of this function prevents NEW upgrade attempts
+      // mid-session, but does not kill in-progress polling.
       var sample=_currentSample;
       if(!sample||sample.source!=='h10'){return;}
       _arrivalBaseline={mean_hr:sample.heart_rate,mean_hrv:rmssd,initial_coherence:sample.coherence,arrival_rmssd:rmssd,sample_count:_arrivalBaseline.sample_count,source:'h10_upgraded',upgraded:true};
       _arrivalComplete=true;
-      console.log('[BIO] Baseline upgraded from synthetic to h10:',oldHrv.toFixed(1),'→',rmssd.toFixed(1));
+      console.log('[BIO] Baseline upgraded to h10:',(oldHrv!==null?oldHrv.toFixed(1):'null'),'→',rmssd.toFixed(1));
       _bioEmit('arrivalComplete',_arrivalBaseline);
       clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;
     },500);
@@ -1348,6 +1432,9 @@ var BioBridge = (function() {
   return {
     initBiometricBridge:initBiometricBridge,connectH10:connectH10,disconnectH10:disconnectH10,
     getActiveSource:getActiveSource,getCurrentBiometrics:getCurrentBiometrics,getCurrentNS3:getCurrentNS3,getCoherencePeak:getCoherencePeak,getArrivalBaseline:getArrivalBaseline,getSelectedRatio:getSelectedRatio,isInRegulationWindow:isInRegulationWindow,
+    _isArrivalRunning:function(){return _arrivalInterval!==null;},
+    _getArrivalSampleSource:function(){return _arrivalLastSampleSource;},
+    _forceRestartArrivalCollection:function(){if(_arrivalInterval){clearInterval(_arrivalInterval);_arrivalInterval=null;}console.log('[BIO] Force restart: clearing existing arrival collection');startArrivalCollection();},
     determineBreathParams:determineBreathParams,startArrivalCollection:startArrivalCollection,startTicks:startTicks,stopTicks:stopTicks,updateFromTickResponse:updateFromTickResponse,
     emitTick:emitTick,
     on:bioOn
@@ -1640,7 +1727,7 @@ var SessionUI = (function() {
     ssm.on('onPhaseChange',function(phase){if(phase==='descent'){showDescentOverlay();var lc=$('lunoCon');if(lc)lc.classList.add('lc-revealed');}if(phase==='opening')hideDescentOverlay();if(phase==='surface'){hideDescentOverlay();var lc2=$('lunoCon');if(lc2)lc2.classList.remove('lc-revealed');}});
     ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');var lc=$('lunoCon');if(lc)lc.classList.remove('lc-revealed');});
   }
-  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);_enableTapButton(baseline&&baseline.source||'unknown');});bio.on('arrivalSample',function(data){var remaining=30-data.sampleNumber;if(remaining>0)_updateTapSubtitle('Capturing baseline... ~'+remaining+'s remaining');});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);if(!bio.getArrivalBaseline()){bio.startArrivalCollection();console.log('[BIO] BLE connected — starting arrival collection with real H10 data');}});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});}
+  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);_enableTapButton(baseline&&baseline.source||'unknown');});bio.on('arrivalSample',function(data){var remaining=30-data.sampleNumber;if(remaining>0)_updateTapSubtitle('Capturing baseline... ~'+remaining+'s remaining');});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);var running=bio._isArrivalRunning();var baseline=bio.getArrivalBaseline();var currentSampleSource=bio._getArrivalSampleSource();if(!baseline&&!running){bio.startArrivalCollection();console.log('[BIO] BLE connected before session init — starting arrival collection');}else if(!baseline&&running&&currentSampleSource==='synthetic'){console.log('[BIO] BLE connected mid-arrival (synthetic mode) — force restarting arrival with H10 data (Bug 6 fix)');bio._forceRestartArrivalCollection();}else{console.log('[BIO] BLE connected — arrival state OK (baseline:',!!baseline,'running:',running,'source:',currentSampleSource,'), no action needed');}});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});if(!bio.getArrivalBaseline()&&!bio._isArrivalRunning()){bio.startArrivalCollection();console.log('[BIO] Session init — starting arrival collection (Bug 3 fix)');}}
   function _updateBleBtn(connected){var btn=$('bleBtn');if(!btn)return;if(connected){btn.className='ble-connected';btn.innerHTML='<span class="ble-dot"></span>H10 CONNECTED';}else{btn.className='';btn.innerHTML='<span class="ble-dot"></span>CONNECT';}}
   function connectToDialogueDelivery(dlg){_dialogueDelivery=dlg;}
   function showSessionStartError(){var overlay=document.createElement('div');overlay.id='sessionStartErrorOverlay';overlay.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(10,37,64,0.95);color:#e8f1ff;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:9999;font-family:inherit;padding:40px;text-align:center;';overlay.innerHTML='<div style="max-width:400px;line-height:1.6;"><p style="font-size:18px;margin-bottom:16px;">Take a breath.</p><p style="font-size:16px;margin-bottom:16px;">The system needs a moment to connect.</p><p style="font-size:14px;color:#7aa8d4;margin-bottom:32px;">Please try again in a minute. Your work is safe.</p><button id="sessionErrorDismiss" style="background:#2db8d4;color:#0a2540;border:none;padding:12px 32px;font-size:14px;border-radius:4px;cursor:pointer;font-family:inherit;">Return to surface</button></div>';document.body.appendChild(overlay);document.getElementById('sessionErrorDismiss').addEventListener('click',function(){var el=document.getElementById('sessionStartErrorOverlay');if(el)el.parentNode.removeChild(el);if(typeof SSM!=='undefined'&&SSM.resetSession)SSM.resetSession();});}
