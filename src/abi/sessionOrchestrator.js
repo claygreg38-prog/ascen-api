@@ -112,6 +112,7 @@ function createOrchestrator(callbacks = {}) {
   let rawSession = null;
   let adaptedSession = null;
   let user = null;
+  let internalId = null;
   let pauseHandler = null;
   let panicState = { panic_seconds: 0 };
   let liveDetectFired = false;
@@ -178,6 +179,8 @@ function createOrchestrator(callbacks = {}) {
       throw new Error(`User ${userId} not found`);
     }
     user = userResult.rows[0];
+    internalId = user.id;
+    console.log('[ABI] Identity boundary | string userId:', userId, '| internal id:', internalId);
 
     // ── LOAD SESSION ────────────────────────────────────
     const sessionNumber = parseInt(String(sessionId).replace(/\D/g, '')) || 1;
@@ -1476,7 +1479,7 @@ function createOrchestrator(callbacks = {}) {
 
         // Auto-apply user personalization preferences if enabled
         try {
-          const prefs = await userPersonalizationLayer.getPreferences(userId);
+          const prefs = await userPersonalizationLayer.getPreferences(internalId);
           if (prefs && prefs.auto_apply) {
             const personalizedPng = await userPersonalizationLayer.applyPersonalization(
               uploadBuffer,
@@ -1681,7 +1684,7 @@ function createOrchestrator(callbacks = {}) {
     // ── RIPPLE SIGNAL: "They showed up today." ────────────
     try {
       const rippleService = require('../services/rippleService');
-      await rippleService.fireRippleIfApplicable(userId);
+      await rippleService.fireRippleIfApplicable(internalId);
     } catch (err) {
       // Non-blocking — ripple failure never blocks session completion
       console.error('[RIPPLE] Fire failed (non-blocking):', err.message);
