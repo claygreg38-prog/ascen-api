@@ -1212,6 +1212,7 @@ var BioBridge = (function() {
   var _arrivalSamples=[],_arrivalInterval=null,_arrivalBaseline=null,_arrivalComplete=false,_selectedRatio=null;
   var _currentNS3=0,_coherenceDisplay=0.25,_coherencePeak=0,_coherenceHistory=[],_lastServerCoherence=0.25;
   var _tickInterval=null,_tickCount=0,_rrBuffer=[],_rrLogCount=0,_sessionData=null,_sessionNumber=0;
+  var _blePacketCount=0;
 
   function _computeRollingRMSSD(){
     if(_rrBuffer.length<30)return null;
@@ -1381,6 +1382,7 @@ var BioBridge = (function() {
       var server=await _bleDevice.gatt.connect();
       var service=await server.getPrimaryService(0x180D);
       _bleCharacteristic=await service.getCharacteristic(0x2A37);
+      _blePacketCount=0;
       _bleCharacteristic.addEventListener('characteristicvaluechanged',function(event){
         var value=event.target.value;
         var flags=value.getUint8(0);
@@ -1389,6 +1391,26 @@ var BioBridge = (function() {
         var rrs=[];
         while(offset+1<value.byteLength){rrs.push(value.getUint16(offset,true)/1024*1000);offset+=2;}
         var now=Date.now();
+        _blePacketCount++;
+        // First-packet discard: Polar H10 first RR interval reports
+        // time since last R-wave including pre-connection idle time.
+        // This produces physiologically impossible values (e.g. 5214ms)
+        // that poison the rolling RMSSD buffer. Discard all RR data
+        // from the very first packet after BLE connection.
+        if(_blePacketCount===1){
+          console.log('[BIO-RAW] First BLE packet discarded (H10 stale RR artifact) — raw values were:',rrs.map(function(r){return r.toFixed(1);}).join(','));
+          rrs=[];
+        }
+        // Physiological sanity filter: valid RR intervals are 300-2000ms
+        // (corresponds to 30-200 BPM). Values outside this range are
+        // either sensor artifacts, parser errors, or clinically
+        // impossible — always safe to drop.
+        var rrsFiltered=[];
+        for(var k=0;k<rrs.length;k++){
+          if(rrs[k]>=300&&rrs[k]<=2000){rrsFiltered.push(rrs[k]);}
+          else{console.warn('[BIO-RAW] Rejected RR value out of physiological range:',rrs[k].toFixed(1)+'ms','| packet:',_blePacketCount);}
+        }
+        rrs=rrsFiltered;
         if(_rrLogCount%30===0&&rrs.length>0){console.log('[BIO-RAW] parsed RRs this packet:',rrs.slice(0,5).map(function(r){return r.toFixed(1);}).join(','));}
         for(var i=0;i<rrs.length;i++){_rrBuffer.push({rr:rrs[i],t:now});}
         var cutoff=now-60000;
@@ -1410,7 +1432,7 @@ var BioBridge = (function() {
       return true;
     }catch(e){console.warn('[BLE] Connection failed:',e.message);_bleConnected=false;_activeSource='synthetic';return false;}
   }
-  function disconnectH10(){if(_baselineUpgradeTimer){clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;}if(_bleCharacteristic){try{_bleCharacteristic=null;}catch(e){}_bleCharacteristic=null;}if(_bleDevice&&_bleDevice.gatt&&_bleDevice.gatt.connected)_bleDevice.gatt.disconnect();_bleDevice=null;_bleConnected=false;_rrBuffer=[];_rrLogCount=0;if(_activeSource==='h10'){_activeSource='synthetic';_bioEmit('sourceChanged',{source:'synthetic',previous:'h10'});}}
+  function disconnectH10(){if(_baselineUpgradeTimer){clearInterval(_baselineUpgradeTimer);_baselineUpgradeTimer=null;}if(_bleCharacteristic){try{_bleCharacteristic=null;}catch(e){}_bleCharacteristic=null;}if(_bleDevice&&_bleDevice.gatt&&_bleDevice.gatt.connected)_bleDevice.gatt.disconnect();_bleDevice=null;_bleConnected=false;_rrBuffer=[];_rrLogCount=0;_blePacketCount=0;if(_activeSource==='h10'){_activeSource='synthetic';_bioEmit('sourceChanged',{source:'synthetic',previous:'h10'});}}
 
   var _baselineUpgradeTimer=null;
   function _attemptBaselineUpgrade(){
