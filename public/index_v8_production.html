@@ -1275,8 +1275,13 @@ var BioBridge = (function() {
             // Still within wait window — keep collecting samples, do not complete yet
             return;
           }
-          // Bootstrap complete — proceed to normal completion
-          console.log('[BIO] Rolling RMSSD bootstrap complete during arrival wait:',rmssdNow.toFixed(1),'ms');
+          // Bug 7 fix: use the live rolling buffer value directly instead
+          // of averaging the stale sample buffer. The samples in
+          // _arrivalSamples have rmssd: null because they were collected
+          // before the rolling buffer bootstrapped.
+          console.log('[BIO] Rolling RMSSD bootstrap complete during arrival wait:',rmssdNow.toFixed(1),'ms — using live buffer value as baseline');
+          _completeArrivalFromRollingBuffer();
+          return;
         }
         _completeArrival();
       }
@@ -1312,6 +1317,39 @@ var BioBridge = (function() {
     _bioEmit('arrivalComplete',_arrivalBaseline);
     // Do NOT call _attemptBaselineUpgrade — the upgrade path is for mid-session
     // reconnections, not timeout recovery
+  }
+
+  // Bug 7 fix: when rolling RMSSD bootstrap completes during the
+  // arrival wait, use the live rolling buffer value directly instead
+  // of averaging the stale _arrivalSamples (which contain null rmssd
+  // values from samples collected before bootstrap).
+  function _completeArrivalFromRollingBuffer(){
+    if(_arrivalInterval){clearInterval(_arrivalInterval);_arrivalInterval=null;}
+    _arrivalBootstrapDeadline=null;
+    var liveRmssd=_computeRollingRMSSD();
+    if(liveRmssd===null){
+      // Should not happen — caller verified bootstrap is complete.
+      // Defensive fallback: synthesize a null-baseline.
+      console.log('[BIO] _completeArrivalFromRollingBuffer called but rolling RMSSD is null — falling back to timeout completion');
+      _completeArrivalWithTimeout();
+      return;
+    }
+    var sample=_currentSample;
+    var meanHr=sample?sample.heart_rate:74;
+    var coh=sample?sample.coherence:0.25;
+    _arrivalBaseline={
+      mean_hr:meanHr,
+      mean_hrv:liveRmssd,
+      initial_coherence:coh,
+      arrival_rmssd:liveRmssd,
+      sample_count:_arrivalSamples.length,
+      source:'h10',
+      bootstrap_deferred:true
+    };
+    _arrivalComplete=true;
+    console.log('[BIO] Arrival baseline computed from rolling buffer (post-bootstrap):',_arrivalBaseline);
+    _bioEmit('arrivalComplete',_arrivalBaseline);
+    _attemptBaselineUpgrade();
   }
 
   function startTicks(){if(_tickInterval)return;_tickCount=0;console.log('[BIO] Starting ticks');_tickInterval=setInterval(function(){_tickCount++;var sample=_getCurrentRawSample();sample.coherence=_lastServerCoherence;if(sample.coherence>_coherencePeak)_coherencePeak=sample.coherence;_updateCoherence(sample.coherence);_bioEmit('biometricTick',{sample:sample,ns3:_currentNS3,coherence:_coherenceDisplay,coherencePeak:_coherencePeak,tickCount:_tickCount});},TICK_INTERVAL_MS);}
@@ -1727,7 +1765,7 @@ var SessionUI = (function() {
     ssm.on('onPhaseChange',function(phase){if(phase==='descent'){showDescentOverlay();var lc=$('lunoCon');if(lc)lc.classList.add('lc-revealed');}if(phase==='opening')hideDescentOverlay();if(phase==='surface'){hideDescentOverlay();var lc2=$('lunoCon');if(lc2)lc2.classList.remove('lc-revealed');}});
     ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');var lc=$('lunoCon');if(lc)lc.classList.remove('lc-revealed');});
   }
-  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);_enableTapButton(baseline&&baseline.source||'unknown');});bio.on('arrivalSample',function(data){var remaining=30-data.sampleNumber;if(remaining>0)_updateTapSubtitle('Capturing baseline... ~'+remaining+'s remaining');});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);var running=bio._isArrivalRunning();var baseline=bio.getArrivalBaseline();var currentSampleSource=bio._getArrivalSampleSource();if(!baseline&&!running){bio.startArrivalCollection();console.log('[BIO] BLE connected before session init — starting arrival collection');}else if(!baseline&&running&&currentSampleSource==='synthetic'){console.log('[BIO] BLE connected mid-arrival (synthetic mode) — force restarting arrival with H10 data (Bug 6 fix)');bio._forceRestartArrivalCollection();}else{console.log('[BIO] BLE connected — arrival state OK (baseline:',!!baseline,'running:',running,'source:',currentSampleSource,'), no action needed');}});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});if(!bio.getArrivalBaseline()&&!bio._isArrivalRunning()){bio.startArrivalCollection();console.log('[BIO] Session init — starting arrival collection (Bug 3 fix)');}}
+  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);_enableTapButton(baseline&&baseline.source||'unknown');});bio.on('arrivalSample',function(data){var remaining=30-data.sampleNumber;if(remaining>0)_updateTapSubtitle('Capturing baseline... ~'+remaining+'s remaining');});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);var running=bio._isArrivalRunning();var baseline=bio.getArrivalBaseline();var currentSampleSource=bio._getArrivalSampleSource();console.log('[BIO] bleConnected handler entry | baseline:',baseline,'| running:',running,'| sampleSource:',currentSampleSource);if(!baseline&&!running){bio.startArrivalCollection();console.log('[BIO] CASE 1: BLE connected before session init — starting arrival collection');}else if(!baseline&&running&&currentSampleSource!=='h10'){console.log('[BIO] CASE 2: BLE connected mid-arrival (non-H10 source) — force restarting arrival with H10 data (Bug 6 fix) | sourceWas:',currentSampleSource);bio._forceRestartArrivalCollection();}else{console.log('[BIO] CASE 3: BLE connected — arrival state OK (baseline:',!!baseline,'running:',running,'source:',currentSampleSource,'), no action needed');}});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});if(!bio.getArrivalBaseline()&&!bio._isArrivalRunning()){bio.startArrivalCollection();console.log('[BIO] Session init — starting arrival collection (Bug 3 fix)');}}
   function _updateBleBtn(connected){var btn=$('bleBtn');if(!btn)return;if(connected){btn.className='ble-connected';btn.innerHTML='<span class="ble-dot"></span>H10 CONNECTED';}else{btn.className='';btn.innerHTML='<span class="ble-dot"></span>CONNECT';}}
   function connectToDialogueDelivery(dlg){_dialogueDelivery=dlg;}
   function showSessionStartError(){var overlay=document.createElement('div');overlay.id='sessionStartErrorOverlay';overlay.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(10,37,64,0.95);color:#e8f1ff;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:9999;font-family:inherit;padding:40px;text-align:center;';overlay.innerHTML='<div style="max-width:400px;line-height:1.6;"><p style="font-size:18px;margin-bottom:16px;">Take a breath.</p><p style="font-size:16px;margin-bottom:16px;">The system needs a moment to connect.</p><p style="font-size:14px;color:#7aa8d4;margin-bottom:32px;">Please try again in a minute. Your work is safe.</p><button id="sessionErrorDismiss" style="background:#2db8d4;color:#0a2540;border:none;padding:12px 32px;font-size:14px;border-radius:4px;cursor:pointer;font-family:inherit;">Return to surface</button></div>';document.body.appendChild(overlay);document.getElementById('sessionErrorDismiss').addEventListener('click',function(){var el=document.getElementById('sessionStartErrorOverlay');if(el)el.parentNode.removeChild(el);if(typeof SSM!=='undefined'&&SSM.resetSession)SSM.resetSession();});}
