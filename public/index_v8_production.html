@@ -1144,7 +1144,7 @@ var DepthEngine = (function() {
     _ctx.clearRect(0,0,w,h);
     var skyCol=getDepthZoneValue(zones,prog,'sky'), waterCol=getDepthZoneValue(zones,prog,'water'), deepCol=getDepthZoneValue(zones,prog,'deep');
     var sunStr=getDepthZoneValue(zones,prog,'sunStr'), rayStr=getDepthZoneValue(zones,prog,'rayStr'), planktonMul=getDepthZoneValue(zones,prog,'planktonMul');
-    var skyH=h*Math.max(0,0.44*(1-prog*1.3));
+    var skyH=h*Math.max(0,0.44*(1-prog*2.5));
     if(skyH>2){
       var sg=_ctx.createLinearGradient(0,0,0,skyH);sg.addColorStop(0,'rgb('+(skyCol[0]|0)+','+(skyCol[1]|0)+','+(skyCol[2]|0)+')');
       var horizonCol=depthLerpC([255,218,160],[100,100,120],prog);sg.addColorStop(1,'rgb('+(horizonCol[0]|0)+','+(horizonCol[1]|0)+','+(horizonCol[2]|0)+')');
