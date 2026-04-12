@@ -1421,7 +1421,20 @@ var BioBridge = (function() {
         if(_rrLogCount%30===0){
           console.log('[BIO-RR] Rolling RMSSD:',(rmssd===null?'null (bootstrap)':rmssd.toFixed(1)+'ms'),'| buffer size:',_rrBuffer.length,'| window seconds:',(_rrBuffer.length>0?((now-_rrBuffer[0].t)/1000).toFixed(1):'0'));
         }
-        _currentSample={heart_rate:hr,hrv_rmssd:rmssd,rr_intervals:rrs,coherence:_coherenceDisplay,respiratory_rate:hr/4.5,timestamp:now,source:'h10'};
+        // Physiological HR sanity gate: never let _currentSample hold an
+        // impossible HR value. If first BLE packet reports HR=0 (sensor
+        // not stabilized), preserve previous value or skip sample.
+        var safeHr=hr;
+        if(hr<30||hr>220){
+          if(_currentSample&&_currentSample.heart_rate>=30&&_currentSample.heart_rate<=220){
+            safeHr=_currentSample.heart_rate;
+            console.warn('[BIO-RAW] HR out of range:',hr,'— preserving previous value:',safeHr);
+          }else{
+            console.warn('[BIO-RAW] HR out of range:',hr,'— no previous value, skipping sample');
+            return;
+          }
+        }
+        _currentSample={heart_rate:safeHr,hrv_rmssd:rmssd,rr_intervals:rrs,coherence:_coherenceDisplay,respiratory_rate:safeHr/4.5,timestamp:now,source:'h10'};
       });
       await _bleCharacteristic.startNotifications();
       _bleConnected=true;_activeSource='h10';
@@ -1889,7 +1902,25 @@ var Integration = (function() {
     console.error('[ABI] All',MAX_ATTEMPTS,'attempts failed. Last error:',lastError?(lastError.message||lastError):'unknown');
     throw lastError||new Error('ABI session start failed after '+MAX_ATTEMPTS+' attempts');
   }
-  async function _abiForwardArrivalSample(sample){if(!_abiSessionActive)return;try{await _abi.arrivalSample(sample);}catch(e){}}
+  async function _abiForwardArrivalSample(sample){
+    if(!_abiSessionActive)return;
+    // Defensive sanity gate: refuse to POST biometrics that the
+    // server validateBiometrics middleware will reject. Validator
+    // ranges from abiHardening.js: heart_rate 30-220, respiratory_rate
+    // 4-60, coherence 0-1.
+    if(!sample){
+      console.warn('[ABI] arrival-sample skipped: null sample');
+      return;
+    }
+    var hrOk=typeof sample.heart_rate==='number'&&sample.heart_rate>=30&&sample.heart_rate<=220;
+    var respOk=typeof sample.respiratory_rate==='number'&&sample.respiratory_rate>=4&&sample.respiratory_rate<=60;
+    var cohOk=typeof sample.coherence==='number'&&sample.coherence>=0&&sample.coherence<=1;
+    if(!hrOk||!respOk||!cohOk){
+      console.warn('[ABI] arrival-sample skipped (validation):',{hr:sample.heart_rate,resp:sample.respiratory_rate,coh:sample.coherence,hrOk:hrOk,respOk:respOk,cohOk:cohOk});
+      return;
+    }
+    try{await _abi.arrivalSample(sample);}catch(e){console.warn('[ABI] arrival-sample POST failed:',e.message||e);}
+  }
   async function _abiForwardArrivalComplete(baseline){if(!_abiSessionActive)return;try{var r=await _abi.arrivalComplete(baseline);var adapted=r.adapted_session||r;var mode=adapted._breathwork_mode||adapted.breathwork_mode||'simple_pacer';var ratio=adapted.ratio||(r.breath_params&&r.breath_params.ratio)||adapted.breath_ratio||(adapted.breath_in&&adapted.breath_out?adapted.breath_in+':'+adapted.breath_out:null)||'3:5';var track=adapted.track||'standard';_abiModeConfig=getModeConfig(mode,ratio,track);if(_abiModeConfig.requires_selection&&_abiModeConfig.available_ratios&&_sessionUI){_sessionUI.showRatioSelection(_abiModeConfig.available_ratios,function(selectedRatio){_abiModeConfig=getModeConfig(_abiModeConfig.mode,selectedRatio,track);});}return _abiModeConfig;}catch(e){_abiModeConfig=getModeConfig('simple_pacer','3:5','standard');return _abiModeConfig;}}
   function _abiStartTicks(){if(!_abiSessionActive||_tickInterval)return;var tickCount=0;_tickInterval=setInterval(async function(){tickCount++;var bio=_biometricBridge?_biometricBridge.getCurrentBiometrics():{};bio.coherence=_lastKnownCoherence;if(bio.coherence>_abiCoherencePeak)_abiCoherencePeak=bio.coherence;try{var r=await _abi.tick(bio);if(r&&r.coherence!==undefined&&r.coherence!==null)_lastKnownCoherence=r.coherence;if(_biometricBridge){_biometricBridge.updateFromTickResponse(r);var refreshed=_biometricBridge.getCurrentBiometrics();refreshed.coherence=_lastKnownCoherence;_biometricBridge.emitTick({sample:refreshed,ns3:(r&&r.ns3!==undefined&&r.ns3!==null)?r.ns3:0,coherence:_lastKnownCoherence,coherencePeak:_abiCoherencePeak,tickCount:tickCount});}if(r.adjustments&&r.adjustments.visual_warmth!==undefined)_intEmit('visualWarmthChanged',{warmth:r.adjustments.visual_warmth});if(r.coaching&&r.coaching.type==='pause_and_choose')_abiShowIntervention(r.coaching);if(_abiTickQueue.length>0){var queued=_abiTickQueue.shift();try{await _abi.tick(queued);console.log('[ABI] Drained queued tick, backlog:',_abiTickQueue.length);}catch(drainErr){_abiTickQueue.unshift(queued);}}}catch(e){console.warn('[ABI] Tick POST failed, queuing:',e.message||e);if(_abiTickQueue.length<_abiTickQueueMaxSize){_abiTickQueue.push(bio);}else{_abiTickQueue.shift();_abiTickQueue.push(bio);console.error('[ABI] Tick queue full, dropped oldest. Backlog:',_abiTickQueue.length);}}if(tickCount%10===0&&_abiTickQueue.length>0)console.log('[ABI] Tick queue depth:',_abiTickQueue.length);},1000);}
   function _abiStopTicks(){if(_tickInterval){clearInterval(_tickInterval);_tickInterval=null;}_abiTickQueue=[];}
