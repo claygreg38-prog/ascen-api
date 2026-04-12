@@ -619,7 +619,7 @@ router.post('/session/tick', async (req, res) => {
     }
 
     // [CP4] Structured log — tick response (weather/ratio sent to frontend)
-    console.log(`[CP4][${new Date().toISOString()}] TICK_RESP | RATIO:${current_ratio || result?.session_update?.breath_ratio || result?.breath_ratio || '-'} NS3:${result?.ns3?.score || '-'} ZONE:${result?.ns3?.zone || '-'} DRIFT:${drifting_word || 'none'} BREATH:${breathCount}`);
+    console.log(`[CP4][${new Date().toISOString()}] TICK_RESP | RATIO:${current_ratio || result?.session_update?.breath_ratio || result?.breath_ratio || '-'} NS3:${result?.ns3?.score || '-'} COH:${result?.ns3?.coherence ?? '-'} ZONE:${result?.ns3?.zone || '-'} DRIFT:${drifting_word || 'none'} BREATH:${breathCount}`);
 
     res.json({
       success: true,
