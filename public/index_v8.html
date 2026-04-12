@@ -1165,7 +1165,7 @@ var DepthEngine = (function() {
 
   function setOceanBgDepthBlend(prog) {
     _currentProgress = prog;
-    if (_oceanBgEl) { _oceanBgEl.style.opacity='1'; _oceanBgEl.style.setProperty('--ocean-opacity', String(prog>=0.9?1:0)); if(prog<0.9) _oceanBgEl.style.background='transparent'; }
+    if (_oceanBgEl) { _oceanBgEl.style.opacity='1'; var oceanOp=Math.max(0,Math.min(1,(prog-0.4)/0.5)); _oceanBgEl.style.setProperty('--ocean-opacity', String(oceanOp)); if(oceanOp<0.05) _oceanBgEl.style.background='transparent'; }
     if (_starsEl) _starsEl.style.opacity = String(Math.max(0, Math.min(1, (prog - 0.15) / 0.35)));
     if (_wavesEl) _wavesEl.style.opacity = String(Math.max(0, Math.min(1, (prog - 0.3) / 0.35)));
     if (_plkLayerEl) _plkLayerEl.style.opacity = String(Math.max(0, Math.min(1, (prog - 0.4) / 0.35)));
@@ -2011,6 +2011,10 @@ var Integration = (function() {
     if (phase === 'breathing') VisualDNA.setBreathingPhase(true);
     else VisualDNA.setBreathingPhase(false);
   });
+
+  // State Machine → DepthEngine (wires onPhaseChange surface reset
+  // and onSessionReset handlers — was dead code before)
+  DepthEngine.connectToStateMachine(SSM);
 
   // State Machine → Session UI
   SessionUI.connectToStateMachine(SSM);
