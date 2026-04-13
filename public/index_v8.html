@@ -816,15 +816,13 @@ var SSM = (function() {
   function sealVault() { if (currentPhase !== 'vault') return; advancePhase(); }
 
   function _runDescent(onComplete) {
-    console.log('[BUG3-DIAG] _runDescent CALLED at', Date.now(), '| DESCENT_DURATION:', DESCENT_DURATION);
     descentProgress = 0; var startTime = Date.now(); var wordsFired = {};
     function tick() {
       if (paused) { _trackRAF(tick); return; }
       var elapsed = Date.now() - startTime; var t = Math.min(1, elapsed / DESCENT_DURATION); var eased = easeInOut(t);
-      console.log('[BUG3-DIAG] tick | elapsed:', elapsed, '| t:', t.toFixed(3), '| eased:', eased.toFixed(3));
       descentProgress = eased; _ssmEmit('onDescentProgress', eased);
       for (var i = 0; i < DESCENT_WORDS.length; i++) { var word = DESCENT_WORDS[i]; if (t >= word.t && !wordsFired[word.text]) { wordsFired[word.text]=true; _ssmEmit('onDriftingWord', { text: word.text, duration: word.duration, direction: 'descent' }); } }
-      if (t < 1) { _trackRAF(tick); } else { console.log('[BUG3-DIAG] descent COMPLETE at', Date.now(), '| total elapsed:', (Date.now() - startTime)); descentProgress = 1; _ssmEmit('onDescentProgress', 1); if (onComplete) onComplete(); }
+      if (t < 1) { _trackRAF(tick); } else { descentProgress = 1; _ssmEmit('onDescentProgress', 1); if (onComplete) onComplete(); }
     }
     _trackRAF(tick);
   }
@@ -1087,12 +1085,13 @@ var SSM = (function() {
 var DepthEngine = (function() {
 
   var DEPTH_ZONES = [
-    { name: 'surface',   t: 0.0,  sky: [135, 206, 250], water: [45, 185, 185],  deep: [18, 85, 115], sunStr: 1.0,  rayStr: 1.0,  planktonMul: 0.3 },
-    { name: 'shallow',   t: 0.17, sky: [100, 180, 220], water: [30, 160, 170],  deep: [12, 70, 100], sunStr: 0.7,  rayStr: 0.75, planktonMul: 0.45 },
-    { name: 'upperBlue', t: 0.35, sky: [60, 130, 190],  water: [15, 120, 150],  deep: [8, 55, 85],   sunStr: 0.35, rayStr: 0.4,  planktonMul: 0.6 },
-    { name: 'midBlue',   t: 0.55, sky: [30, 70, 130],   water: [8, 60, 100],    deep: [4, 35, 65],   sunStr: 0.1,  rayStr: 0.1,  planktonMul: 0.8 },
-    { name: 'twilight',  t: 0.75, sky: [15, 25, 60],    water: [5, 20, 55],     deep: [3, 12, 35],   sunStr: 0.0,  rayStr: 0.0,  planktonMul: 0.95 },
-    { name: 'midnight',  t: 1.0,  sky: [2, 8, 18],      water: [2, 8, 18],      deep: [2, 8, 18],    sunStr: 0.0,  rayStr: 0.0,  planktonMul: 1.0 }
+    { name: 'swimming_pool',  t: 0.00, sky: [135, 206, 250], water: [64, 224, 208], deep: [38, 166, 154], sunStr: 1.0,  rayStr: 1.0,  planktonMul: 0.25 },
+    { name: 'deep_pool',      t: 0.12, sky: [110, 190, 235], water: [38, 178, 168], deep: [22, 130, 130], sunStr: 0.85, rayStr: 0.90, planktonMul: 0.35 },
+    { name: 'lagoon',         t: 0.25, sky: [85, 170, 215],  water: [26, 148, 162], deep: [16, 100, 120], sunStr: 0.65, rayStr: 0.75, planktonMul: 0.45 },
+    { name: 'oceanic_blue',   t: 0.40, sky: [55, 130, 185],  water: [18, 105, 145], deep: [10, 65, 100],  sunStr: 0.40, rayStr: 0.50, planktonMul: 0.58 },
+    { name: 'deeper_oceanic', t: 0.55, sky: [30, 85, 145],   water: [10, 75, 115],  deep: [5, 45, 80],    sunStr: 0.18, rayStr: 0.22, planktonMul: 0.72 },
+    { name: 'twilight',       t: 0.75, sky: [15, 35, 75],    water: [6, 28, 60],    deep: [3, 15, 38],    sunStr: 0.04, rayStr: 0.05, planktonMul: 0.90 },
+    { name: 'midnight',       t: 1.00, sky: [2, 8, 18],      water: [2, 8, 18],     deep: [2, 8, 18],     sunStr: 0.0,  rayStr: 0.0,  planktonMul: 1.0  }
   ];
   var DEPTH_ZONES_LUNA = [
     { name: 'surface',   t: 0.0,  sky: [220, 180, 190], water: [145, 105, 125], deep: [65, 38, 58],  sunStr: 1.0,  rayStr: 1.0,  planktonMul: 0.3 },
