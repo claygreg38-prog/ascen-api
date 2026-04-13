@@ -1085,13 +1085,13 @@ var SSM = (function() {
 var DepthEngine = (function() {
 
   var DEPTH_ZONES = [
-    { name: 'swimming_pool',  t: 0.00, sky: [135, 206, 250], water: [64, 224, 208], deep: [38, 166, 154], sunStr: 1.0,  rayStr: 1.0,  planktonMul: 0.25 },
-    { name: 'deep_pool',      t: 0.12, sky: [110, 190, 235], water: [38, 178, 168], deep: [22, 130, 130], sunStr: 0.85, rayStr: 0.90, planktonMul: 0.35 },
-    { name: 'lagoon',         t: 0.25, sky: [85, 170, 215],  water: [26, 148, 162], deep: [16, 100, 120], sunStr: 0.65, rayStr: 0.75, planktonMul: 0.45 },
-    { name: 'oceanic_blue',   t: 0.40, sky: [55, 130, 185],  water: [18, 105, 145], deep: [10, 65, 100],  sunStr: 0.40, rayStr: 0.50, planktonMul: 0.58 },
-    { name: 'deeper_oceanic', t: 0.55, sky: [30, 85, 145],   water: [10, 75, 115],  deep: [5, 45, 80],    sunStr: 0.18, rayStr: 0.22, planktonMul: 0.72 },
-    { name: 'twilight',       t: 0.75, sky: [15, 35, 75],    water: [6, 28, 60],    deep: [3, 15, 38],    sunStr: 0.04, rayStr: 0.05, planktonMul: 0.90 },
-    { name: 'midnight',       t: 1.00, sky: [2, 8, 18],      water: [2, 8, 18],     deep: [2, 8, 18],     sunStr: 0.0,  rayStr: 0.0,  planktonMul: 1.0  }
+    { name: 'swimming_pool',  t: 0.00, paletteT: 0.50, sky: [135, 206, 250], water: [64, 224, 208], deep: [38, 166, 154], sunStr: 1.0,  rayStr: 1.0,  planktonMul: 0.25 },
+    { name: 'deep_pool',      t: 0.12, paletteT: 0.42, sky: [110, 190, 235], water: [38, 178, 168], deep: [22, 130, 130], sunStr: 0.85, rayStr: 0.90, planktonMul: 0.35 },
+    { name: 'lagoon',         t: 0.25, paletteT: 0.34, sky: [85, 170, 215],  water: [26, 148, 162], deep: [16, 100, 120], sunStr: 0.65, rayStr: 0.75, planktonMul: 0.45 },
+    { name: 'oceanic_blue',   t: 0.40, paletteT: 0.26, sky: [55, 130, 185],  water: [18, 105, 145], deep: [10, 65, 100],  sunStr: 0.40, rayStr: 0.50, planktonMul: 0.58 },
+    { name: 'deeper_oceanic', t: 0.55, paletteT: 0.18, sky: [30, 85, 145],   water: [10, 75, 115],  deep: [5, 45, 80],    sunStr: 0.18, rayStr: 0.22, planktonMul: 0.72 },
+    { name: 'twilight',       t: 0.75, paletteT: 0.10, sky: [15, 35, 75],    water: [6, 28, 60],    deep: [3, 15, 38],    sunStr: 0.04, rayStr: 0.05, planktonMul: 0.90 },
+    { name: 'midnight',       t: 1.00, paletteT: 0.04, sky: [2, 8, 18],      water: [2, 8, 18],     deep: [2, 8, 18],     sunStr: 0.0,  rayStr: 0.0,  planktonMul: 1.0  }
   ];
   var DEPTH_ZONES_LUNA = [
     { name: 'surface',   t: 0.0,  sky: [220, 180, 190], water: [145, 105, 125], deep: [65, 38, 58],  sunStr: 1.0,  rayStr: 1.0,  planktonMul: 0.3 },
@@ -1181,6 +1181,67 @@ var DepthEngine = (function() {
   function getFloor() { return _currentFloor; }
   // ========== END V6 I-CHAIN MATH LAYER ==========
 
+  // ========== PALETTE-BASED ZONE COLOR LOOKUP ==========
+  // Replaces static RGB reads from DEPTH_ZONES with v6 palette calls.
+  // Each zone's paletteT defines its max palette position at I=1.0.
+  // Water stays in dark-to-mid palette range. Bright positions are
+  // reserved for plankton/aurora/gold in later patches.
+
+  // Warm cross-bleed constant for now — will become session-count-driven in B-5
+  // when N (log session count curve) is ported. For now, fixed mid-experience value.
+  var _warmBleed = 0.20;
+
+  // Returns [r, g, b] for water at a given descent progress, interpolated
+  // between zones and modulated by the current I value.
+  function _getPaletteWaterColor(progress) {
+    // Find which two zones we're between
+    var lo = DEPTH_ZONES[0];
+    var hi = DEPTH_ZONES[DEPTH_ZONES.length - 1];
+    for (var i = 0; i < DEPTH_ZONES.length - 1; i++) {
+      if (progress >= DEPTH_ZONES[i].t && progress <= DEPTH_ZONES[i + 1].t) {
+        lo = DEPTH_ZONES[i];
+        hi = DEPTH_ZONES[i + 1];
+        break;
+      }
+    }
+
+    // Eased local interpolation between the two zones
+    var localT = (progress - lo.t) / (hi.t - lo.t || 1);
+    var eased = localT < 0.5 ? 2 * localT * localT : 1 - Math.pow(-2 * localT + 2, 2) / 2;
+
+    // Get palette position for each zone at current I
+    // Multiply by 2 to give the upper half of I more palette reach
+    // (matches the v6 pattern of using lunoColor(I * 0.4) etc for BG)
+    var loPt = Math.max(0, Math.min(1, _currentI * lo.paletteT * 2));
+    var hiPt = Math.max(0, Math.min(1, _currentI * hi.paletteT * 2));
+
+    // Look up colors from Luno palette
+    var loCoolCol = lunoColor(loPt);
+    var hiCoolCol = lunoColor(hiPt);
+
+    // Interpolate between the two zone colors
+    var r = loCoolCol[0] + (hiCoolCol[0] - loCoolCol[0]) * eased;
+    var g = loCoolCol[1] + (hiCoolCol[1] - loCoolCol[1]) * eased;
+    var b = loCoolCol[2] + (hiCoolCol[2] - loCoolCol[2]) * eased;
+
+    // Warm cross-bleed — blend in a touch of Luna palette at same palette position
+    if (_warmBleed > 0) {
+      var loWarmCol = lunaColor(loPt);
+      var hiWarmCol = lunaColor(hiPt);
+      var warmR = loWarmCol[0] + (hiWarmCol[0] - loWarmCol[0]) * eased;
+      var warmG = loWarmCol[1] + (hiWarmCol[1] - loWarmCol[1]) * eased;
+      var warmB = loWarmCol[2] + (hiWarmCol[2] - loWarmCol[2]) * eased;
+      // Cross-bleed: blend warm into cool by warmBleed * I (stronger bleed at higher I)
+      var bleedAmount = _warmBleed * _currentI * 0.3;
+      r = r + (warmR - r) * bleedAmount;
+      g = g + (warmG - g) * bleedAmount;
+      b = b + (warmB - b) * bleedAmount;
+    }
+
+    return [r, g, b];
+  }
+  // ========== END PALETTE-BASED ZONE COLOR LOOKUP ==========
+
   var _oceanBgEl=null, _depthCanvasEl=null, _ctx=null, _canvasW=0, _canvasH=0, _canvasInitd=false, _depthRAF=null, _depthParticles=[];
   var _currentProgress=0, _currentChar='luno', _currentCoherence=0.25, _warmth=0.5;
   var _starsEl=null, _wavesEl=null, _plkLayerEl=null, _auroraConEl=null;
@@ -1208,7 +1269,7 @@ var DepthEngine = (function() {
     var prog=_currentProgress, isL=_currentChar==='luno', co=Math.max(0.05,_currentCoherence);
     var zones=isL?DEPTH_ZONES:DEPTH_ZONES_LUNA, t=Date.now()*0.001;
     _ctx.clearRect(0,0,w,h);
-    var skyCol=getDepthZoneValue(zones,prog,'sky'), waterCol=getDepthZoneValue(zones,prog,'water'), deepCol=getDepthZoneValue(zones,prog,'deep');
+    var skyCol=getDepthZoneValue(zones,prog,'sky'), waterCol=_getPaletteWaterColor(prog), deepCol=getDepthZoneValue(zones,prog,'deep');
     var sunStr=getDepthZoneValue(zones,prog,'sunStr'), rayStr=getDepthZoneValue(zones,prog,'rayStr'), planktonMul=getDepthZoneValue(zones,prog,'planktonMul');
     var skyH=h*Math.max(0,0.44*(1-prog*4.0));
     if(skyH>2){
