@@ -1164,6 +1164,7 @@ var DepthEngine = (function() {
 
   // Per-frame computation — call at start of _drawLoop before any rendering
   function _computeI() {
+    if (_debugIOverride !== null) { _currentI = _debugIOverride; return _currentI; }
     _currentFloor = sessFloor(_sessionCount);
     var cohPct = Math.round((typeof _currentCoherence !== 'undefined' ? _currentCoherence : 0) * 100);
     var rawI = effI(_currentFloor, cohPct) / 100;
@@ -1179,6 +1180,24 @@ var DepthEngine = (function() {
   function setOceanDimFactor(f) { _oceanDimFactor = Math.max(0, Math.min(1.15, f)); }
   function getI() { return _currentI; }
   function getFloor() { return _currentFloor; }
+
+  // ========== TEMPORARY DEBUG SETTER ==========
+  // REMOVE THIS IN B-CLEANUP COMMIT AFTER B-4 VERIFIED
+  // Overrides the computed _currentI for manual verification of aurora/gold
+  // gates while Bug 1 (coherence stuck at 0.25) remains unfixed.
+  var _debugIOverride = null;
+  function setI(value) {
+    if (value === null || value === undefined) {
+      _debugIOverride = null;
+      console.log('[DepthEngine] Debug I override cleared. Returning to computed I.');
+    } else {
+      _debugIOverride = Math.max(0, Math.min(1.15, value));
+      _currentI = _debugIOverride;
+      console.log('[DepthEngine] Debug I override set to ' + _debugIOverride);
+    }
+  }
+  // ========== END TEMPORARY DEBUG SETTER ==========
+
   // ========== END V6 I-CHAIN MATH LAYER ==========
 
   // ========== PALETTE-BASED ZONE COLOR LOOKUP ==========
@@ -1242,6 +1261,62 @@ var DepthEngine = (function() {
   }
   // ========== END PALETTE-BASED ZONE COLOR LOOKUP ==========
 
+  // ========== AURORA GATE (v6 lines 666-670) ==========
+  // Visible at I > 0.3, full intensity at I = 1.0
+  // Renders in mid-depth zones (progress 0.35 to 0.85)
+  // Returns additive [r, g, b] contribution for the current pixel, or null
+  // if the pixel is outside the aurora zone or gate is closed.
+
+  function _getAuroraContribution(progress) {
+    var aT = Math.max(0, Math.min(1, (_currentI - 0.3) / 0.7));
+    if (aT <= 0) return null;
+    if (progress < 0.35 || progress > 0.85) return null;
+
+    // Aurora peaks at progress 0.6 (middle of the mid-depth range)
+    // and falls off toward 0.35 and 0.85
+    var distFromPeak = Math.abs(progress - 0.6) / 0.25;
+    var peakFalloff = Math.max(0, 1 - distFromPeak);
+    var strength = aT * 0.35 * peakFalloff;
+
+    if (strength <= 0) return null;
+
+    // Aurora color = bright Luno palette position (t=0.7)
+    // This is the same value v6 used at lines 667-668
+    var auroraCol = lunoColor(0.7);
+    return [
+      auroraCol[0] * strength,
+      auroraCol[1] * strength,
+      auroraCol[2] * strength
+    ];
+  }
+
+  // ========== GOLD ACCENT GATE (v6 lines 671-672) ==========
+  // Visible at I > 0.7, full intensity at I = 1.0
+  // Renders only in oceanic_blue to deeper_oceanic range (progress 0.40 to 0.70)
+  // Represents "light through the cracks" — rare, capstone visual
+  // Returns additive [r, g, b] contribution or null
+
+  function _getGoldContribution(progress) {
+    var goldI = Math.max(0, Math.min(1, (_currentI - 0.7) / 0.3));
+    if (goldI <= 0) return null;
+    if (progress < 0.40 || progress > 0.70) return null;
+
+    // Gold peaks at progress 0.55 (middle of the oceanic range)
+    var distFromPeak = Math.abs(progress - 0.55) / 0.15;
+    var peakFalloff = Math.max(0, 1 - distFromPeak);
+    var strength = goldI * 0.25 * peakFalloff;
+
+    if (strength <= 0) return null;
+
+    // Gold color = warm gold tint (matches v6 line 672: rgba(255,217,142,...))
+    return [
+      255 * strength,
+      217 * strength,
+      142 * strength
+    ];
+  }
+  // ========== END AURORA + GOLD ==========
+
   var _oceanBgEl=null, _depthCanvasEl=null, _ctx=null, _canvasW=0, _canvasH=0, _canvasInitd=false, _depthRAF=null, _depthParticles=[];
   var _currentProgress=0, _currentChar='luno', _currentCoherence=0.25, _warmth=0.5;
   var _starsEl=null, _wavesEl=null, _plkLayerEl=null, _auroraConEl=null;
@@ -1270,6 +1345,11 @@ var DepthEngine = (function() {
     var zones=isL?DEPTH_ZONES:DEPTH_ZONES_LUNA, t=Date.now()*0.001;
     _ctx.clearRect(0,0,w,h);
     var skyCol=getDepthZoneValue(zones,prog,'sky'), waterCol=_getPaletteWaterColor(prog), deepCol=getDepthZoneValue(zones,prog,'deep');
+    // B-3: Aurora + gold additive overlays
+    var auroraContrib=_getAuroraContribution(prog);
+    if(auroraContrib!==null){waterCol[0]=Math.min(255,waterCol[0]+auroraContrib[0]);waterCol[1]=Math.min(255,waterCol[1]+auroraContrib[1]);waterCol[2]=Math.min(255,waterCol[2]+auroraContrib[2]);}
+    var goldContrib=_getGoldContribution(prog);
+    if(goldContrib!==null){waterCol[0]=Math.min(255,waterCol[0]+goldContrib[0]);waterCol[1]=Math.min(255,waterCol[1]+goldContrib[1]);waterCol[2]=Math.min(255,waterCol[2]+goldContrib[2]);}
     var sunStr=getDepthZoneValue(zones,prog,'sunStr'), rayStr=getDepthZoneValue(zones,prog,'rayStr'), planktonMul=getDepthZoneValue(zones,prog,'planktonMul');
     var skyH=h*Math.max(0,0.44*(1-prog*4.0));
     if(skyH>2){
@@ -1313,7 +1393,7 @@ var DepthEngine = (function() {
 
   return {
     initDepthEngine:initDepthEngine, setOceanBgDepthBlend:setOceanBgDepthBlend, setCharacter:setCharacter, setCoherence:setCoherence, getDepthZone:getDepthZone, connectToStateMachine:connectToStateMachine,
-    setSessionCount:setSessionCount, setOceanDimFactor:setOceanDimFactor, getI:getI, getFloor:getFloor
+    setSessionCount:setSessionCount, setOceanDimFactor:setOceanDimFactor, getI:getI, getFloor:getFloor, setI:setI
   };
 })();
 
