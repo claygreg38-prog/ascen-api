@@ -1117,6 +1117,70 @@ var DepthEngine = (function() {
     return depthLerp(lo[field], hi[field], eased);
   }
 
+  // ========== V6 I-CHAIN MATH LAYER ==========
+  // Ported from ascen-production-v6.html lines 443-458.
+  // Session floor + effective illumination architecture.
+  // This scalar (I) drives illumination across water, plankton, aurora, gold.
+
+  var LUNO_STOPS = [[14,32,48],[26,56,72],[58,104,136],[74,152,184],[106,208,232],[160,240,255]];
+  var LUNA_STOPS = [[58,16,32],[106,32,64],[176,48,112],[208,96,160],[224,128,192],[255,176,208]];
+
+  function _paletteLerp(stops, t) {
+    var clamped = Math.max(0, Math.min(4.999, t * 5));
+    var lo = Math.floor(clamped);
+    var hi = Math.ceil(clamped);
+    var f = clamped - lo;
+    return [
+      stops[lo][0] + (stops[hi][0] - stops[lo][0]) * f,
+      stops[lo][1] + (stops[hi][1] - stops[lo][1]) * f,
+      stops[lo][2] + (stops[hi][2] - stops[lo][2]) * f
+    ];
+  }
+
+  function lunoColor(t) { return _paletteLerp(LUNO_STOPS, t); }
+  function lunaColor(t) { return _paletteLerp(LUNA_STOPS, t); }
+
+  // Session floor: 0 at session 1, ~82 at session 10000.
+  // Permanent ratchet — users never go back to full darkness.
+  function sessFloor(s) {
+    if (s <= 1) return 0;
+    return Math.round(82 * Math.pow(Math.log(s) / Math.log(10000), 1.1));
+  }
+
+  // Effective illumination: floor + (coherence % of remaining headroom)
+  // floor=0, coh=0   → 0 (first session, no regulation)
+  // floor=0, coh=100 → 100 (first session, full regulation)
+  // floor=50, coh=0  → 50 (experienced user, low coherence = floor lighting)
+  // floor=50, coh=100 → 100 (experienced user, full regulation)
+  function effI(f, c) {
+    return f + (c / 100) * (100 - f);
+  }
+
+  // Module state
+  var _sessionCount = 1;
+  var _oceanDimFactor = 1;
+  var _currentI = 0;
+  var _currentFloor = 0;
+
+  // Per-frame computation — call at start of _drawLoop before any rendering
+  function _computeI() {
+    _currentFloor = sessFloor(_sessionCount);
+    var cohPct = Math.round((typeof _currentCoherence !== 'undefined' ? _currentCoherence : 0) * 100);
+    var rawI = effI(_currentFloor, cohPct) / 100;
+    if (_oceanDimFactor !== 1) {
+      rawI = Math.max(0, Math.min(1.15, rawI * _oceanDimFactor));
+    }
+    _currentI = rawI;
+    return _currentI;
+  }
+
+  // Public API
+  function setSessionCount(n) { _sessionCount = Math.max(1, n | 0); }
+  function setOceanDimFactor(f) { _oceanDimFactor = Math.max(0, Math.min(1.15, f)); }
+  function getI() { return _currentI; }
+  function getFloor() { return _currentFloor; }
+  // ========== END V6 I-CHAIN MATH LAYER ==========
+
   var _oceanBgEl=null, _depthCanvasEl=null, _ctx=null, _canvasW=0, _canvasH=0, _canvasInitd=false, _depthRAF=null, _depthParticles=[];
   var _currentProgress=0, _currentChar='luno', _currentCoherence=0.25, _warmth=0.5;
   var _starsEl=null, _wavesEl=null, _plkLayerEl=null, _auroraConEl=null;
@@ -1138,6 +1202,7 @@ var DepthEngine = (function() {
   }
 
   function _drawLoop() {
+    _computeI();
     var w=_canvasW, h=_canvasH;
     if (!w||!h) { _depthRAF=requestAnimationFrame(_drawLoop); return; }
     var prog=_currentProgress, isL=_currentChar==='luno', co=Math.max(0.05,_currentCoherence);
@@ -1186,7 +1251,8 @@ var DepthEngine = (function() {
   }
 
   return {
-    initDepthEngine:initDepthEngine, setOceanBgDepthBlend:setOceanBgDepthBlend, setCharacter:setCharacter, setCoherence:setCoherence, getDepthZone:getDepthZone, connectToStateMachine:connectToStateMachine
+    initDepthEngine:initDepthEngine, setOceanBgDepthBlend:setOceanBgDepthBlend, setCharacter:setCharacter, setCoherence:setCoherence, getDepthZone:getDepthZone, connectToStateMachine:connectToStateMachine,
+    setSessionCount:setSessionCount, setOceanDimFactor:setOceanDimFactor, getI:getI, getFloor:getFloor
   };
 })();
 
