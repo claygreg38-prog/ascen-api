@@ -159,6 +159,7 @@ function createOrchestrator(callbacks = {}) {
   // ═══════════════════════════════════════════════════════════
 
   async function onSessionStart(_userId, _sessionId, options = {}) {
+    try { const fs = require('fs'); fs.writeFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} SESSION START | userId=${_userId} | sessionId=${_sessionId}\n`); } catch(e) {}
     userId = _userId;
     sessionId = _sessionId;
     tenantId = options.tenant_id || null;
@@ -980,6 +981,7 @@ function createOrchestrator(callbacks = {}) {
       ns3TickCounter = 0;
       try {
         const rrBuffer = biometrics.rr_intervals || biometrics.rrIntervals || [];
+        try { const fs = require('fs'); fs.appendFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} RR buffer received | len=${rrBuffer.length} | firstFew=${JSON.stringify(rrBuffer.slice(0,3).map(v=>typeof v==='number'?Math.round(v):v))}\n`); } catch(e) {}
         if (rrBuffer.length >= 2) {
           ns3Session.sessionMinute = Math.floor(elapsed / 60);
 
@@ -1014,6 +1016,7 @@ function createOrchestrator(callbacks = {}) {
             zone: ns3Result.zone,
             coherence: ns3Result.components?.coherence?.raw ?? null,
           };
+          try { const fs = require('fs'); fs.appendFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} NS3 tick | ns3Score=${ns3Result.ns3Score} | zone=${ns3Result.zone} | coherence.raw=${ns3Result.components?.coherence?.raw} | coherence.normalized=${ns3Result.components?.coherence?.normalized} | rrBufferLen=${rrBuffer.length} | dataQuality=${ns3Result.dataQuality}\n`); } catch(e) {}
 
           // Alert on NS3 crisis zone
           if (ns3Result.zone === 'below_window' && ns3Result.ns3Score !== null && ns3Result.ns3Score <= 20) {
