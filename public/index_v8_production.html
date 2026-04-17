@@ -1091,7 +1091,7 @@ var DepthEngine = (function() {
     { name: 'oceanic_blue',   t: 0.40, paletteT: 0.26, sky: [55, 130, 185],  water: [18, 105, 145], deep: [10, 65, 100],  sunStr: 0.40, rayStr: 0.50, planktonMul: 0.58 },
     { name: 'deeper_oceanic', t: 0.55, paletteT: 0.18, sky: [30, 85, 145],   water: [10, 75, 115],  deep: [5, 45, 80],    sunStr: 0.18, rayStr: 0.22, planktonMul: 0.72 },
     { name: 'twilight',       t: 0.75, paletteT: 0.10, sky: [15, 35, 75],    water: [6, 28, 60],    deep: [3, 15, 38],    sunStr: 0.04, rayStr: 0.05, planktonMul: 0.90 },
-    { name: 'midnight',       t: 1.00, paletteT: 0.04, sky: [2, 8, 18],      water: [2, 8, 18],     deep: [2, 8, 18],     sunStr: 0.0,  rayStr: 0.0,  planktonMul: 1.0  }
+    { name: 'midnight',       t: 1.00, paletteT: 0.12, sky: [2, 8, 18],      water: [2, 8, 18],     deep: [2, 8, 18],     sunStr: 0.0,  rayStr: 0.0,  planktonMul: 1.0  }
   ];
   var DEPTH_ZONES_LUNA = [
     { name: 'surface',   t: 0.0,  sky: [220, 180, 190], water: [145, 105, 125], deep: [65, 38, 58],  sunStr: 1.0,  rayStr: 1.0,  planktonMul: 0.3 },
@@ -1099,7 +1099,7 @@ var DepthEngine = (function() {
     { name: 'upperBlue', t: 0.35, sky: [130, 90, 120],  water: [80, 50, 75],    deep: [35, 20, 38],  sunStr: 0.35, rayStr: 0.4,  planktonMul: 0.6 },
     { name: 'midBlue',   t: 0.55, sky: [70, 40, 65],    water: [40, 20, 40],    deep: [22, 10, 25],  sunStr: 0.1,  rayStr: 0.1,  planktonMul: 0.8 },
     { name: 'twilight',  t: 0.75, sky: [30, 12, 28],    water: [18, 8, 20],     deep: [10, 4, 12],   sunStr: 0.0,  rayStr: 0.0,  planktonMul: 0.95 },
-    { name: 'midnight',  t: 1.0,  sky: [8, 3, 8],       water: [8, 3, 8],       deep: [8, 3, 8],     sunStr: 0.0,  rayStr: 0.0,  planktonMul: 1.0 }
+    { name: 'midnight',  t: 1.0,  paletteT: 0.12, sky: [8, 3, 8],       water: [8, 3, 8],       deep: [8, 3, 8],     sunStr: 0.0,  rayStr: 0.0,  planktonMul: 1.0 }
   ];
 
   function depthLerp(a, b, t) { return a + (b - a) * t; }
@@ -1270,7 +1270,7 @@ var DepthEngine = (function() {
   function _getAuroraContribution(progress) {
     var aT = Math.max(0, Math.min(1, (_currentI - 0.3) / 0.7));
     if (aT <= 0) return null;
-    if (progress < 0.35 || progress > 0.85) return null;
+    if (progress < 0.35) return null;
 
     // Aurora peaks at progress 0.6 (middle of the mid-depth range)
     // and falls off toward 0.35 and 0.85
@@ -1341,7 +1341,7 @@ var DepthEngine = (function() {
     _computeI();
     var w=_canvasW, h=_canvasH;
     if (!w||!h) { _depthRAF=requestAnimationFrame(_drawLoop); return; }
-    var prog=_currentProgress, isL=_currentChar==='luno', co=Math.max(0.05,_currentCoherence);
+    var prog=_currentProgress, isL=_currentChar==='luno', coRaw=Math.max(0.05,_currentCoherence), co=Math.pow(coRaw, 0.7);
     var zones=isL?DEPTH_ZONES:DEPTH_ZONES_LUNA, t=Date.now()*0.001;
     _ctx.clearRect(0,0,w,h);
     var skyCol=getDepthZoneValue(zones,prog,'sky'), waterCol=_getPaletteWaterColor(prog), deepCol=getDepthZoneValue(zones,prog,'deep');
@@ -1366,7 +1366,7 @@ var DepthEngine = (function() {
     if(rayStr>0.02){var rayCount=Math.round(rayStr*6);for(var i=0;i<rayCount;i++){var rx=w*(0.2+i*0.13)+Math.sin(t*0.2+i*1.3)*10,rw=5+rayStr*12,rayLen=h*(0.3+rayStr*0.4);var rg=_ctx.createLinearGradient(rx,waterTop,rx+20,waterTop+rayLen);var rayColor=isL?[255,232,175]:[240,200,190];rg.addColorStop(0,'rgba('+rayColor[0]+','+rayColor[1]+','+rayColor[2]+','+(rayStr*0.12)+')');rg.addColorStop(1,'rgba('+rayColor[0]+','+rayColor[1]+','+rayColor[2]+',0)');_ctx.save();_ctx.beginPath();_ctx.moveTo(rx-rw/2,waterTop);_ctx.lineTo(rx+rw*1.2,waterTop+rayLen);_ctx.lineTo(rx+rw*0.3,waterTop+rayLen);_ctx.closePath();_ctx.fillStyle=rg;_ctx.fill();_ctx.restore();}}
     var visCount=Math.round(planktonMul*80);
     for(var i=0;i<_depthParticles.length;i++){var p=_depthParticles[i];p.ph+=p.ps;p.x+=p.vx+Math.sin(p.ph*0.5)*0.06;p.y+=p.vy+Math.cos(p.ph*0.3)*0.03;if(p.x<-15)p.x=w+15;if(p.x>w+15)p.x=-15;if(p.y<waterTop+5)p.y=h-5;if(p.y>h+10)p.y=waterTop+10;if(i>=visCount)continue;var useL=isL?p.isLuno:!p.isLuno;var col=useL?depthLunoC(co):depthLunaC(co*0.75);var glowBoost=prog*0.6;var alpha=(0.08+co*0.4+glowBoost*0.3+Math.sin(p.ph)*0.12)*p.dp;var sz2=(p.sz+co*2+glowBoost*1.5)*(0.5+p.dp*0.6);var glow=(2+co*10+glowBoost*10)*p.dp;_ctx.beginPath();_ctx.arc(p.x,p.y,sz2,0,Math.PI*2);_ctx.fillStyle='rgba('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+','+Math.max(0,alpha).toFixed(3)+')';if(glow>1.5){_ctx.shadowColor='rgba('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+','+(alpha*0.5).toFixed(3)+')';_ctx.shadowBlur=glow;}_ctx.fill();_ctx.shadowBlur=0;}
-    if(prog>0.4){var lunoStr2=Math.max(0,(prog-0.4)/0.6);var lCol=isL?depthLunoC(co):depthLunaC(co);var cx2=w/2,cy2=h*0.72,lr=40+lunoStr2*60+co*30;var lg=_ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,lr);lg.addColorStop(0,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+','+(lunoStr2*0.5)+')');lg.addColorStop(0.4,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+','+(lunoStr2*0.2)+')');lg.addColorStop(1,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+',0)');_ctx.fillStyle=lg;_ctx.fillRect(cx2-lr,cy2-lr,lr*2,lr*2);}
+    if(prog>0.4){var lunoStr2=Math.max(0,(prog-0.4)/0.6);var lCol=isL?depthLunoC(co):depthLunaC(co);var cx2=w/2,cy2=h*0.72,lr=40+lunoStr2*60+co*30;var orbAlpha=(0.3+co*0.5)*lunoStr2;var lg=_ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,lr);lg.addColorStop(0,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+','+orbAlpha.toFixed(2)+')');lg.addColorStop(0.4,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+','+(orbAlpha*0.4).toFixed(2)+')');lg.addColorStop(1,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+',0)');_ctx.fillStyle=lg;_ctx.fillRect(cx2-lr,cy2-lr,lr*2,lr*2);}
     _depthRAF = requestAnimationFrame(_drawLoop);
   }
 
