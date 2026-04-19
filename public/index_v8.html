@@ -1105,7 +1105,27 @@ var DepthEngine = (function() {
   function depthLerp(a, b, t) { return a + (b - a) * t; }
   function depthLerpC(a, b, t) { return [depthLerp(a[0], b[0], t), depthLerp(a[1], b[1], t), depthLerp(a[2], b[2], t)]; }
   function depthEaseInOut(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
-  function depthLunoC(t) { return [14 + t * 90, 50 + t * 170, 80 + t * 175]; }
+  // Bioluminescent palette system — session-driven color evolution
+  function colBlue(co) { var t2 = co * co; return [5 + t2 * 25, 20 + co * 60 + t2 * 80, 60 + co * 100 + t2 * 95]; }
+  function colGold(co) { var t2 = co * co; return [10 + co * 100 + t2 * 130, 40 + co * 120 + t2 * 80, 90 + co * 100 - t2 * 10]; }
+  function colPink(co) { return [40 + co * 180, 15 + co * 85, 45 + co * 95]; }
+  function getPaletteRatios(s) {
+    if (s <= 15) return [1, 0, 0];
+    if (s <= 30) { var t = (s - 15) / 15; return [1 - t * 0.3, t * 0.3, 0]; }
+    if (s <= 60) { var t = (s - 30) / 30; return [0.7 - t * 0.15, 0.3 - t * 0.05, t * 0.2]; }
+    var t = Math.min(1, (s - 60) / 90); return [0.55 - t * 0.05, 0.25 + t * 0.05, 0.2];
+  }
+  function particleColor(co, pid, ratios) {
+    var hash = (pid * 7 + 3) % 100 / 100;
+    if (hash < ratios[0]) return colBlue(co);
+    if (hash < ratios[0] + ratios[1]) return colGold(co);
+    return colPink(co);
+  }
+  function auroraColorFromPalette(co, ratios) {
+    var g = ratios[1]; return [40 + g * 160 + co * 40, 100 + g * 70 + co * 60, 200 - g * 150 + co * 30];
+  }
+  // depthLunoC kept as alias for any remaining callers (aurora, etc.)
+  function depthLunoC(t) { return colBlue(t); }
   function depthLunaC(t) { return [120 + t * 110, 60 + t * 100, 80 + t * 90]; }
 
   function getDepthZoneValue(zones, progress, field) {
@@ -1282,7 +1302,8 @@ var DepthEngine = (function() {
 
     // Aurora color = bright Luno palette position (t=0.7)
     // This is the same value v6 used at lines 667-668
-    var auroraCol = lunoColor(0.7);
+    var _auroraRatios = getPaletteRatios(_sessionCount);
+    var auroraCol = auroraColorFromPalette(0.7, _auroraRatios);
     return [
       auroraCol[0] * strength,
       auroraCol[1] * strength,
@@ -1319,6 +1340,7 @@ var DepthEngine = (function() {
 
   var _oceanBgEl=null, _depthCanvasEl=null, _ctx=null, _canvasW=0, _canvasH=0, _canvasInitd=false, _depthRAF=null, _depthParticles=[];
   var _currentProgress=0, _currentChar='luno', _currentCoherence=0.25, _warmth=0.5;
+  var _shooters=[];
   var _starsEl=null, _wavesEl=null, _plkLayerEl=null, _auroraConEl=null;
 
   function initDepthEngine(oceanBgElement, depthCanvasElement) {
@@ -1333,11 +1355,29 @@ var DepthEngine = (function() {
     _ctx = _depthCanvasEl.getContext('2d'); var dpr = window.devicePixelRatio || 1;
     function resize() { _canvasW=_depthCanvasEl.offsetWidth; _canvasH=_depthCanvasEl.offsetHeight; _depthCanvasEl.width=_canvasW*dpr; _depthCanvasEl.height=_canvasH*dpr; _ctx.setTransform(dpr,0,0,dpr,0,0); }
     resize(); window.addEventListener('resize', resize);
-    for (var i = 0; i < 90; i++) { _depthParticles.push({ x:Math.random()*(_canvasW||430), y:Math.random()*(_canvasH||800), sz:1+Math.random()*3.5, vx:(Math.random()-0.5)*0.15, vy:(Math.random()-0.5)*0.06, ph:Math.random()*Math.PI*2, ps:0.003+Math.random()*0.005, isLuno:Math.random()<0.55, dp:0.2+Math.random()*0.8 }); }
+    for (var i = 0; i < 90; i++) {
+      _depthParticles.push({
+        x:Math.random()*(_canvasW||430),
+        y:Math.random()*(_canvasH||800),
+        sz:1+Math.random()*3.5,
+        vx:(Math.random()-0.5)*0.15,
+        vy:(Math.random()-0.5)*0.06,
+        ph:Math.random()*Math.PI*2,
+        ps:0.003+Math.random()*0.005,
+        isLuno:Math.random()<0.55,
+        dp:0.2+Math.random()*0.8,
+        id:i,
+        twinkle:0,
+        twinkleDecay:0.975
+      });
+    }
     _drawLoop();
   }
 
   function _drawLoop() {
+    // Smooth coherence toward target — ~3 second ease
+    var cohRate = _targetCoherence > _currentCoherence ? 0.04 : 0.02;
+    _currentCoherence += (_targetCoherence - _currentCoherence) * cohRate;
     _computeI();
     var w=_canvasW, h=_canvasH;
     if (!w||!h) { _depthRAF=requestAnimationFrame(_drawLoop); return; }
@@ -1365,8 +1405,85 @@ var DepthEngine = (function() {
     var wg=_ctx.createLinearGradient(0,waterTop,0,h);wg.addColorStop(0,'rgb('+(waterCol[0]|0)+','+(waterCol[1]|0)+','+(waterCol[2]|0)+')');wg.addColorStop(0.5,'rgb('+(deepCol[0]|0)+','+(deepCol[1]|0)+','+(deepCol[2]|0)+')');wg.addColorStop(1,'rgb('+(Math.max(0,deepCol[0]-5)|0)+','+(Math.max(0,deepCol[1]-5)|0)+','+(Math.max(0,deepCol[2]-5)|0)+')');_ctx.fillStyle=wg;_ctx.fill();
     if(rayStr>0.02){var rayCount=Math.round(rayStr*6);for(var i=0;i<rayCount;i++){var rx=w*(0.2+i*0.13)+Math.sin(t*0.2+i*1.3)*10,rw=5+rayStr*12,rayLen=h*(0.3+rayStr*0.4);var rg=_ctx.createLinearGradient(rx,waterTop,rx+20,waterTop+rayLen);var rayColor=isL?[255,232,175]:[240,200,190];rg.addColorStop(0,'rgba('+rayColor[0]+','+rayColor[1]+','+rayColor[2]+','+(rayStr*0.12)+')');rg.addColorStop(1,'rgba('+rayColor[0]+','+rayColor[1]+','+rayColor[2]+',0)');_ctx.save();_ctx.beginPath();_ctx.moveTo(rx-rw/2,waterTop);_ctx.lineTo(rx+rw*1.2,waterTop+rayLen);_ctx.lineTo(rx+rw*0.3,waterTop+rayLen);_ctx.closePath();_ctx.fillStyle=rg;_ctx.fill();_ctx.restore();}}
     var visCount=Math.round(planktonMul*80);
-    for(var i=0;i<_depthParticles.length;i++){var p=_depthParticles[i];p.ph+=p.ps;p.x+=p.vx+Math.sin(p.ph*0.5)*0.06;p.y+=p.vy+Math.cos(p.ph*0.3)*0.03;if(p.x<-15)p.x=w+15;if(p.x>w+15)p.x=-15;if(p.y<waterTop+5)p.y=h-5;if(p.y>h+10)p.y=waterTop+10;if(i>=visCount)continue;var useL=isL?p.isLuno:!p.isLuno;var col=useL?depthLunoC(co):depthLunaC(co*0.75);var glowBoost=prog*0.6;var alpha=(0.08+co*0.4+glowBoost*0.3+Math.sin(p.ph)*0.12)*p.dp;var sz2=(p.sz+co*2+glowBoost*1.5)*(0.5+p.dp*0.6);var glow=(2+co*10+glowBoost*10)*p.dp;_ctx.beginPath();_ctx.arc(p.x,p.y,sz2,0,Math.PI*2);_ctx.fillStyle='rgba('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+','+Math.max(0,alpha).toFixed(3)+')';if(glow>1.5){_ctx.shadowColor='rgba('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+','+(alpha*0.5).toFixed(3)+')';_ctx.shadowBlur=glow;}_ctx.fill();_ctx.shadowBlur=0;}
-    if(prog>0.4){var lunoStr2=Math.max(0,(prog-0.4)/0.6);var lCol=isL?depthLunoC(co):depthLunaC(co);var cx2=w/2,cy2=h*0.72,lr=40+lunoStr2*60+co*30;var orbAlpha=(0.3+co*0.5)*lunoStr2;var lg=_ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,lr);lg.addColorStop(0,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+','+orbAlpha.toFixed(2)+')');lg.addColorStop(0.4,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+','+(orbAlpha*0.4).toFixed(2)+')');lg.addColorStop(1,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+',0)');_ctx.fillStyle=lg;_ctx.fillRect(cx2-lr,cy2-lr,lr*2,lr*2);}
+    // Twinkle pre-computation — uses coRaw (pre-curve coherence)
+    var _twinkleChance=0;
+    if(coRaw>0.65){var _twN=(coRaw-0.65)/0.35;_twinkleChance=_twN*_twN*0.012;}
+    var _activeTwinkles=0;
+    for(var _ti=0;_ti<_depthParticles.length;_ti++){if(_depthParticles[_ti].twinkle>0.1)_activeTwinkles++;}
+    var _palRatios=getPaletteRatios(_sessionCount);
+    for(var i=0;i<_depthParticles.length;i++){var p=_depthParticles[i];p.ph+=p.ps;p.x+=p.vx+Math.sin(p.ph*0.5)*0.06;p.y+=p.vy+Math.cos(p.ph*0.3)*0.03;if(p.x<-15)p.x=w+15;if(p.x>w+15)p.x=-15;if(p.y<waterTop+5)p.y=h-5;if(p.y>h+10)p.y=waterTop+10;if(i>=visCount)continue;
+      // Session palette color dispatch
+      var col;
+      if(isL){col=particleColor(co,p.id,_palRatios);}else{col=depthLunaC(co*0.75);}
+      // Bioluminescent emission — quadratic coherence curve
+      var bioGlow=co*co;
+      // Twinkle system — cap at 6, threshold 0.65 on raw coherence
+      if(_twinkleChance>0&&_activeTwinkles<6&&Math.random()<_twinkleChance&&p.twinkle<0.1){p.twinkle=1;_activeTwinkles++;}
+      p.twinkle*=p.twinkleDecay;
+      if(p.twinkle>0.05){var tw=p.twinkle;col=[col[0]+tw*(255-col[0]),col[1]+tw*(255-col[1]),col[2]+tw*(255-col[2])];}
+      var alpha=(0.02+bioGlow*0.88+Math.sin(p.ph)*0.04)*p.dp;
+      var sz2=(p.sz+bioGlow*5)*(0.45+p.dp*0.55);
+      var glow=0.5+bioGlow*38*p.dp;
+      if(p.twinkle>0.05){alpha=Math.min(1,alpha+p.twinkle*0.6);sz2*=(1+p.twinkle*1.5);glow*=(1+p.twinkle*3);}
+      _ctx.save();
+      _ctx.globalAlpha=Math.min(1,alpha);
+      _ctx.shadowColor='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';
+      _ctx.shadowBlur=glow;
+      _ctx.fillStyle='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';
+      _ctx.beginPath();
+      _ctx.arc(p.x,p.y,sz2,0,Math.PI*2);
+      _ctx.fill();
+      if(bioGlow>0.15){_ctx.globalAlpha=alpha*0.18;_ctx.shadowBlur=glow*3;_ctx.beginPath();_ctx.arc(p.x,p.y,sz2*3.5,0,Math.PI*2);_ctx.fill();}
+      _ctx.restore();
+    }
+    // Shooting stars — above 0.85 coherence
+    if(co>0.85&&Math.random()<0.008){
+      var _ssAngle=-0.3-Math.random()*0.4;
+      _shooters.push({x:Math.random()*0.8+0.1,y:Math.random()*0.5,
+        vx:Math.cos(_ssAngle)*0.012*w,vy:Math.sin(_ssAngle)*0.005*h,
+        life:1,decay:0.015+Math.random()*0.01,
+        len:8+Math.random()*12,bright:0.7+Math.random()*0.3});
+    }
+    for(var _si=_shooters.length-1;_si>=0;_si--){
+      var _ss=_shooters[_si];
+      _ss.x+=_ss.vx/w;_ss.y+=_ss.vy/h;_ss.life-=_ss.decay;
+      if(_ss.life<=0){_shooters.splice(_si,1);continue;}
+      var _spx=_ss.x*w,_spy=_ss.y*h,_sal=_ss.life*_ss.bright;
+      _ctx.save();_ctx.globalAlpha=_sal;
+      _ctx.strokeStyle='rgba(220,240,255,'+_sal.toFixed(2)+')';
+      _ctx.shadowColor='rgba(180,220,255,'+_sal.toFixed(2)+')';
+      _ctx.shadowBlur=8+_ss.life*15;_ctx.lineWidth=1.5+_ss.life*1.5;
+      _ctx.beginPath();_ctx.moveTo(_spx,_spy);
+      _ctx.lineTo(_spx-_ss.vx*_ss.len*_ss.life,_spy-_ss.vy*_ss.len*_ss.life);
+      _ctx.stroke();
+      _ctx.fillStyle='rgba(255,255,255,'+((_sal)*0.9).toFixed(2)+')';
+      _ctx.shadowBlur=4+_ss.life*10;
+      _ctx.beginPath();_ctx.arc(_spx,_spy,1+_ss.life*2,0,Math.PI*2);_ctx.fill();
+      _ctx.restore();
+    }
+    if(prog>0.4){
+      var lunoStr2=Math.max(0,(prog-0.4)/0.6);
+      // Silver-white Luno, Luna keeps her palette
+      var lCol=isL?[160+co*95,170+co*85,180+co*75]:depthLunaC(co);
+      var cx2=w/2,cy2=h*0.72,lr=40+lunoStr2*60+co*30;
+      var orbAlpha=(0.3+co*0.5)*lunoStr2;
+      var lg=_ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,lr);
+      lg.addColorStop(0,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+','+orbAlpha.toFixed(2)+')');
+      lg.addColorStop(0.4,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+','+(orbAlpha*0.4).toFixed(2)+')');
+      lg.addColorStop(1,'rgba('+(lCol[0]|0)+','+(lCol[1]|0)+','+(lCol[2]|0)+',0)');
+      _ctx.fillStyle=lg;
+      _ctx.fillRect(cx2-lr,cy2-lr,lr*2,lr*2);
+      // White core at high coherence
+      if(co>0.35&&isL){
+        var _lunoCore=(co-0.35)*1.5*0.4;
+        _ctx.save();
+        _ctx.shadowBlur=6+co*18;
+        _ctx.shadowColor='rgba(255,255,255,'+((_lunoCore)*0.5).toFixed(2)+')';
+        _ctx.fillStyle='rgba(255,255,255,'+_lunoCore.toFixed(2)+')';
+        _ctx.beginPath();_ctx.arc(cx2,cy2,lr*0.1,0,Math.PI*2);_ctx.fill();
+        _ctx.restore();
+      }
+    }
     _depthRAF = requestAnimationFrame(_drawLoop);
   }
 
@@ -1384,7 +1501,8 @@ var DepthEngine = (function() {
     if(prog<=0.15)return'surface';if(prog<=0.35)return'shallow';if(prog<=0.60)return'mid';if(prog<=0.85)return'deep';return'midnight';
   }
   function setCharacter(char) { _currentChar = char; }
-  function setCoherence(coh) { _currentCoherence = Math.max(0, Math.min(1, coh)); }
+  var _targetCoherence = 0.25;
+  function setCoherence(coh) { _targetCoherence = Math.max(0, Math.min(1, coh)); }
   function connectToStateMachine(ssm) {
     ssm.on('onDescentProgress', function(progress){ setOceanBgDepthBlend(progress); });
     ssm.on('onPhaseChange', function(phase){ if(phase==='surface') setOceanBgDepthBlend(0); });
