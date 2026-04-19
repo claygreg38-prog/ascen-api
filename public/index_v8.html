@@ -2025,7 +2025,8 @@ var Dialogue = (function() {
     initDialogueDelivery:initDialogueDelivery,setSessionContext:setSessionContext,deliverPhaseDialogue:deliverPhaseDialogue,
     speakLuno:speakLuno,speakBrowser:speakBrowser,unlockAudio:unlockAudio,audioUnlockOnFirstTap:_audioUnlockOnFirstTap,setAudioUnlocked:setAudioUnlocked,isTTSAvailable:isTTSAvailable,
     pauseDelivery:pauseDelivery,resumeDelivery:resumeDelivery,deliverRoundCue:deliverRoundCue,deliverInterCycleCue:deliverInterCycleCue,speakLunoCounted:speakLunoCounted,
-    connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,on:dlgOn
+    connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,on:dlgOn,
+    getAudioContext:_getAudioContext
   };
 })();
 
@@ -2249,11 +2250,11 @@ var Integration = (function() {
     try{await _abi.arrivalSample(sample);}catch(e){console.warn('[ABI] arrival-sample POST failed:',e.message||e);}
   }
   async function _abiForwardArrivalComplete(baseline){if(!_abiSessionActive)return;try{var r=await _abi.arrivalComplete(baseline);var adapted=r.adapted_session||r;var mode=adapted._breathwork_mode||adapted.breathwork_mode||'simple_pacer';var ratio=adapted.ratio||(r.breath_params&&r.breath_params.ratio)||adapted.breath_ratio||(adapted.breath_in&&adapted.breath_out?adapted.breath_in+':'+adapted.breath_out:null)||'3:5';var track=adapted.track||'standard';_abiModeConfig=getModeConfig(mode,ratio,track);if(_abiModeConfig.requires_selection&&_abiModeConfig.available_ratios&&_sessionUI){_sessionUI.showRatioSelection(_abiModeConfig.available_ratios,function(selectedRatio){_abiModeConfig=getModeConfig(_abiModeConfig.mode,selectedRatio,track);});}return _abiModeConfig;}catch(e){_abiModeConfig=getModeConfig('simple_pacer','3:5','standard');return _abiModeConfig;}}
-  function _abiStartTicks(){if(!_abiSessionActive){console.log('[ABI] Ticks NOT started — _abiSessionActive is false');return;}if(_tickInterval){console.log('[ABI] Ticks NOT started — _tickInterval already set (stale?)');return;}console.log('[ABI] Starting biometric ticks');var tickCount=0;_tickInterval=setInterval(async function(){tickCount++;var bio=_biometricBridge?_biometricBridge.getCurrentBiometrics():{};bio.coherence=_lastKnownCoherence;if(bio.coherence>_abiCoherencePeak)_abiCoherencePeak=bio.coherence;try{var r=await _abi.tick(bio);console.log('[ABI] Tick',tickCount,'response | coherence:',r?r.coherence:'no response','| ns3:',r?r.ns3:'no response','| keys:',r?Object.keys(r).join(','):'none');if(r&&r.coherence!==undefined&&r.coherence!==null){_lastKnownCoherence=r.coherence;if(_biometricBridge&&_biometricBridge.applyServerCoherence)_biometricBridge.applyServerCoherence(r.coherence);if(typeof DepthEngine!=='undefined'&&DepthEngine.setCoherence)DepthEngine.setCoherence(r.coherence);if(typeof VisualDNA!=='undefined'&&VisualDNA.setCohDisplay)VisualDNA.setCohDisplay(r.coherence*100);}if(_biometricBridge){_biometricBridge.updateFromTickResponse(r);var refreshed=_biometricBridge.getCurrentBiometrics();refreshed.coherence=_lastKnownCoherence;_biometricBridge.emitTick({sample:refreshed,ns3:(r&&r.ns3!==undefined&&r.ns3!==null)?r.ns3:0,coherence:_lastKnownCoherence,coherencePeak:_abiCoherencePeak,tickCount:tickCount});}if(r.adjustments&&r.adjustments.visual_warmth!==undefined)_intEmit('visualWarmthChanged',{warmth:r.adjustments.visual_warmth});if(r.coaching&&r.coaching.type==='pause_and_choose')_abiShowIntervention(r.coaching);if(_abiTickQueue.length>0){var queued=_abiTickQueue.shift();try{await _abi.tick(queued);console.log('[ABI] Drained queued tick, backlog:',_abiTickQueue.length);}catch(drainErr){_abiTickQueue.unshift(queued);}}}catch(e){console.warn('[ABI] Tick POST failed, queuing:',e.message||e,'| status:',e.status||'unknown');if(_abiTickQueue.length<_abiTickQueueMaxSize){_abiTickQueue.push(bio);}else{_abiTickQueue.shift();_abiTickQueue.push(bio);console.error('[ABI] Tick queue full, dropped oldest. Backlog:',_abiTickQueue.length);}}if(tickCount%10===0&&_abiTickQueue.length>0)console.log('[ABI] Tick queue depth:',_abiTickQueue.length);},1000);}
+  function _abiStartTicks(){if(!_abiSessionActive){console.log('[ABI] Ticks NOT started — _abiSessionActive is false');return;}if(_tickInterval){console.log('[ABI] Ticks NOT started — _tickInterval already set (stale?)');return;}console.log('[ABI] Starting biometric ticks');var tickCount=0;_tickInterval=setInterval(async function(){tickCount++;var bio=_biometricBridge?_biometricBridge.getCurrentBiometrics():{};bio.coherence=_lastKnownCoherence;if(bio.coherence>_abiCoherencePeak)_abiCoherencePeak=bio.coherence;try{var r=await _abi.tick(bio);console.log('[ABI] Tick',tickCount,'response | coherence:',r?r.coherence:'no response','| ns3:',r?r.ns3:'no response','| keys:',r?Object.keys(r).join(','):'none');if(r&&r.coherence!==undefined&&r.coherence!==null){_lastKnownCoherence=r.coherence;if(_biometricBridge&&_biometricBridge.applyServerCoherence)_biometricBridge.applyServerCoherence(r.coherence);if(typeof DepthEngine!=='undefined'&&DepthEngine.setCoherence)DepthEngine.setCoherence(r.coherence);if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.setCoherence(r.coherence);if(typeof VisualDNA!=='undefined'&&VisualDNA.setCohDisplay)VisualDNA.setCohDisplay(r.coherence*100);}if(_biometricBridge){_biometricBridge.updateFromTickResponse(r);var refreshed=_biometricBridge.getCurrentBiometrics();refreshed.coherence=_lastKnownCoherence;_biometricBridge.emitTick({sample:refreshed,ns3:(r&&r.ns3!==undefined&&r.ns3!==null)?r.ns3:0,coherence:_lastKnownCoherence,coherencePeak:_abiCoherencePeak,tickCount:tickCount});}if(r.adjustments&&r.adjustments.visual_warmth!==undefined)_intEmit('visualWarmthChanged',{warmth:r.adjustments.visual_warmth});if(r.coaching&&r.coaching.type==='pause_and_choose')_abiShowIntervention(r.coaching);if(_abiTickQueue.length>0){var queued=_abiTickQueue.shift();try{await _abi.tick(queued);console.log('[ABI] Drained queued tick, backlog:',_abiTickQueue.length);}catch(drainErr){_abiTickQueue.unshift(queued);}}}catch(e){console.warn('[ABI] Tick POST failed, queuing:',e.message||e,'| status:',e.status||'unknown');if(_abiTickQueue.length<_abiTickQueueMaxSize){_abiTickQueue.push(bio);}else{_abiTickQueue.shift();_abiTickQueue.push(bio);console.error('[ABI] Tick queue full, dropped oldest. Backlog:',_abiTickQueue.length);}}if(tickCount%10===0&&_abiTickQueue.length>0)console.log('[ABI] Tick queue depth:',_abiTickQueue.length);},1000);}
   function _abiStopTicks(){if(_tickInterval){clearInterval(_tickInterval);_tickInterval=null;}_abiTickQueue=[];}
   function _abiShowIntervention(coaching){_abiStopTicks();if(_stateMachine)_stateMachine.pauseSession();if(_sessionUI){_sessionUI.showCoachingIntervention(coaching,async function(choice){if(choice==='continue'){try{await _abi.resume();}catch(e){}if(_stateMachine)_stateMachine.resumeSession();_abiStartTicks();}else if(choice==='drill'){try{await _abi.selectDrill('five_senses');}catch(e){if(_stateMachine)_stateMachine.resumeSession();}}else if(choice==='exit'){try{await _abi.exit();}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);_notifyParentExit();}});}}
   async function _abiCompleteSession(){if(!_abiSessionActive)return;_abiStopTicks();var state=_stateMachine?_stateMachine.getSessionState():{};var metrics={coherence_peak:_abiCoherencePeak,coherence_end:_lastKnownCoherence,cycle_completion_rate:state.totalBreaths>0?Math.min(1,state.breathCount/state.totalBreaths):0.85,breath_count:state.breathCount||0,duration_seconds:state.durationSeconds||0};try{var r=await _abi.completeSession(metrics);_abiMirror=r.mirror||null;_abiAffirmation=r.affirmation||null;_abiAdvancement=r.advancement||null;_verifyOnChain(state.durationSeconds||0);}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);}
-  function _abiCleanup(){_abiStopTicks();_abiSessionActive=false;_abiCoherencePeak=0;_abiModeConfig=null;_lastKnownCoherence=0.25;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;if(_abi)_abi.sessionKey=null;}
+  function _abiCleanup(){_abiStopTicks();_abiSessionActive=false;_abiCoherencePeak=0;_abiModeConfig=null;_lastKnownCoherence=0.25;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;if(_abi)_abi.sessionKey=null;if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.teardown();}
 
   async function postVaultEntry(data){try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/vault',{method:'POST',headers:headers,body:JSON.stringify({user_id:_userId,session_number:data.session_number||_activeSessionNumber,vault_response:data.text||'',session_type:'individual'})});}catch(e){}}
   async function postProgress(metrics){try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/progress',{method:'POST',headers:headers,body:JSON.stringify({user_id:_userId,session_number:metrics.sessionNumber||_activeSessionNumber,completed:true,coherence_score:metrics.coherencePeak||(_abiCoherencePeak>0?_abiCoherencePeak:0.5),duration_seconds:metrics.durationSeconds||0,session_type:'individual'})});}catch(e){}}
@@ -2272,7 +2273,9 @@ var Integration = (function() {
           ssm.resetSession();
         });
       }
-      if(phase==='breathing')_abiStartTicks();if(phase!=='breathing')_abiStopTicks();if(phase==='shift')_abiCompleteSession();if(phase==='surface')_abiCleanup();
+      if(phase==='breathing'){_abiStartTicks();if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.init();}
+      if(phase!=='breathing'){_abiStopTicks();if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.fadeOut();}
+      if(phase==='shift')_abiCompleteSession();if(phase==='surface')_abiCleanup();
     });
     ssm.on('onSessionComplete',function(metrics){postProgress({sessionNumber:metrics.sessionNumber,durationSeconds:metrics.durationSeconds,coherencePeak:_abiCoherencePeak});_notifyParentComplete(metrics.sessionNumber);if(_sessionUI)_sessionUI.markSessionComplete(metrics.sessionNumber);activateLightBridge();});
     ssm.on('onSessionReset',function(){_abiCleanup();});
@@ -2289,6 +2292,303 @@ var Integration = (function() {
     getModeConfig:getModeConfig,
     connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,connectToSessionUI:connectToSessionUI,
     on:intOn
+  };
+})();
+
+// ================================================================
+// === MODULE 8: BIOFEEDBACK SOUND ===
+// ================================================================
+var BiofeedbackSound = (function() {
+  var _ax = null;
+  var _masterGain = null;
+  var _active = false;
+  var _rafId = null;
+  var _coherenceTarget = 0.25;
+  var _coherenceCurrent = 0.25;
+  var _time = 0;
+  var _lastChimeTime = 0;
+  var _enabled = true;
+
+  // Underwater layer
+  var _waterNoise = null, _waterFilter = null, _waterGain = null;
+  // Warm pad layer
+  var _padFilter = null, _padMaster = null;
+  var _padVoices = [], _padGains = [];
+  // Breathing state
+  var _breathScale = 1;
+
+  try { _enabled = localStorage.getItem('ascen_sound_enabled') !== 'false'; } catch(e) {}
+
+  function _createOceanBuffer(ctx, seconds) {
+    var sr = ctx.sampleRate, len = sr * seconds;
+    var buf = ctx.createBuffer(2, len, sr);
+    var L = buf.getChannelData(0), R = buf.getChannelData(1);
+    var lastL = 0, lastR = 0;
+    for (var i = 0; i < len; i++) {
+      lastL = (lastL + 0.02 * (Math.random() * 2 - 1)) / 1.02;
+      lastR = (lastR + 0.02 * (Math.random() * 2 - 1)) / 1.02;
+      var swell = Math.sin(i / sr * 0.4) * 0.3 + Math.sin(i / sr * 0.17) * 0.2;
+      L[i] = lastL * (3 + swell);
+      R[i] = lastR * (3 + swell);
+    }
+    return buf;
+  }
+
+  function _triggerBowl(freq, vol) {
+    if (!_ax || !_active) return;
+    var now = _ax.currentTime;
+    var dur = 10 + Math.random() * 6;
+    var partials = [
+      { f: freq, v: vol, type: 'sine' },
+      { f: freq * 1.002, v: vol * 0.8, type: 'sine' },
+      { f: freq * 2.001, v: vol * 0.25, type: 'sine' }
+    ];
+    for (var i = 0; i < partials.length; i++) {
+      var p = partials[i];
+      var o = _ax.createOscillator();
+      var g = _ax.createGain();
+      o.type = p.type;
+      o.frequency.value = p.f;
+      g.gain.value = 0;
+      g.gain.setTargetAtTime(p.v, now, 0.4);
+      g.gain.setTargetAtTime(p.v * 0.6, now + 2, 2);
+      g.gain.setTargetAtTime(0, now + dur * 0.3, dur * 0.5);
+      o.connect(g);
+      g.connect(_masterGain);
+      o.start(now);
+      o.stop(now + dur + 2);
+    }
+  }
+
+  function _triggerChime(freq, vol) {
+    if (!_ax || !_active) return;
+    var now = _ax.currentTime;
+    var dur = 3 + Math.random() * 3;
+    var o = _ax.createOscillator();
+    var g = _ax.createGain();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    g.gain.value = 0;
+    g.gain.setTargetAtTime(vol, now, 0.05);
+    g.gain.setTargetAtTime(0, now + 0.3, dur * 0.4);
+    var hp = _ax.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 600;
+    hp.Q.value = 0.2;
+    o.connect(g);
+    g.connect(hp);
+    hp.connect(_masterGain);
+    o.start(now);
+    o.stop(now + dur + 1);
+  }
+
+  function init() {
+    if (!_enabled) { console.log('[SOUND] Disabled by user preference'); return; }
+    if (_active) return;
+    try {
+      // Reuse TTS AudioContext if available (Dialogue is the TTS module global)
+      if (typeof Dialogue !== 'undefined' && Dialogue.getAudioContext) {
+        _ax = Dialogue.getAudioContext();
+      }
+      if (!_ax) {
+        _ax = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (_ax.state === 'suspended') _ax.resume();
+
+      _masterGain = _ax.createGain();
+      _masterGain.gain.value = 0;
+      _masterGain.connect(_ax.destination);
+
+      // Layer 1: Stereo underwater ambient
+      var oceanBuf = _createOceanBuffer(_ax, 6);
+      _waterNoise = _ax.createBufferSource();
+      _waterNoise.buffer = oceanBuf;
+      _waterNoise.loop = true;
+      _waterFilter = _ax.createBiquadFilter();
+      _waterFilter.type = 'lowpass';
+      _waterFilter.frequency.value = 250;
+      _waterFilter.Q.value = 2;
+      _waterGain = _ax.createGain();
+      _waterGain.gain.value = 0.3;
+      var waterRes = _ax.createBiquadFilter();
+      waterRes.type = 'bandpass';
+      waterRes.frequency.value = 180;
+      waterRes.Q.value = 3;
+      var waterResGain = _ax.createGain();
+      waterResGain.gain.value = 0.15;
+      _waterNoise.connect(_waterFilter);
+      _waterFilter.connect(_waterGain);
+      _waterGain.connect(_masterGain);
+      _waterNoise.connect(waterRes);
+      waterRes.connect(waterResGain);
+      waterResGain.connect(_masterGain);
+      _waterNoise.start();
+
+      // Layer 2: Warm pad (6 detuned oscillators C-G-C voicing)
+      _padFilter = _ax.createBiquadFilter();
+      _padFilter.type = 'lowpass';
+      _padFilter.frequency.value = 300;
+      _padFilter.Q.value = 0.3;
+      _padMaster = _ax.createGain();
+      _padMaster.gain.value = 0;
+      _padFilter.connect(_padMaster);
+      _padMaster.connect(_masterGain);
+      var padFreqs = [
+        { f: 130.8, v: 0.12, type: 'triangle' },
+        { f: 131.4, v: 0.10, type: 'sine' },
+        { f: 196.0, v: 0.08, type: 'triangle' },
+        { f: 196.7, v: 0.07, type: 'sine' },
+        { f: 261.6, v: 0.00, type: 'sine' },
+        { f: 262.3, v: 0.00, type: 'sine' }
+      ];
+      _padVoices = [];
+      _padGains = [];
+      for (var i = 0; i < padFreqs.length; i++) {
+        var pf = padFreqs[i];
+        var o = _ax.createOscillator();
+        var g = _ax.createGain();
+        o.type = pf.type;
+        o.frequency.value = pf.f;
+        g.gain.value = pf.v;
+        o.connect(g);
+        g.connect(_padFilter);
+        o.start();
+        _padVoices.push(o);
+        _padGains.push(g);
+      }
+
+      // Fade in master
+      _masterGain.gain.setTargetAtTime(0.18, _ax.currentTime, 1.0);
+      _active = true;
+      _coherenceCurrent = 0.25;
+      _coherenceTarget = 0.25;
+      _lastChimeTime = 0;
+      _time = 0;
+      _startRAF();
+      console.log('[SOUND] Biofeedback sound initialized');
+    } catch(e) {
+      console.warn('[SOUND] Init failed:', e.message);
+    }
+  }
+
+  function _startRAF() {
+    if (_rafId) return;
+    function loop() {
+      if (!_active) return;
+      _time += 0.016;
+      // Smooth coherence
+      var rate = _coherenceTarget > _coherenceCurrent ? 0.025 : 0.012;
+      _coherenceCurrent += (_coherenceTarget - _coherenceCurrent) * rate;
+      _updateLayers(_coherenceCurrent);
+      _rafId = requestAnimationFrame(loop);
+    }
+    _rafId = requestAnimationFrame(loop);
+  }
+
+  function _updateLayers(co) {
+    if (!_ax || !_active) return;
+    var now = _ax.currentTime;
+
+    // Master volume
+    _masterGain.gain.setTargetAtTime(0.14 + co * 0.08, now, 0.5);
+
+    // Underwater filter opens with coherence
+    _waterFilter.frequency.setTargetAtTime(180 + co * 350, now, 0.8);
+    _waterGain.gain.setTargetAtTime(0.25 + co * 0.1, now, 0.5);
+
+    // Warm pad grows with coherence
+    var padVol = co > 0.15 ? Math.min(1, (co - 0.15) / 0.4) : 0;
+    var padTarget = padVol * 0.5;
+    if (_breathScale !== 1) padTarget *= (0.7 + _breathScale * 0.3);
+    _padMaster.gain.setTargetAtTime(padTarget, now, 1.0);
+    _padFilter.frequency.setTargetAtTime(250 + co * co * 1200, now, 0.5);
+    // C4 voices enter at mid coherence
+    var c4Vol = co > 0.4 ? Math.min(0.08, (co - 0.4) / 0.6 * 0.08) : 0;
+    if (_padGains.length >= 6) {
+      _padGains[4].gain.setTargetAtTime(c4Vol, now, 0.8);
+      _padGains[5].gain.setTargetAtTime(c4Vol * 0.85, now, 0.8);
+    }
+
+    // Singing bowls above 0.55
+    if (co > 0.55 && now - _lastChimeTime > 3) {
+      var intensity = (co - 0.55) / 0.45;
+      var bowlFreqs = [256, 341, 384, 512, 682];
+      var chimeFreqs = [1200, 1580, 1920, 2400, 2800];
+      var spacing = 10 - intensity * 6;
+      if (now - _lastChimeTime > spacing) {
+        var bIdx = Math.floor(Math.random() * Math.min(2 + Math.floor(intensity * 3), 5));
+        _triggerBowl(bowlFreqs[bIdx], 0.03 + intensity * 0.05);
+        if (co > 0.75) {
+          var bIdx2 = (bIdx + 1 + Math.floor(Math.random() * 3)) % 5;
+          _triggerBowl(bowlFreqs[bIdx2], 0.02 + intensity * 0.03);
+        }
+        if (co > 0.80 && Math.random() < 0.6) {
+          var cIdx = Math.floor(Math.random() * chimeFreqs.length);
+          _triggerChime(chimeFreqs[cIdx], 0.015 + intensity * 0.02);
+        }
+        _lastChimeTime = now;
+      }
+    }
+  }
+
+  function setCoherence(co) {
+    _coherenceTarget = Math.max(0, Math.min(1, co));
+  }
+
+  function setBreathScale(bs) {
+    _breathScale = bs;
+  }
+
+  function fadeOut() {
+    if (!_ax || !_active) return;
+    console.log('[SOUND] Fading out');
+    _masterGain.gain.setTargetAtTime(0, _ax.currentTime, 1.5);
+    // Stop RAF after fade completes
+    setTimeout(function() {
+      _active = false;
+      if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
+    }, 4000);
+  }
+
+  function teardown() {
+    _active = false;
+    if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
+    try {
+      if (_waterNoise) { _waterNoise.stop(); _waterNoise.disconnect(); }
+      for (var i = 0; i < _padVoices.length; i++) {
+        _padVoices[i].stop(); _padVoices[i].disconnect();
+        _padGains[i].disconnect();
+      }
+      if (_padFilter) _padFilter.disconnect();
+      if (_padMaster) _padMaster.disconnect();
+      if (_waterFilter) _waterFilter.disconnect();
+      if (_waterGain) _waterGain.disconnect();
+      if (_masterGain) _masterGain.disconnect();
+    } catch(e) {}
+    _waterNoise = null; _waterFilter = null; _waterGain = null;
+    _padFilter = null; _padMaster = null;
+    _padVoices = []; _padGains = [];
+    _masterGain = null;
+    // Don't close _ax — it's shared with TTS
+    console.log('[SOUND] Teardown complete');
+  }
+
+  function toggle() {
+    _enabled = !_enabled;
+    try { localStorage.setItem('ascen_sound_enabled', _enabled ? 'true' : 'false'); } catch(e) {}
+    if (!_enabled && _active) fadeOut();
+    console.log('[SOUND] Enabled:', _enabled);
+    return _enabled;
+  }
+
+  return {
+    init: init,
+    fadeOut: fadeOut,
+    teardown: teardown,
+    setCoherence: setCoherence,
+    setBreathScale: setBreathScale,
+    toggle: toggle,
+    isEnabled: function() { return _enabled; }
   };
 })();
 
