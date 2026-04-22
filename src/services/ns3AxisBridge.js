@@ -16,7 +16,8 @@ const {
 
 // ─────────────────────────────────────────────
 // LIVE SESSION BIOMETRIC LOOP
-// Called every ~5 seconds during an active session
+// Called on every breathing-phase tick (~1 Hz). Aggregated in-memory
+// across 5-tick windows; persisted to ns3_snapshots every 5 seconds.
 // ─────────────────────────────────────────────
 
 async function onBiometricWindowReceived(axisContext) {

@@ -110,9 +110,7 @@ function calculateMeanHR(rrIntervals) {
  * successive difference > 20% of mean RR before computing sign changes.
  */
 function calculateCoherence(rrIntervals) {
-  try { const fs = require('fs'); const bufLen = rrIntervals ? rrIntervals.length : 0; fs.appendFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} calculateCoherence called | bufLen=${bufLen} | firstFew=${JSON.stringify((rrIntervals||[]).slice(0,3))}\n`); } catch(e) {}
   if (!rrIntervals || rrIntervals.length < 10) {
-    try { const fs = require('fs'); fs.appendFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} calculateCoherence RETURN value=null (insufficient: ${rrIntervals ? rrIntervals.length : 0} < 10)\n`); } catch(e) {}
     return null;
   }
 
@@ -129,7 +127,6 @@ function calculateCoherence(rrIntervals) {
   }
 
   if (filtered.length < 10) {
-    try { const fs = require('fs'); fs.appendFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} calculateCoherence RETURN value=null (filtered: ${filtered.length} < 10, pre-filter: ${rrIntervals.length})\n`); } catch(e) {}
     return null;
   }
 
@@ -154,7 +151,6 @@ function calculateCoherence(rrIntervals) {
   const amplitudeBonus = Math.min(1, amplitude / 100); // 100ms swing = full bonus
 
   const finalValue = Math.min(1, (coherenceRaw * 0.7) + (amplitudeBonus * 0.3));
-  try { const fs = require('fs'); fs.appendFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} calculateCoherence RETURN value=${finalValue.toFixed(4)} | filtered=${filtered.length} signChanges=${signChanges} coherenceRaw=${coherenceRaw.toFixed(4)} amplitude=${amplitude.toFixed(1)} amplitudeBonus=${amplitudeBonus.toFixed(4)}\n`); } catch(e) {}
   return finalValue;
 }
 

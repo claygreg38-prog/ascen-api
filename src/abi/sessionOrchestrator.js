@@ -58,6 +58,19 @@ const { CoachingEffectivenessTracker } = require('./coachingEnhancements');
 const { CrossSystemSynergy } = require('./crossSystemSynergy');
 const { VictoryLapEngine } = require('./victoryLapEngine');
 const { onBiometricWindowReceived: ns3BiometricTick, onSessionComplete: ns3Complete, initializeNS3Session } = require('../services/ns3AxisBridge');
+const { ZONES: NS3_ZONES } = require('../services/ns3Engine');
+
+// Reclassify an aggregated NS3 score into its canonical zone label
+// using the ZONES thresholds defined in ns3Engine. Returns null for
+// null/undefined/NaN. Used for ns3_snapshots.zone on both per-window
+// (5-tick) flushes and session-end partial-buffer flushes.
+function _zoneFromScore(score) {
+  if (score === null || score === undefined || isNaN(score)) return null;
+  if (score >= NS3_ZONES.OVERDRIVE.min)   return NS3_ZONES.OVERDRIVE.label;
+  if (score >= NS3_ZONES.OPTIMAL.min)     return NS3_ZONES.OPTIMAL.label;
+  if (score >= NS3_ZONES.APPROACHING.min) return NS3_ZONES.APPROACHING.label;
+  return NS3_ZONES.BELOW_WINDOW.label;
+}
 const breathArtEngine = require('./breathArtEngine');
 const ipfsService = require('../services/ipfsService');
 const artAggregationEngine = require('./artAggregationEngine');
@@ -146,7 +159,9 @@ function createOrchestrator(callbacks = {}) {
 
   // ── NS3 ENGINE STATE ────────────────────────────────────────
   let ns3Session = null;       // { aggregator, hrHistory, sdnnHistory, belowWindowDuration, sessionMinute }
-  let ns3TickCounter = 0;      // fires NS3 every 5 ticks (5 seconds)
+  let ns3PersistCounter = 0;   // Option E: persists every 5 ticks (compute every tick)
+  let ns3WindowBuffer = [];    // per-tick NS3 results accumulated for 5-tick mean persistence
+  let ns3WindowStart = null;   // ISO timestamp of current window's first tick
   let ns3Summary = null;       // populated on session complete
 
   // ── SOMATIC RESET STATE ───────────────────────────────────
@@ -450,7 +465,9 @@ function createOrchestrator(callbacks = {}) {
 
     // ── [NS3] INITIALIZE NS3 SESSION AGGREGATOR ──────────
     ns3Session = initializeNS3Session(userId, sessionId);
-    ns3TickCounter = 0;
+    ns3PersistCounter = 0;
+    ns3WindowBuffer = [];
+    ns3WindowStart = null;
 
     // Pre-session intelligence (non-blocking)
     let preSessionAnalysis = null;
@@ -974,14 +991,17 @@ function createOrchestrator(callbacks = {}) {
       // Non-blocking
     }
 
-    // ── [NS3] NERVOUS SYSTEM STATE SCORE — EVERY 5 SECONDS ──
-    // Paused during somatic reset phase. Resumes after onSomaticComplete().
-    ns3TickCounter++;
-    if (ns3Session && ns3TickCounter >= 5 && !somaticActive) {
-      ns3TickCounter = 0;
+    // ── [NS3] NERVOUS SYSTEM STATE SCORE — OPTION E ──────
+    // Compute every breathing-phase tick (~1 Hz). Aggregate
+    // per-tick results into an in-memory 5-tick window buffer.
+    // Persist the window's mean aggregate to ns3_snapshots on
+    // the 5th tick. Gated by !somaticActive: during somatic
+    // reset, both compute and persistence pause; the window
+    // buffer and counter are retained (not cleared) so the
+    // current window resumes after onSomaticComplete.
+    if (ns3Session && !somaticActive) {
       try {
         const rrBuffer = biometrics.rr_intervals || biometrics.rrIntervals || [];
-        try { const fs = require('fs'); fs.appendFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} RR buffer received | len=${rrBuffer.length} | firstFew=${JSON.stringify(rrBuffer.slice(0,3).map(v=>typeof v==='number'?Math.round(v):v))}\n`); } catch(e) {}
         if (rrBuffer.length >= 2) {
           ns3Session.sessionMinute = Math.floor(elapsed / 60);
 
@@ -992,6 +1012,8 @@ function createOrchestrator(callbacks = {}) {
           const sdnn = biometrics.sdnn || null;
           if (sdnn !== null) ns3Session.sdnnHistory.push(sdnn);
 
+          // Per-tick NS3 computation with timing telemetry
+          const _ns3Start = Date.now();
           const ns3Result = await ns3BiometricTick({
             participantId: userId,
             sessionId,
@@ -1007,16 +1029,70 @@ function createOrchestrator(callbacks = {}) {
             arrivalComplete: sessionPhase === 'breathing',
             breathMatchActive: adaptedSession?.adaptive_ratio || false,
           });
+          console.log(`[NS3] compute took ${Date.now() - _ns3Start}ms`);
 
           // [CP3] Structured log — NS3 computation
           console.log(`[CP3][${new Date().toISOString()}] NS3_CALC | SCORE:${ns3Result.ns3Score} ZONE:${ns3Result.zone} PREV:${result.ns3?.score || 'none'} DEVICE:${biometrics.device_type || 'unknown'}`);
 
+          // Client-facing response (fresh every tick)
           result.ns3 = {
             score: ns3Result.ns3Score,
             zone: ns3Result.zone,
             coherence: ns3Result.components?.coherence?.raw ?? null,
           };
-          try { const fs = require('fs'); fs.appendFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} NS3 tick | ns3Score=${ns3Result.ns3Score} | zone=${ns3Result.zone} | coherence.raw=${ns3Result.components?.coherence?.raw} | coherence.normalized=${ns3Result.components?.coherence?.normalized} | rrBufferLen=${rrBuffer.length} | dataQuality=${ns3Result.dataQuality}\n`); } catch(e) {}
+
+          // Accumulate into 5-tick persistence window
+          if (!ns3WindowStart) ns3WindowStart = new Date().toISOString();
+          ns3WindowBuffer.push({
+            ns3Score:   ns3Result.ns3Score,
+            zone:       ns3Result.zone,
+            coherence:  ns3Result.components?.coherence?.raw,
+            rmssd:      ns3Result.components?.rmssd?.raw,
+            hrTrend:    ns3Result.components?.hr?.trend,
+            respRate:   ns3Result.components?.respRate?.raw,
+            sdnnTrend:  ns3Result.components?.sdnn?.trend,
+          });
+          ns3PersistCounter++;
+
+          // Flush window mean to ns3_snapshots every 5 ticks
+          if (ns3PersistCounter >= 5) {
+            const _wStart = ns3WindowStart;
+            const _wEnd = new Date().toISOString();
+            const _wBuffer = ns3WindowBuffer;
+            const _mean = (arr) => {
+              const vals = arr.filter(v => v !== null && v !== undefined && !isNaN(v));
+              return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+            };
+            const _ns3MeanVal = _mean(_wBuffer.map(r => r.ns3Score));
+            const snapshot = {
+              ns3Mean:       _ns3MeanVal,
+              coherenceMean: _mean(_wBuffer.map(r => r.coherence)),
+              rmssdMean:     _mean(_wBuffer.map(r => r.rmssd)),
+              hrTrendMean:   _mean(_wBuffer.map(r => r.hrTrend)),
+              respRateMean:  _mean(_wBuffer.map(r => r.respRate)),
+              sdnnTrendMean: _mean(_wBuffer.map(r => r.sdnnTrend)),
+              zone:          _zoneFromScore(_ns3MeanVal),
+              tickCount:     _wBuffer.length,
+            };
+
+            pool.query(
+              `INSERT INTO ns3_snapshots
+                 (user_id, session_id, window_start, window_end, tick_count,
+                  ns3_mean, zone, coherence_mean, rmssd_mean,
+                  hr_trend_mean, resp_rate_mean, sdnn_trend_mean)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+              [userId, sessionId, _wStart, _wEnd, snapshot.tickCount,
+               snapshot.ns3Mean, snapshot.zone, snapshot.coherenceMean, snapshot.rmssdMean,
+               snapshot.hrTrendMean, snapshot.respRateMean, snapshot.sdnnTrendMean]
+            ).catch(err => {
+              console.error('[NS3] Snapshot persist failed (non-blocking):', err.message);
+              Sentry.captureException(err);
+            });
+
+            ns3WindowBuffer = [];
+            ns3PersistCounter = 0;
+            ns3WindowStart = null;
+          }
 
           // Alert on NS3 crisis zone
           if (ns3Result.zone === 'below_window' && ns3Result.ns3Score !== null && ns3Result.ns3Score <= 20) {
@@ -1029,7 +1105,7 @@ function createOrchestrator(callbacks = {}) {
         }
       } catch (err) {
         console.error('[NS3] Tick failed (non-blocking):', err.message);
-      Sentry.captureException(err);
+        Sentry.captureException(err);
       }
     }
 
@@ -1245,6 +1321,39 @@ function createOrchestrator(callbacks = {}) {
     ns3Summary = null;
     if (ns3Session && ns3Session.aggregator) {
       try {
+        // Option E: flush any partial window buffer (<5 ticks) before session-end summary.
+        // Prevents loss of 1–4 final ticks when the session ends mid-window.
+        if (ns3WindowBuffer.length > 0) {
+          const _wStart = ns3WindowStart;
+          const _wEnd = new Date().toISOString();
+          const _wBuffer = ns3WindowBuffer;
+          const _mean = (arr) => {
+            const vals = arr.filter(v => v !== null && v !== undefined && !isNaN(v));
+            return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+          };
+          const _ns3MeanVal = _mean(_wBuffer.map(r => r.ns3Score));
+          pool.query(
+            `INSERT INTO ns3_snapshots
+               (user_id, session_id, window_start, window_end, tick_count,
+                ns3_mean, zone, coherence_mean, rmssd_mean,
+                hr_trend_mean, resp_rate_mean, sdnn_trend_mean)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            [userId, sessionId, _wStart, _wEnd, _wBuffer.length,
+             _ns3MeanVal, _zoneFromScore(_ns3MeanVal),
+             _mean(_wBuffer.map(r => r.coherence)),
+             _mean(_wBuffer.map(r => r.rmssd)),
+             _mean(_wBuffer.map(r => r.hrTrend)),
+             _mean(_wBuffer.map(r => r.respRate)),
+             _mean(_wBuffer.map(r => r.sdnnTrend))]
+          ).catch(err => {
+            console.error('[NS3] Session-end snapshot flush failed (non-blocking):', err.message);
+            Sentry.captureException(err);
+          });
+          ns3WindowBuffer = [];
+          ns3PersistCounter = 0;
+          ns3WindowStart = null;
+        }
+
         ns3Summary = await ns3Complete(ns3Session.aggregator, {
           sessionId,
           participantId: userId,
