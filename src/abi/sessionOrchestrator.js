@@ -162,6 +162,7 @@ function createOrchestrator(callbacks = {}) {
   let ns3PersistCounter = 0;   // Option E: persists every 5 ticks (compute every tick)
   let ns3WindowBuffer = [];    // per-tick NS3 results accumulated for 5-tick mean persistence
   let ns3WindowStart = null;   // ISO timestamp of current window's first tick
+  let ns3UserIdInt = null;     // integer users.id resolved once at session start (ns3_snapshots.user_id is INTEGER)
   let ns3Summary = null;       // populated on session complete
 
   // ── SOMATIC RESET STATE ───────────────────────────────────
@@ -468,6 +469,20 @@ function createOrchestrator(callbacks = {}) {
     ns3PersistCounter = 0;
     ns3WindowBuffer = [];
     ns3WindowStart = null;
+
+    // Resolve integer users.id once for ns3_snapshots INSERTs (column is INTEGER).
+    // userId here is the TEXT users.user_id (e.g. 'user_dev_harness').
+    try {
+      const _uRow = await pool.query(
+        `SELECT id FROM users WHERE user_id = $1`,
+        [userId]
+      );
+      ns3UserIdInt = _uRow.rows[0]?.id || null;
+    } catch (err) {
+      console.error('[NS3] users.id lookup failed (non-blocking):', err.message);
+      Sentry.captureException(err);
+      ns3UserIdInt = null;
+    }
 
     // Pre-session intelligence (non-blocking)
     let preSessionAnalysis = null;
@@ -1075,19 +1090,23 @@ function createOrchestrator(callbacks = {}) {
               tickCount:     _wBuffer.length,
             };
 
-            pool.query(
-              `INSERT INTO ns3_snapshots
-                 (user_id, session_id, window_start, window_end, tick_count,
-                  ns3_mean, zone, coherence_mean, rmssd_mean,
-                  hr_trend_mean, resp_rate_mean, sdnn_trend_mean)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-              [userId, sessionId, _wStart, _wEnd, snapshot.tickCount,
-               snapshot.ns3Mean, snapshot.zone, snapshot.coherenceMean, snapshot.rmssdMean,
-               snapshot.hrTrendMean, snapshot.respRateMean, snapshot.sdnnTrendMean]
-            ).catch(err => {
-              console.error('[NS3] Snapshot persist failed (non-blocking):', err.message);
-              Sentry.captureException(err);
-            });
+            if (ns3UserIdInt === null) {
+              // Lookup failed at session start — already logged. Skip persistence.
+            } else {
+              pool.query(
+                `INSERT INTO ns3_snapshots
+                   (user_id, session_id, window_start, window_end, tick_count,
+                    ns3_mean, zone, coherence_mean, rmssd_mean,
+                    hr_trend_mean, resp_rate_mean, sdnn_trend_mean)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+                [ns3UserIdInt, sessionId, _wStart, _wEnd, snapshot.tickCount,
+                 snapshot.ns3Mean, snapshot.zone, snapshot.coherenceMean, snapshot.rmssdMean,
+                 snapshot.hrTrendMean, snapshot.respRateMean, snapshot.sdnnTrendMean]
+              ).catch(err => {
+                console.error('[NS3] Snapshot persist failed (non-blocking):', err.message);
+                Sentry.captureException(err);
+              });
+            }
 
             ns3WindowBuffer = [];
             ns3PersistCounter = 0;
@@ -1332,23 +1351,27 @@ function createOrchestrator(callbacks = {}) {
             return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
           };
           const _ns3MeanVal = _mean(_wBuffer.map(r => r.ns3Score));
-          pool.query(
-            `INSERT INTO ns3_snapshots
-               (user_id, session_id, window_start, window_end, tick_count,
-                ns3_mean, zone, coherence_mean, rmssd_mean,
-                hr_trend_mean, resp_rate_mean, sdnn_trend_mean)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-            [userId, sessionId, _wStart, _wEnd, _wBuffer.length,
-             _ns3MeanVal, _zoneFromScore(_ns3MeanVal),
-             _mean(_wBuffer.map(r => r.coherence)),
-             _mean(_wBuffer.map(r => r.rmssd)),
-             _mean(_wBuffer.map(r => r.hrTrend)),
-             _mean(_wBuffer.map(r => r.respRate)),
-             _mean(_wBuffer.map(r => r.sdnnTrend))]
-          ).catch(err => {
-            console.error('[NS3] Session-end snapshot flush failed (non-blocking):', err.message);
-            Sentry.captureException(err);
-          });
+          if (ns3UserIdInt === null) {
+            // Lookup failed at session start — already logged. Skip persistence.
+          } else {
+            pool.query(
+              `INSERT INTO ns3_snapshots
+                 (user_id, session_id, window_start, window_end, tick_count,
+                  ns3_mean, zone, coherence_mean, rmssd_mean,
+                  hr_trend_mean, resp_rate_mean, sdnn_trend_mean)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+              [ns3UserIdInt, sessionId, _wStart, _wEnd, _wBuffer.length,
+               _ns3MeanVal, _zoneFromScore(_ns3MeanVal),
+               _mean(_wBuffer.map(r => r.coherence)),
+               _mean(_wBuffer.map(r => r.rmssd)),
+               _mean(_wBuffer.map(r => r.hrTrend)),
+               _mean(_wBuffer.map(r => r.respRate)),
+               _mean(_wBuffer.map(r => r.sdnnTrend))]
+            ).catch(err => {
+              console.error('[NS3] Session-end snapshot flush failed (non-blocking):', err.message);
+              Sentry.captureException(err);
+            });
+          }
           ns3WindowBuffer = [];
           ns3PersistCounter = 0;
           ns3WindowStart = null;
