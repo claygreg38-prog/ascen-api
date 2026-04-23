@@ -175,7 +175,6 @@ function createOrchestrator(callbacks = {}) {
   // ═══════════════════════════════════════════════════════════
 
   async function onSessionStart(_userId, _sessionId, options = {}) {
-    try { const fs = require('fs'); fs.writeFileSync('/tmp/bug1_diagnostic.log', `[BUG1-DIAG] ${new Date().toISOString()} SESSION START | userId=${_userId} | sessionId=${_sessionId}\n`); } catch(e) {}
     userId = _userId;
     sessionId = _sessionId;
     tenantId = options.tenant_id || null;
