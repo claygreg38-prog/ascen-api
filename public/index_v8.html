@@ -1368,7 +1368,7 @@ var DepthEngine = (function() {
         dp:0.2+Math.random()*0.8,
         id:i,
         twinkle:0,
-        twinkleDecay:0.975
+        twinkleDecay:0.91+Math.random()*0.05
       });
     }
     _drawLoop();
@@ -1382,6 +1382,17 @@ var DepthEngine = (function() {
     var w=_canvasW, h=_canvasH;
     if (!w||!h) { _depthRAF=requestAnimationFrame(_drawLoop); return; }
     var prog=_currentProgress, isL=_currentChar==='luno', coRaw=Math.max(0.05,_currentCoherence), co=Math.pow(coRaw, 0.7);
+    if (typeof window._frameCount === 'undefined') window._frameCount = 0;
+    window._frameCount++;
+    if (window._frameCount % 60 === 0) {
+      console.log('[FRAME]', {
+        target: _targetCoherence.toFixed(3),
+        smoothed: _currentCoherence.toFixed(3),
+        coRaw: coRaw.toFixed(3),
+        co: co.toFixed(3),
+        prog: _currentProgress.toFixed(2)
+      });
+    }
     var zones=isL?DEPTH_ZONES:DEPTH_ZONES_LUNA, t=Date.now()*0.001;
     _ctx.clearRect(0,0,w,h);
     var skyCol=getDepthZoneValue(zones,prog,'sky'), waterCol=_getPaletteWaterColor(prog), deepCol=getDepthZoneValue(zones,prog,'deep');
