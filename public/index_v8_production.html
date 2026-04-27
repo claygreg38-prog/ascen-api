@@ -1355,7 +1355,7 @@ var DepthEngine = (function() {
     _ctx = _depthCanvasEl.getContext('2d'); var dpr = window.devicePixelRatio || 1;
     function resize() { _canvasW=_depthCanvasEl.offsetWidth; _canvasH=_depthCanvasEl.offsetHeight; _depthCanvasEl.width=_canvasW*dpr; _depthCanvasEl.height=_canvasH*dpr; _ctx.setTransform(dpr,0,0,dpr,0,0); }
     resize(); window.addEventListener('resize', resize);
-    for (var i = 0; i < 90; i++) {
+    for (var i = 0; i < 150; i++) {
       _depthParticles.push({
         x:Math.random()*(_canvasW||430),
         y:Math.random()*(_canvasH||800),
@@ -1422,7 +1422,7 @@ var DepthEngine = (function() {
     var _activeTwinkles=0;
     for(var _ti=0;_ti<_depthParticles.length;_ti++){if(_depthParticles[_ti].twinkle>0.1)_activeTwinkles++;}
     var _palRatios=getPaletteRatios(_sessionCount);
-    for(var i=0;i<_depthParticles.length;i++){var p=_depthParticles[i];p.ph+=p.ps;p.x+=p.vx+Math.sin(p.ph*0.5)*0.06;p.y+=p.vy+Math.cos(p.ph*0.3)*0.03;if(p.x<-15)p.x=w+15;if(p.x>w+15)p.x=-15;if(p.y<waterTop+5)p.y=h-5;if(p.y>h+10)p.y=waterTop+10;if(i>=visCount)continue;
+    for(var i=0;i<_depthParticles.length;i++){var p=_depthParticles[i];p.ph+=p.ps;p.x+=p.vx+Math.sin(p.ph*0.5)*0.06;p.y+=p.vy+Math.cos(p.ph*0.3)*0.03;if(p.x<-15)p.x=w+15;if(p.x>w+15)p.x=-15;if(p.y<waterTop+5)p.y=h-5;if(p.y>h+10)p.y=waterTop+10;
       // Session palette color dispatch
       var col;
       if(isL){col=particleColor(co,p.id,_palRatios);}else{col=depthLunaC(co*0.75);}
