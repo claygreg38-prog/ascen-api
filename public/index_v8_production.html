@@ -1499,9 +1499,9 @@ var DepthEngine = (function() {
     if (typeof window._debugOverlay === 'undefined') window._debugOverlay = true;
     if (window._debugOverlay) {
       _ctx.save();
-      _ctx.font = '12px monospace';
+      _ctx.font = '14px monospace';
       _ctx.fillStyle = 'rgba(255,255,0,0.85)';
-      _ctx.fillText('twinkles: ' + _activeTwinkles + '/6  shooters: ' + _shooters.length + '  visCount: ' + visCount + '/90  co: ' + co.toFixed(2), 10, 20);
+      _ctx.fillText('twinkles: ' + _activeTwinkles + '/6  shooters: ' + _shooters.length + '  visCount: ' + visCount + '/90  co: ' + co.toFixed(2), w - 320, h - 12);
       _ctx.restore();
     }
     _depthRAF = requestAnimationFrame(_drawLoop);
