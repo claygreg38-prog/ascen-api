@@ -856,7 +856,12 @@ var SSM = (function() {
     var rawMode = (sessionData && sessionData.breath_mode) || 'simple_pacer';
     var mode = MODE_MAP[rawMode] || 'simple_pacer';
     var baseline = null; // arrival baseline if available
-    try { if (typeof BioBridge !== 'undefined') baseline = BioBridge.getArrivalBaseline(); } catch(e) {}
+    try {
+      if (typeof BioBridge !== 'undefined' && typeof Integration !== 'undefined' && Integration.getUserId) {
+        var _userIdForBaseline = Integration.getUserId();
+        if (_userIdForBaseline) baseline = BioBridge.getArrivalBaseline(_userIdForBaseline);
+      }
+    } catch(e) {}
     // Bug 2 fix: synthetic-sourced baselines refuse qualification for breath modes
     // beyond simple_pacer. Synthetic HRV is random noise and should not drive
     // physiologically-gated breath mode selection.
@@ -1541,12 +1546,21 @@ var DepthEngine = (function() {
 var BioBridge = (function() {
 
   // ── PER-USER STATE INFRASTRUCTURE ─────────────────────────────────
-  // Step 2: Map-keyed internals with _currentUserId placeholder.
-  // Step 3 replaces _currentUserId with explicit userId parameters.
+  // Map-keyed state. All public methods take userId as first parameter.
+  // RRM-ready architecture; current production runs single-user.
 
   var _users = new Map();              // Map<userId, UserState>
   var _bioListeners = new Map();       // Map<userId, Map<eventName, [callback, ...]>>
-  var _currentUserId = null;           // implicit-routing placeholder, removed in Step 3
+
+  function _anyStreamConnected() {
+    var iter = _users.values();
+    var v = iter.next();
+    while (!v.done) {
+      if (v.value && v.value.stream && v.value.stream.bleConnected) return true;
+      v = iter.next();
+    }
+    return false;
+  }
 
   function _createBioStream(ownerId) {
     return {
@@ -1591,17 +1605,16 @@ var BioBridge = (function() {
     return _users.get(userId);
   }
 
-  function _u() {
-    if (!_currentUserId) return null;
-    return _users.get(_currentUserId) || null;
+  function _u(userId) {
+    if (!userId) return null;
+    return _users.get(userId) || null;
   }
 
-  // ── EVENT BUS (per-user, keyed on _currentUserId in Step 2) ───────
+  // ── EVENT BUS (per-user, explicit userId) ─────────────────────────
 
-  function bioOn(eventName, callback) {
-    var userId = _currentUserId;
+  function bioOn(userId, eventName, callback) {
     if (!userId) {
-      console.warn('[BIO] bioOn called with no _currentUserId — subscription dropped');
+      console.warn('[BIO] bioOn called with no userId — subscription dropped');
       return function noop() {};
     }
     if (!_bioListeners.has(userId)) _bioListeners.set(userId, new Map());
@@ -1689,19 +1702,16 @@ var BioBridge = (function() {
     if (u.coherenceHistory.length > 300) u.coherenceHistory = u.coherenceHistory.slice(-300);
   }
 
-  function _setSelectedRatio(userId, result) {
+  function setSelectedRatio(userId, result) {
     if (!userId) return;
     var u = _users.get(userId);
     if (u) u.selectedRatio = result;
   }
 
-  // ── PUBLIC API (Step 2: signatures unchanged; route via _currentUserId) ──
+  // ── PUBLIC API (Step 3: explicit userId on every method) ──────────
 
-  function initBiometricBridge(sessionNumber, sessionData) {
-    var userId = (typeof Integration !== 'undefined' && Integration.getUserId)
-      ? (Integration.getUserId() || '_default')
-      : '_default';
-    _currentUserId = userId;
+  function initBiometricBridge(userId, sessionNumber, sessionData) {
+    if (!userId) { console.warn('[BIO] initBiometricBridge called with no userId — aborting'); return; }
     var u = _getOrInitUser(userId);
 
     u.sessionNumber = sessionNumber || 0;
@@ -1744,14 +1754,13 @@ var BioBridge = (function() {
     }
     _bioListeners.delete(userId);
     _users.delete(userId);
-    if (_currentUserId === userId) _currentUserId = null;
     console.log('[BIO] User destroyed:', userId);
     return { ok: true };
   }
 
-  function startArrivalCollection() {
-    var u = _u();
-    if (!u) { console.warn('[BIO] startArrivalCollection: no current user'); return; }
+  function startArrivalCollection(userId) {
+    var u = _u(userId);
+    if (!u) { console.warn('[BIO] startArrivalCollection: no user for', userId); return; }
     if (u.arrivalInterval) {
       console.log('[BIO] Arrival collection already in progress, not restarting');
       return;
@@ -1864,13 +1873,12 @@ var BioBridge = (function() {
     _attemptBaselineUpgradeFor(u);
   }
 
-  function startTicks() {
-    var u = _u();
-    if (!u) { console.warn('[BIO] startTicks: no current user'); return; }
+  function startTicks(userId) {
+    var u = _u(userId);
+    if (!u) { console.warn('[BIO] startTicks: no user for', userId); return; }
     if (u.tickInterval) return;
     u.tickCount = 0;
     console.log('[BIO] Starting ticks');
-    var userId = u.userId;
     u.tickInterval = setInterval(function() {
       var u2 = _users.get(userId); if (!u2) return;
       u2.tickCount++;
@@ -1886,32 +1894,32 @@ var BioBridge = (function() {
     }, TICK_INTERVAL_MS);
   }
 
-  function stopTicks() {
-    var u = _u(); if (!u) return;
+  function stopTicks(userId) {
+    var u = _u(userId); if (!u) return;
     if (u.tickInterval) { clearInterval(u.tickInterval); u.tickInterval = null; }
   }
 
-  function updateFromTickResponse(response) {
-    var u = _u(); if (!u) return;
+  function updateFromTickResponse(userId, response) {
+    var u = _u(userId); if (!u) return;
     if (response && response.coherence !== undefined && response.coherence !== null) u.lastServerCoherence = response.coherence;
     if (response && response.ns3 !== undefined && response.ns3 !== null) u.currentNS3 = response.ns3;
     if (response && response.adjustments && response.adjustments.visual_warmth !== undefined) _userUpdateCoherence(u, response.adjustments.visual_warmth);
   }
 
-  function applyServerCoherence(value) {
-    var u = _u(); if (!u) return;
+  function applyServerCoherence(userId, value) {
+    var u = _u(userId); if (!u) return;
     if (value === undefined || value === null) return;
     _userUpdateCoherence(u, value);
   }
 
+  // determineBreathParams is PURE — no closure-state side effects.
+  // Callers that need to persist the result call setSelectedRatio(userId, result).
   function determineBreathParams(baseline, sessionConfig, history) {
     sessionConfig = sessionConfig || {};
     history = history || {};
     if (sessionConfig.ratio && sessionConfig.adaptive_ratio !== true) {
       var parsed = _getRatio(sessionConfig.ratio);
-      var r1 = _buildRatioResult(parsed, 'hardcoded', 'Fixed ratio from session config', sessionConfig.hold_seconds || 0);
-      _setSelectedRatio(_currentUserId, r1);
-      return r1;
+      return _buildRatioResult(parsed, 'hardcoded', 'Fixed ratio from session config', sessionConfig.hold_seconds || 0);
     }
     var baselineSource = baseline ? baseline.source : null;
     var isSyntheticSource = (baselineSource === 'synthetic' || baselineSource === 'h10_timeout_synthetic');
@@ -1921,9 +1929,7 @@ var BioBridge = (function() {
       var _synthReason = 'synthetic baseline — no real HRV data';
       console.log('[BREATH-PARAMS] Synthetic baseline detected, defaulting to gentle | source:', baselineSource);
       var _synthHold = sessionConfig.hold_seconds || 0;
-      var _synthResult = _buildRatioResult(_synthSelected, _synthTrack, _synthReason, _synthHold);
-      _setSelectedRatio(_currentUserId, _synthResult);
-      return _synthResult;
+      return _buildRatioResult(_synthSelected, _synthTrack, _synthReason, _synthHold);
     }
     var hrv = baseline ? (baseline.mean_hrv || baseline.hrv_rmssd || null) : null;
     var capacityState = sessionConfig.capacity_state || null;
@@ -1944,9 +1950,7 @@ var BioBridge = (function() {
       else { track = 'standard'; selected = _getRatio('4:7'); reason = 'HRV > 50'; }
     } else { track = 'gentle'; selected = _getRatio('3:5'); reason = 'No HRV data'; }
     var hold = sessionConfig.hold_seconds || 0;
-    var result = _buildRatioResult(selected, track, reason, hold);
-    _setSelectedRatio(_currentUserId, result);
-    return result;
+    return _buildRatioResult(selected, track, reason, hold);
   }
 
   function _buildRatioResult(ratioObj, track, reason, holdSeconds) {
@@ -1958,12 +1962,15 @@ var BioBridge = (function() {
     };
   }
 
-  async function connectH10() {
-    var u = _u();
-    if (!u) return false;
-    if (!navigator.bluetooth) { console.warn('[BLE] Web Bluetooth not available'); return false; }
+  async function connectH10(userId) {
+    var u = _u(userId);
+    if (!u) return { ok: false, reason: 'user_not_initialized' };
+    if (_anyStreamConnected()) {
+      console.warn('[BIO] Refusing connect — another stream is already active');
+      return { ok: false, reason: 'another_stream_active' };
+    }
+    if (!navigator.bluetooth) { console.warn('[BLE] Web Bluetooth not available'); return { ok: false, reason: 'web_bluetooth_unavailable' }; }
     var s = u.stream;
-    var userId = u.userId;
     try {
       s.bleDevice = await navigator.bluetooth.requestDevice({ filters: [{ services: [0x180D] }], optionalServices: [0x180D] });
       var server = await s.bleDevice.gatt.connect();
@@ -2026,19 +2033,23 @@ var BioBridge = (function() {
       _bioEmit(userId, 'sourceChanged', { source: 'h10', previous: 'synthetic' });
       console.log('[BLE] H10 connected, HR notifications active');
       _attemptBaselineUpgradeFor(u);
-      return true;
+      return { ok: true, device: s.bleDevice.name };
     } catch (e) {
-      console.warn('[BLE] Connection failed:', e.message);
+      var msg = e && e.message ? e.message : '';
+      console.warn('[BLE] Connection failed:', msg);
       s.bleConnected = false;
       s.activeSource = 'synthetic';
-      return false;
+      if (e && e.name === 'NotFoundError') return { ok: false, reason: 'user_cancelled' };
+      return { ok: false, reason: 'connect_failed', detail: msg };
     }
   }
 
-  function disconnectH10() {
-    var u = _u(); if (!u) return;
-    if (u.baselineUpgradeTimer) { clearInterval(u.baselineUpgradeTimer); u.baselineUpgradeTimer = null; }
+  function disconnectH10(userId) {
+    var u = _u(userId);
+    if (!u) return { ok: false, reason: 'user_not_initialized' };
     var s = u.stream;
+    if (!s.bleConnected && !s.bleDevice) return { ok: false, reason: 'not_connected' };
+    if (u.baselineUpgradeTimer) { clearInterval(u.baselineUpgradeTimer); u.baselineUpgradeTimer = null; }
     if (s.bleCharacteristic) { try { s.bleCharacteristic = null; } catch(e) {} s.bleCharacteristic = null; }
     if (s.bleDevice && s.bleDevice.gatt && s.bleDevice.gatt.connected) s.bleDevice.gatt.disconnect();
     s.bleDevice = null;
@@ -2050,6 +2061,7 @@ var BioBridge = (function() {
       s.activeSource = 'synthetic';
       _bioEmit(u.userId, 'sourceChanged', { source: 'synthetic', previous: 'h10' });
     }
+    return { ok: true };
   }
 
   function _attemptBaselineUpgradeFor(u) {
@@ -2097,14 +2109,14 @@ var BioBridge = (function() {
     }, 500);
   }
 
-  function emitTick(data) {
-    var u = _u(); if (!u) return;
-    _bioEmit(u.userId, 'biometricTick', data);
+  function emitTick(userId, data) {
+    var u = _u(userId); if (!u) return;
+    _bioEmit(userId, 'biometricTick', data);
   }
 
-  function getActiveSource() { var u = _u(); return u ? u.stream.activeSource : 'synthetic'; }
-  function getCurrentBiometrics() {
-    var u = _u(); if (!u) return null;
+  function getActiveSource(userId) { var u = _u(userId); return u ? u.stream.activeSource : 'synthetic'; }
+  function getCurrentBiometrics(userId) {
+    var u = _u(userId); if (!u) return null;
     var s = u.stream;
     if (!s.lastSample) return _userGetCurrentRawSample(u);
     return {
@@ -2117,11 +2129,11 @@ var BioBridge = (function() {
       source: s.lastSample.source
     };
   }
-  function getCurrentNS3() { var u = _u(); return u ? u.currentNS3 : 0; }
-  function getCoherencePeak() { var u = _u(); return u ? u.coherencePeak : 0; }
-  function getArrivalBaseline() { var u = _u(); return u ? u.arrivalBaseline : null; }
-  function getSelectedRatio() { var u = _u(); return u ? u.selectedRatio : null; }
-  function isInRegulationWindow() { var u = _u(); return u ? u.currentNS3 >= NS3_REGULATION_THRESHOLD : false; }
+  function getCurrentNS3(userId) { var u = _u(userId); return u ? u.currentNS3 : 0; }
+  function getCoherencePeak(userId) { var u = _u(userId); return u ? u.coherencePeak : 0; }
+  function getArrivalBaseline(userId) { var u = _u(userId); return u ? u.arrivalBaseline : null; }
+  function getSelectedRatio(userId) { var u = _u(userId); return u ? u.selectedRatio : null; }
+  function isInRegulationWindow(userId) { var u = _u(userId); return u ? u.currentNS3 >= NS3_REGULATION_THRESHOLD : false; }
 
   return {
     initBiometricBridge: initBiometricBridge,
@@ -2130,14 +2142,15 @@ var BioBridge = (function() {
     getActiveSource: getActiveSource, getCurrentBiometrics: getCurrentBiometrics,
     getCurrentNS3: getCurrentNS3, getCoherencePeak: getCoherencePeak,
     getArrivalBaseline: getArrivalBaseline, getSelectedRatio: getSelectedRatio,
+    setSelectedRatio: setSelectedRatio,
     isInRegulationWindow: isInRegulationWindow,
-    _isArrivalRunning: function() { var u = _u(); return u ? u.arrivalInterval !== null : false; },
-    _getArrivalSampleSource: function() { var u = _u(); return u ? u.arrivalLastSampleSource : null; },
-    _forceRestartArrivalCollection: function() {
-      var u = _u(); if (!u) return;
+    _isArrivalRunning: function(userId) { var u = _u(userId); return u ? u.arrivalInterval !== null : false; },
+    _getArrivalSampleSource: function(userId) { var u = _u(userId); return u ? u.arrivalLastSampleSource : null; },
+    _forceRestartArrivalCollection: function(userId) {
+      var u = _u(userId); if (!u) return;
       if (u.arrivalInterval) { clearInterval(u.arrivalInterval); u.arrivalInterval = null; }
       console.log('[BIO] Force restart: clearing existing arrival collection');
-      startArrivalCollection();
+      startArrivalCollection(userId);
     },
     determineBreathParams: determineBreathParams,
     startArrivalCollection: startArrivalCollection,
@@ -2177,7 +2190,7 @@ var Dialogue = (function() {
   async function _checkTTSAvailable(){try{var res=await fetch(_apiBaseUrl+'/api/tts/available');if(res.ok){var d=await res.json();_ttsAvailable=d.available===true;}console.log('[TTS] Available:',_ttsAvailable);}catch(e){_ttsAvailable=false;}}
   function setSessionContext(sessionNumber,sessionData,character){_sessionNumber=sessionNumber||1;_sessionData=sessionData||null;_currentCharacter=character||'luno';}
 
-  function resolveDialogue(phase){var sd=_sessionData;if(sd&&sd.dialogue_phases&&sd.dialogue_phases[phase]){var phaseData=sd.dialogue_phases[phase];if(phaseData.ns3_gated&&_biometricBridge){var ns3=_biometricBridge.getCurrentNS3();var threshold=phaseData.ns3_threshold||30;if(ns3<threshold&&phaseData.dialogue_safe_path)return{lines:_normalizeLines(phaseData.dialogue_safe_path),source:'api_safe_path'};if(phaseData.dialogue_standard)return{lines:_normalizeLines(phaseData.dialogue_standard),source:'api_standard'};}var lines=phaseData.lines||phaseData.dialogue||phaseData;if(Array.isArray(lines)&&lines.length>0)return{lines:_normalizeLines(lines),source:'api'};}if(sd){if(phase==='arrival'&&sd.luno_arrival)return{lines:_htmlToLines(sd.luno_arrival),source:'legacy'};if((phase==='before_the_breath'||phase==='breathing')&&sd.luno_mid)return{lines:_htmlToLines(sd.luno_mid),source:'legacy'};if((phase==='shift'||phase==='close')&&sd.luno_close)return{lines:_htmlToLines(sd.luno_close),source:'legacy'};}if(DEFAULT_DIALOGUE[phase])return{lines:DEFAULT_DIALOGUE[phase].slice(),source:'default'};return{lines:[],source:'none'};}
+  function resolveDialogue(phase){var sd=_sessionData;if(sd&&sd.dialogue_phases&&sd.dialogue_phases[phase]){var phaseData=sd.dialogue_phases[phase];if(phaseData.ns3_gated&&_biometricBridge){var _dlgUid=(typeof Integration!=='undefined'&&Integration.getUserId)?Integration.getUserId():null;var ns3=_dlgUid?_biometricBridge.getCurrentNS3(_dlgUid):0;var threshold=phaseData.ns3_threshold||30;if(ns3<threshold&&phaseData.dialogue_safe_path)return{lines:_normalizeLines(phaseData.dialogue_safe_path),source:'api_safe_path'};if(phaseData.dialogue_standard)return{lines:_normalizeLines(phaseData.dialogue_standard),source:'api_standard'};}var lines=phaseData.lines||phaseData.dialogue||phaseData;if(Array.isArray(lines)&&lines.length>0)return{lines:_normalizeLines(lines),source:'api'};}if(sd){if(phase==='arrival'&&sd.luno_arrival)return{lines:_htmlToLines(sd.luno_arrival),source:'legacy'};if((phase==='before_the_breath'||phase==='breathing')&&sd.luno_mid)return{lines:_htmlToLines(sd.luno_mid),source:'legacy'};if((phase==='shift'||phase==='close')&&sd.luno_close)return{lines:_htmlToLines(sd.luno_close),source:'legacy'};}if(DEFAULT_DIALOGUE[phase])return{lines:DEFAULT_DIALOGUE[phase].slice(),source:'default'};return{lines:[],source:'none'};}
   function _normalizeLines(lines){if(!Array.isArray(lines))return _toArray(lines);return lines.map(function(l){if(typeof l==='string')return l;if(l&&typeof l==='object'&&l.text!==undefined)return l.text;return''});}
   function _toArray(val){if(Array.isArray(val))return val;if(typeof val==='string')return[val];return[];}
   function _htmlToLines(html){if(!html)return[];return html.split(/<br\s*\/?>/gi).map(function(line){return line.replace(/<[^>]*>/g,'').trim()}).filter(function(line){return line.length>0})}
@@ -2356,7 +2369,7 @@ var SessionUI = (function() {
 
   var _containerEl=null,_activeView='immersive',_pacerRatio={inhale:4,hold:0,exhale:6},_pacerCycleMs=10000,_orbitRaf=null;
   var _lunoTapCount=0,_lunoTapTimer=null,_apiBaseUrl='',_apiStatus='connecting',_apiSessions=[],_completedSessions={};
-  var _stateMachine=null,_biometricBridge=null,_dialogueDelivery=null;
+  var _stateMachine=null,_biometricBridge=null,_dialogueDelivery=null,_boundUserId=null,_bleButtonAvailable=false;
   var _baselineReady=false,_synthFallbackTimer=null;
   function _enableTapButton(source){_baselineReady=true;if(_synthFallbackTimer){clearTimeout(_synthFallbackTimer);_synthFallbackTimer=null;}var tp=$('tapP');if(tp){tp.classList.remove('tap-disabled');}var sub=$('tapSub');if(sub){sub.textContent='Ready. Tap when you are.';}console.log('[UI] Session start button enabled — baseline:',source);}
   function _updateTapSubtitle(text){var sub=$('tapSub');if(sub)sub.textContent=text;}
@@ -2376,11 +2389,22 @@ var SessionUI = (function() {
     // BLE pairing button
     var bleBtn=$('bleBtn');
     if(bleBtn){
-      if(navigator.bluetooth){bleBtn.style.display='';
+      if(navigator.bluetooth){
+        // BLE button starts hidden; setBleButtonAvailable(true) reveals it after applySession completes
+        bleBtn.style.display='none';
         bleBtn.addEventListener('click',async function(){
-          if(_biometricBridge&&_biometricBridge.getActiveSource()==='h10'){_biometricBridge.disconnectH10();_updateBleBtn(false);return;}
+          if(!_boundUserId){_showBleStatus('Select a session before connecting');return;}
+          if(_biometricBridge&&_biometricBridge.getActiveSource(_boundUserId)==='h10'){
+            _biometricBridge.disconnectH10(_boundUserId);
+            _updateBleBtn(false);
+            return;
+          }
           bleBtn.textContent='SCANNING...';bleBtn.disabled=true;
-          try{var ok=_biometricBridge&&await _biometricBridge.connectH10();_updateBleBtn(!!ok);}catch(e){_updateBleBtn(false);}
+          try{
+            var result=_biometricBridge?await _biometricBridge.connectH10(_boundUserId):{ok:false,reason:'no_bridge'};
+            if(result&&result.ok){_updateBleBtn(true);_showBleStatus('');}
+            else{_updateBleBtn(false);_showBleStatus(_bleStatusMessageFor(result&&result.reason));}
+          }catch(e){_updateBleBtn(false);_showBleStatus('Connection error');}
           bleBtn.disabled=false;
         });
       }else{bleBtn.style.display='none';}
@@ -2431,12 +2455,73 @@ var SessionUI = (function() {
     ssm.on('onBreathTick',function(data){updateBreathCounter(data.breathCount,data.totalBreaths);});
     ssm.on('onBreathPhase',function(data){updateBreathPhaseLabel(data.phase);});
     ssm.on('onBreathingStart',function(data){_buildDots(data.totalBreaths);_updateDots(1,data.totalBreaths);var totalEl=$('breathTotal');if(totalEl)totalEl.textContent=data.totalBreaths;var numEl=$('breathNum');if(numEl)numEl.textContent='1';var counterEl=$('breathCounter');if(counterEl)counterEl.style.display='flex';});
-    ssm.on('onSessionComplete',function(metrics){hidePacer();var mirrorData={breathCount:metrics.breathCount,durationSeconds:metrics.durationSeconds,coherencePeak:_biometricBridge?_biometricBridge.getCoherencePeak():0};showOverlay('mirror',mirrorData);});
+    ssm.on('onSessionComplete',function(metrics){hidePacer();var mirrorData={breathCount:metrics.breathCount,durationSeconds:metrics.durationSeconds,coherencePeak:(_biometricBridge&&_boundUserId)?_biometricBridge.getCoherencePeak(_boundUserId):0};showOverlay('mirror',mirrorData);});
     ssm.on('onDriftingWord',function(data){showDriftingWord(data.text,data.duration)});
     ssm.on('onPhaseChange',function(phase){if(phase==='descent'){showDescentOverlay();var lc=$('lunoCon');if(lc)lc.classList.add('lc-revealed');}if(phase==='opening')hideDescentOverlay();if(phase==='surface'){hideDescentOverlay();var lc2=$('lunoCon');if(lc2)lc2.classList.remove('lc-revealed');}});
     ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');var lc=$('lunoCon');if(lc)lc.classList.remove('lc-revealed');});
   }
-  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalComplete',function(baseline){var ratio=bio.getSelectedRatio();if(ratio)updatePacer(ratio);_enableTapButton(baseline&&baseline.source||'unknown');});bio.on('arrivalSample',function(data){var remaining=30-data.sampleNumber;if(remaining>0)_updateTapSubtitle('Capturing baseline... ~'+remaining+'s remaining');});bio.on('biometricTick',function(data){updateDashboard(data.sample);});bio.on('bleConnected',function(){_updateBleBtn(true);var running=bio._isArrivalRunning();var baseline=bio.getArrivalBaseline();var currentSampleSource=bio._getArrivalSampleSource();console.log('[BIO] bleConnected handler entry | baseline:',baseline,'| running:',running,'| sampleSource:',currentSampleSource);if(!baseline&&!running){bio.startArrivalCollection();console.log('[BIO] CASE 1: BLE connected before session init — starting arrival collection');}else if(!baseline&&running&&currentSampleSource!=='h10'){console.log('[BIO] CASE 2: BLE connected mid-arrival (non-H10 source) — force restarting arrival with H10 data (Bug 6 fix) | sourceWas:',currentSampleSource);bio._forceRestartArrivalCollection();}else{console.log('[BIO] CASE 3: BLE connected — arrival state OK (baseline:',!!baseline,'running:',running,'source:',currentSampleSource,'), no action needed');}});bio.on('sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});if(!bio.getArrivalBaseline()&&!bio._isArrivalRunning()){bio.startArrivalCollection();console.log('[BIO] Session init — starting arrival collection (Bug 3 fix)');}}
+  function _bleStatusMessageFor(reason){
+    if(reason==='another_stream_active')return "Another participant's H10 is connected. Disconnect first.";
+    if(reason==='web_bluetooth_unavailable')return 'Bluetooth not available in this browser.';
+    if(reason==='user_cancelled')return '';
+    if(reason==='connect_failed')return "Couldn't connect to H10. Check the strap and try again.";
+    if(reason==='user_not_initialized')return 'Start a session first.';
+    if(reason==='no_bridge')return 'Bridge not ready.';
+    return '';
+  }
+  function _showBleStatus(message){
+    var el=$('bleStatus');
+    if(!el){
+      el=document.createElement('div');
+      el.id='bleStatus';
+      el.style.cssText='position:absolute;font-size:11px;color:#f84;margin-top:4px;text-align:center;';
+      var btn=$('bleBtn');
+      if(btn&&btn.parentNode)btn.parentNode.appendChild(el);
+    }
+    el.textContent=message||'';
+  }
+  function setBleButtonAvailable(available){
+    _bleButtonAvailable=!!available;
+    var btn=$('bleBtn');
+    if(btn&&navigator.bluetooth)btn.style.display=available?'':'none';
+  }
+  function connectToBiometricBridge(bio){_biometricBridge=bio;}
+  function bindUser(userId){
+    if(!userId||!_biometricBridge)return;
+    _boundUserId=userId;
+    var bio=_biometricBridge;
+    bio.on(userId,'arrivalComplete',function(baseline){
+      var ratio=bio.getSelectedRatio(userId);
+      if(ratio)updatePacer(ratio);
+      _enableTapButton(baseline&&baseline.source||'unknown');
+    });
+    bio.on(userId,'arrivalSample',function(data){
+      var remaining=30-data.sampleNumber;
+      if(remaining>0)_updateTapSubtitle('Capturing baseline... ~'+remaining+'s remaining');
+    });
+    bio.on(userId,'biometricTick',function(data){updateDashboard(data.sample);});
+    bio.on(userId,'bleConnected',function(){
+      _updateBleBtn(true);
+      var running=bio._isArrivalRunning(userId);
+      var baseline=bio.getArrivalBaseline(userId);
+      var currentSampleSource=bio._getArrivalSampleSource(userId);
+      console.log('[BIO] bleConnected handler entry | baseline:',baseline,'| running:',running,'| sampleSource:',currentSampleSource);
+      if(!baseline&&!running){
+        bio.startArrivalCollection(userId);
+        console.log('[BIO] CASE 1: BLE connected before session init — starting arrival collection');
+      }else if(!baseline&&running&&currentSampleSource!=='h10'){
+        console.log('[BIO] CASE 2: BLE connected mid-arrival (non-H10 source) — force restarting arrival with H10 data (Bug 6 fix) | sourceWas:',currentSampleSource);
+        bio._forceRestartArrivalCollection(userId);
+      }else{
+        console.log('[BIO] CASE 3: BLE connected — arrival state OK (baseline:',!!baseline,'running:',running,'source:',currentSampleSource,'), no action needed');
+      }
+    });
+    bio.on(userId,'sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});
+    if(!bio.getArrivalBaseline(userId)&&!bio._isArrivalRunning(userId)){
+      bio.startArrivalCollection(userId);
+      console.log('[BIO] Session init — starting arrival collection (Bug 3 fix)');
+    }
+  }
   function _updateBleBtn(connected){var btn=$('bleBtn');if(!btn)return;if(connected){btn.className='ble-connected';btn.innerHTML='<span class="ble-dot"></span>H10 CONNECTED';}else{btn.className='';btn.innerHTML='<span class="ble-dot"></span>CONNECT';}}
   function connectToDialogueDelivery(dlg){_dialogueDelivery=dlg;}
   function showSessionStartError(){var overlay=document.createElement('div');overlay.id='sessionStartErrorOverlay';overlay.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(10,37,64,0.95);color:#e8f1ff;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:9999;font-family:inherit;padding:40px;text-align:center;';overlay.innerHTML='<div style="max-width:400px;line-height:1.6;"><p style="font-size:18px;margin-bottom:16px;">Take a breath.</p><p style="font-size:16px;margin-bottom:16px;">The system needs a moment to connect.</p><p style="font-size:14px;color:#7aa8d4;margin-bottom:32px;">Please try again in a minute. Your work is safe.</p><button id="sessionErrorDismiss" style="background:#2db8d4;color:#0a2540;border:none;padding:12px 32px;font-size:14px;border-radius:4px;cursor:pointer;font-family:inherit;">Return to surface</button></div>';document.body.appendChild(overlay);document.getElementById('sessionErrorDismiss').addEventListener('click',function(){var el=document.getElementById('sessionStartErrorOverlay');if(el)el.parentNode.removeChild(el);if(typeof SSM!=='undefined'&&SSM.resetSession)SSM.resetSession();});}
@@ -2450,6 +2535,7 @@ var SessionUI = (function() {
     showDescentOverlay:showDescentOverlay,hideDescentOverlay:hideDescentOverlay,showDriftingWord:showDriftingWord,
     showSessionStartError:showSessionStartError,
     connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,connectToDialogueDelivery:connectToDialogueDelivery,
+    bindUser:bindUser,setBleButtonAvailable:setBleButtonAvailable,
     on:uiOn
   };
 })();
@@ -2507,7 +2593,7 @@ var Integration = (function() {
     var urlParams=new URLSearchParams(window.location.search);_isEmbedded=urlParams.get('embedded')==='true';
     if(_isEmbedded)_initEmbeddedMode();_setApiStatus('connecting');
   }
-  function _initEmbeddedMode(){console.log('[EMBEDDED] Mode active');window.parent.postMessage({type:'iframe_ready'},'*');var readyInterval=setInterval(function(){if(_embeddedAuthReceived){clearInterval(readyInterval);return;}window.parent.postMessage({type:'iframe_ready'},'*');},500);window.addEventListener('message',function(event){var data=event.data||{};if(data.type==='auth'){_embeddedAuthReceived=true;if(data.token&&_abi){_abi.token=data.token;localStorage.setItem('ascen_jwt',data.token);}if(data.apiKey&&_abi)_abi.apiKey=data.apiKey;try{var payload=JSON.parse(atob(data.token.split('.')[1]));_userId=payload.userId||payload.sub||payload.id||_userId;localStorage.setItem('ascen_uid',String(_userId));}catch(e){}console.log('[EMBEDDED] Auth received');loadSessions();}});}
+  function _initEmbeddedMode(){console.log('[EMBEDDED] Mode active');window.parent.postMessage({type:'iframe_ready'},'*');var readyInterval=setInterval(function(){if(_embeddedAuthReceived){clearInterval(readyInterval);return;}window.parent.postMessage({type:'iframe_ready'},'*');},500);window.addEventListener('message',function(event){var data=event.data||{};if(data.type==='auth'){_embeddedAuthReceived=true;if(data.token&&_abi){_abi.token=data.token;localStorage.setItem('ascen_jwt',data.token);}if(data.apiKey&&_abi)_abi.apiKey=data.apiKey;try{var payload=JSON.parse(atob(data.token.split('.')[1]));var _newUserId=payload.userId||payload.sub||payload.id||_userId;if(_newUserId!==_userId&&_userId&&typeof BioBridge!=='undefined')BioBridge.destroyUser(_userId);_userId=_newUserId;localStorage.setItem('ascen_uid',String(_userId));}catch(e){}console.log('[EMBEDDED] Auth received');loadSessions();}});}
   function _notifyParentComplete(sessionNumber){if(_isEmbedded)window.parent.postMessage({type:'session_complete',data:{session_number:sessionNumber}},'*');}
   function _notifyParentExit(){if(_isEmbedded)window.parent.postMessage({type:'session_exit'},'*');}
   function isEmbedded(){return _isEmbedded}
@@ -2520,9 +2606,10 @@ var Integration = (function() {
 
   async function _abiStartSession(sessionNumber,sessionData){
     if(_abiSessionActive) return true;
+    var userIdSnapshot=_userId;
     var sid=(sessionData&&(sessionData.session_id||sessionData.session_key))||('s'+sessionNumber);
     // No try/catch — errors propagate to caller. Caller handles retry + hard block.
-    var r=await _abi.startSession(_userId,sid,{facility_mode:false});
+    var r=await _abi.startSession(userIdSnapshot,sid,{facility_mode:false});
     if(r&&r.session_blocked){console.error('[ABI] Session blocked by orchestrator');throw new Error('Session blocked by orchestrator');}
     _abiSessionActive=true;_abiCoherencePeak=0;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;_lastKnownCoherence=0.25;
     if(_stateMachine)_stateMachine.setAbiSessionActive(true,_abi.sessionKey);
@@ -2530,6 +2617,7 @@ var Integration = (function() {
     return true;
   }
   async function _abiStartSessionWithRetry(sessionNumber,sessionData){
+    var userIdSnapshot=_userId;
     var MAX_ATTEMPTS=3;var BACKOFFS_MS=[0,2000,5000];var lastError=null;
     for(var attempt=0;attempt<MAX_ATTEMPTS;attempt++){
       if(BACKOFFS_MS[attempt]>0){console.log('[ABI] Retry attempt',attempt+1,'of',MAX_ATTEMPTS,'— waiting',BACKOFFS_MS[attempt],'ms');await new Promise(function(r){setTimeout(r,BACKOFFS_MS[attempt]);});}
@@ -2540,6 +2628,7 @@ var Integration = (function() {
   }
   async function _abiForwardArrivalSample(sample){
     if(!_abiSessionActive)return;
+    var userIdSnapshot=_userId;
     // Defensive sanity gate: refuse to POST biometrics that the
     // server validateBiometrics middleware will reject. Validator
     // ranges from abiHardening.js: heart_rate 30-220, respiratory_rate
@@ -2557,17 +2646,17 @@ var Integration = (function() {
     }
     try{await _abi.arrivalSample(sample);}catch(e){console.warn('[ABI] arrival-sample POST failed:',e.message||e);}
   }
-  async function _abiForwardArrivalComplete(baseline){if(!_abiSessionActive)return;try{var r=await _abi.arrivalComplete(baseline);var adapted=r.adapted_session||r;var mode=adapted._breathwork_mode||adapted.breathwork_mode||'simple_pacer';var ratio=adapted.ratio||(r.breath_params&&r.breath_params.ratio)||adapted.breath_ratio||(adapted.breath_in&&adapted.breath_out?adapted.breath_in+':'+adapted.breath_out:null)||'3:5';var track=adapted.track||'standard';_abiModeConfig=getModeConfig(mode,ratio,track);if(_abiModeConfig.requires_selection&&_abiModeConfig.available_ratios&&_sessionUI){_sessionUI.showRatioSelection(_abiModeConfig.available_ratios,function(selectedRatio){_abiModeConfig=getModeConfig(_abiModeConfig.mode,selectedRatio,track);});}return _abiModeConfig;}catch(e){_abiModeConfig=getModeConfig('simple_pacer','3:5','standard');return _abiModeConfig;}}
-  function _abiStartTicks(){if(!_abiSessionActive){console.log('[ABI] Ticks NOT started — _abiSessionActive is false');return;}if(_tickInterval){console.log('[ABI] Ticks NOT started — _tickInterval already set (stale?)');return;}console.log('[ABI] Starting biometric ticks');var tickCount=0;_tickInterval=setInterval(async function(){tickCount++;var bio=_biometricBridge?_biometricBridge.getCurrentBiometrics():{};bio.coherence=_lastKnownCoherence;if(bio.coherence>_abiCoherencePeak)_abiCoherencePeak=bio.coherence;try{var r=await _abi.tick(bio);console.log('[ABI] Tick',tickCount,'response | coherence:',r?r.coherence:'no response','| ns3:',r?r.ns3:'no response','| keys:',r?Object.keys(r).join(','):'none');if(r&&r.coherence!==undefined&&r.coherence!==null){_lastKnownCoherence=r.coherence;if(_biometricBridge&&_biometricBridge.applyServerCoherence)_biometricBridge.applyServerCoherence(r.coherence);if(typeof DepthEngine!=='undefined'&&DepthEngine.setCoherence)DepthEngine.setCoherence(r.coherence);if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.setCoherence(r.coherence);if(typeof VisualDNA!=='undefined'&&VisualDNA.setCohDisplay)VisualDNA.setCohDisplay(r.coherence*100);}if(_biometricBridge){_biometricBridge.updateFromTickResponse(r);var refreshed=_biometricBridge.getCurrentBiometrics();refreshed.coherence=_lastKnownCoherence;_biometricBridge.emitTick({sample:refreshed,ns3:(r&&r.ns3!==undefined&&r.ns3!==null)?r.ns3:0,coherence:_lastKnownCoherence,coherencePeak:_abiCoherencePeak,tickCount:tickCount});}if(r.adjustments&&r.adjustments.visual_warmth!==undefined)_intEmit('visualWarmthChanged',{warmth:r.adjustments.visual_warmth});if(r.coaching&&r.coaching.type==='pause_and_choose')_abiShowIntervention(r.coaching);if(_abiTickQueue.length>0){var queued=_abiTickQueue.shift();try{await _abi.tick(queued);console.log('[ABI] Drained queued tick, backlog:',_abiTickQueue.length);}catch(drainErr){_abiTickQueue.unshift(queued);}}}catch(e){console.warn('[ABI] Tick POST failed, queuing:',e.message||e,'| status:',e.status||'unknown');if(_abiTickQueue.length<_abiTickQueueMaxSize){_abiTickQueue.push(bio);}else{_abiTickQueue.shift();_abiTickQueue.push(bio);console.error('[ABI] Tick queue full, dropped oldest. Backlog:',_abiTickQueue.length);}}if(tickCount%10===0&&_abiTickQueue.length>0)console.log('[ABI] Tick queue depth:',_abiTickQueue.length);},1000);}
+  async function _abiForwardArrivalComplete(baseline){if(!_abiSessionActive)return;var userIdSnapshot=_userId;try{var r=await _abi.arrivalComplete(baseline);var adapted=r.adapted_session||r;var mode=adapted._breathwork_mode||adapted.breathwork_mode||'simple_pacer';var ratio=adapted.ratio||(r.breath_params&&r.breath_params.ratio)||adapted.breath_ratio||(adapted.breath_in&&adapted.breath_out?adapted.breath_in+':'+adapted.breath_out:null)||'3:5';var track=adapted.track||'standard';_abiModeConfig=getModeConfig(mode,ratio,track);if(_abiModeConfig.requires_selection&&_abiModeConfig.available_ratios&&_sessionUI){_sessionUI.showRatioSelection(_abiModeConfig.available_ratios,function(selectedRatio){_abiModeConfig=getModeConfig(_abiModeConfig.mode,selectedRatio,track);});}return _abiModeConfig;}catch(e){_abiModeConfig=getModeConfig('simple_pacer','3:5','standard');return _abiModeConfig;}}
+  function _abiStartTicks(){if(!_abiSessionActive){console.log('[ABI] Ticks NOT started — _abiSessionActive is false');return;}if(_tickInterval){console.log('[ABI] Ticks NOT started — _tickInterval already set (stale?)');return;}console.log('[ABI] Starting biometric ticks');var tickCount=0;_tickInterval=setInterval(async function(){tickCount++;var userIdSnapshot=_userId;if(!userIdSnapshot){console.warn('[ABI] tick fired without userId — skipping');return;}var bio=_biometricBridge?_biometricBridge.getCurrentBiometrics(userIdSnapshot):{};bio.coherence=_lastKnownCoherence;if(bio.coherence>_abiCoherencePeak)_abiCoherencePeak=bio.coherence;try{var r=await _abi.tick(bio);console.log('[ABI] Tick',tickCount,'response | coherence:',r?r.coherence:'no response','| ns3:',r?r.ns3:'no response','| keys:',r?Object.keys(r).join(','):'none');if(r&&r.coherence!==undefined&&r.coherence!==null){_lastKnownCoherence=r.coherence;if(_biometricBridge&&_biometricBridge.applyServerCoherence)_biometricBridge.applyServerCoherence(userIdSnapshot,r.coherence);if(typeof DepthEngine!=='undefined'&&DepthEngine.setCoherence)DepthEngine.setCoherence(r.coherence);if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.setCoherence(r.coherence);if(typeof VisualDNA!=='undefined'&&VisualDNA.setCohDisplay)VisualDNA.setCohDisplay(r.coherence*100);}if(_biometricBridge){_biometricBridge.updateFromTickResponse(userIdSnapshot,r);var refreshed=_biometricBridge.getCurrentBiometrics(userIdSnapshot);refreshed.coherence=_lastKnownCoherence;_biometricBridge.emitTick(userIdSnapshot,{sample:refreshed,ns3:(r&&r.ns3!==undefined&&r.ns3!==null)?r.ns3:0,coherence:_lastKnownCoherence,coherencePeak:_abiCoherencePeak,tickCount:tickCount});}if(r.adjustments&&r.adjustments.visual_warmth!==undefined)_intEmit('visualWarmthChanged',{warmth:r.adjustments.visual_warmth});if(r.coaching&&r.coaching.type==='pause_and_choose')_abiShowIntervention(r.coaching);if(_abiTickQueue.length>0){var queued=_abiTickQueue.shift();try{await _abi.tick(queued);console.log('[ABI] Drained queued tick, backlog:',_abiTickQueue.length);}catch(drainErr){_abiTickQueue.unshift(queued);}}}catch(e){console.warn('[ABI] Tick POST failed, queuing:',e.message||e,'| status:',e.status||'unknown');if(_abiTickQueue.length<_abiTickQueueMaxSize){_abiTickQueue.push(bio);}else{_abiTickQueue.shift();_abiTickQueue.push(bio);console.error('[ABI] Tick queue full, dropped oldest. Backlog:',_abiTickQueue.length);}}if(tickCount%10===0&&_abiTickQueue.length>0)console.log('[ABI] Tick queue depth:',_abiTickQueue.length);},1000);}
   function _abiStopTicks(){if(_tickInterval){clearInterval(_tickInterval);_tickInterval=null;}_abiTickQueue=[];}
   function _abiShowIntervention(coaching){_abiStopTicks();if(_stateMachine)_stateMachine.pauseSession();if(_sessionUI){_sessionUI.showCoachingIntervention(coaching,async function(choice){if(choice==='continue'){try{await _abi.resume();}catch(e){}if(_stateMachine)_stateMachine.resumeSession();_abiStartTicks();}else if(choice==='drill'){try{await _abi.selectDrill('five_senses');}catch(e){if(_stateMachine)_stateMachine.resumeSession();}}else if(choice==='exit'){try{await _abi.exit();}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);_notifyParentExit();}});}}
-  async function _abiCompleteSession(){if(!_abiSessionActive)return;_abiStopTicks();var state=_stateMachine?_stateMachine.getSessionState():{};var metrics={coherence_peak:_abiCoherencePeak,coherence_end:_lastKnownCoherence,cycle_completion_rate:state.totalBreaths>0?Math.min(1,state.breathCount/state.totalBreaths):0.85,breath_count:state.breathCount||0,duration_seconds:state.durationSeconds||0};try{var r=await _abi.completeSession(metrics);_abiMirror=r.mirror||null;_abiAffirmation=r.affirmation||null;_abiAdvancement=r.advancement||null;_verifyOnChain(state.durationSeconds||0);}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);}
-  function _abiCleanup(){_abiStopTicks();_abiSessionActive=false;_abiCoherencePeak=0;_abiModeConfig=null;_lastKnownCoherence=0.25;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;if(_abi)_abi.sessionKey=null;if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.teardown();}
+  async function _abiCompleteSession(){if(!_abiSessionActive)return;var userIdSnapshot=_userId;_abiStopTicks();var state=_stateMachine?_stateMachine.getSessionState():{};var metrics={coherence_peak:_abiCoherencePeak,coherence_end:_lastKnownCoherence,cycle_completion_rate:state.totalBreaths>0?Math.min(1,state.breathCount/state.totalBreaths):0.85,breath_count:state.breathCount||0,duration_seconds:state.durationSeconds||0};try{var r=await _abi.completeSession(metrics);_abiMirror=r.mirror||null;_abiAffirmation=r.affirmation||null;_abiAdvancement=r.advancement||null;_verifyOnChain(state.durationSeconds||0);}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);}
+  function _abiCleanup(){var userIdSnapshot=_userId;_abiStopTicks();_abiSessionActive=false;_abiCoherencePeak=0;_abiModeConfig=null;_lastKnownCoherence=0.25;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;if(_abi)_abi.sessionKey=null;if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.teardown();if(userIdSnapshot&&typeof BioBridge!=='undefined')BioBridge.destroyUser(userIdSnapshot);}
 
-  async function postVaultEntry(data){try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/vault',{method:'POST',headers:headers,body:JSON.stringify({user_id:_userId,session_number:data.session_number||_activeSessionNumber,vault_response:data.text||'',session_type:'individual'})});}catch(e){}}
-  async function postProgress(metrics){try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/progress',{method:'POST',headers:headers,body:JSON.stringify({user_id:_userId,session_number:metrics.sessionNumber||_activeSessionNumber,completed:true,coherence_score:metrics.coherencePeak||(_abiCoherencePeak>0?_abiCoherencePeak:0.5),duration_seconds:metrics.durationSeconds||0,session_type:'individual'})});}catch(e){}}
-  async function _verifyOnChain(duration){try{await _abi.verifyOnChain({user_id:_userId,session_id:(_activeSessionData&&_activeSessionData.session_id)||('s'+_activeSessionNumber),coherence_peak:_abiCoherencePeak,duration:duration});}catch(e){}}
-  async function activateLightBridge(){try{await _abi.activateLightBridge(_userId);}catch(e){}}
+  async function postVaultEntry(data){var userIdSnapshot=_userId;try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/vault',{method:'POST',headers:headers,body:JSON.stringify({user_id:userIdSnapshot,session_number:data.session_number||_activeSessionNumber,vault_response:data.text||'',session_type:'individual'})});}catch(e){}}
+  async function postProgress(metrics){var userIdSnapshot=_userId;try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/progress',{method:'POST',headers:headers,body:JSON.stringify({user_id:userIdSnapshot,session_number:metrics.sessionNumber||_activeSessionNumber,completed:true,coherence_score:metrics.coherencePeak||(_abiCoherencePeak>0?_abiCoherencePeak:0.5),duration_seconds:metrics.durationSeconds||0,session_type:'individual'})});}catch(e){}}
+  async function _verifyOnChain(duration){var userIdSnapshot=_userId;try{await _abi.verifyOnChain({user_id:userIdSnapshot,session_id:(_activeSessionData&&_activeSessionData.session_id)||('s'+_activeSessionNumber),coherence_peak:_abiCoherencePeak,duration:duration});}catch(e){}}
+  async function activateLightBridge(){var userIdSnapshot=_userId;try{await _abi.activateLightBridge(userIdSnapshot);}catch(e){}}
 
   function connectToStateMachine(ssm){
     _stateMachine=ssm;
@@ -2588,7 +2677,12 @@ var Integration = (function() {
     ssm.on('onSessionComplete',function(metrics){postProgress({sessionNumber:metrics.sessionNumber,durationSeconds:metrics.durationSeconds,coherencePeak:_abiCoherencePeak});_notifyParentComplete(metrics.sessionNumber);if(_sessionUI)_sessionUI.markSessionComplete(metrics.sessionNumber);activateLightBridge();});
     ssm.on('onSessionReset',function(){_abiCleanup();});
   }
-  function connectToBiometricBridge(bio){_biometricBridge=bio;bio.on('arrivalSample',function(data){_abiForwardArrivalSample(data.sample)});bio.on('arrivalComplete',function(baseline){_abiForwardArrivalComplete(baseline)});}
+  function connectToBiometricBridge(bio){_biometricBridge=bio;}
+  function bindUser(userId){
+    if(!userId||!_biometricBridge)return;
+    _biometricBridge.on(userId,'arrivalSample',function(data){_abiForwardArrivalSample(data.sample);});
+    _biometricBridge.on(userId,'arrivalComplete',function(baseline){_abiForwardArrivalComplete(baseline);});
+  }
   function connectToSessionUI(ui){_sessionUI=ui;ui.on('vaultSealed',function(data){postVaultEntry(data)});}
   function getAbi(){return _abi}
   function getUserId(){return _userId}
@@ -2599,6 +2693,7 @@ var Integration = (function() {
     setApiStatus:setApiStatus,getApiStatus:getApiStatus,isEmbedded:isEmbedded,getAbi:getAbi,getUserId:getUserId,
     getModeConfig:getModeConfig,
     connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,connectToSessionUI:connectToSessionUI,
+    bindUser:bindUser,
     on:intOn
   };
 })();
@@ -2915,9 +3010,10 @@ var BiofeedbackSound = (function() {
   DepthEngine.initDepthEngine($('oceanBg'), $('depthCanvas'));
   console.log('[ASCEN] Depth Engine initialized — depth: 0');
 
-  // 3. Biometric Bridge
-  BioBridge.initBiometricBridge(0, null);
-  console.log('[ASCEN] Biometric Bridge initialized — source: synthetic');
+  // 3. Biometric Bridge — UserState is created at session start (applySession),
+  //    not at bootstrap. Module loads here as a singleton; per-user state arrives
+  //    when Integration._userId is known and applySession runs.
+  console.log('[ASCEN] Biometric Bridge module loaded — UserState deferred to session start');
 
   // 4. Dialogue Delivery
   Dialogue.initDialogueDelivery(API_BASE, $('dText'));
@@ -3001,13 +3097,24 @@ var BiofeedbackSound = (function() {
     // 2. Visual DNA — controls Luno appearance evolution
     VisualDNA.setSessionState(sessNum, 25, null);
 
-    // 3. Biometric Bridge — session config for ratio selection
-    BioBridge.initBiometricBridge(sessNum, sessionData);
+    // 3. Resolve userId (must be set by initIntegrations before this runs)
+    var userId = (typeof Integration !== 'undefined' && Integration.getUserId) ? Integration.getUserId() : null;
+    if (!userId) { console.error('[ASCEN] applySession aborted — no userId from Integration'); return false; }
 
-    // 4. Session UI — title bar
+    // 4. Biometric Bridge — create UserState for this user
+    BioBridge.initBiometricBridge(userId, sessNum, sessionData);
+
+    // 5. Wire subscribers to the user's per-user event bus
+    SessionUI.bindUser(userId);
+    Integration.bindUser(userId);
+
+    // 6. Session UI — title bar
     SessionUI.updateSessionTitle(sessNum, sessionData.title);
 
-    console.log('[ASCEN] Session applied: S' + sessNum + ' — ' + (sessionData.title || '(no title)') + ' track: ' + (sessionData.track || 'unknown'));
+    // 7. BLE button becomes available now that a user is bound
+    SessionUI.setBleButtonAvailable(true);
+
+    console.log('[ASCEN] Session applied: S' + sessNum + ' — ' + (sessionData.title || '(no title)') + ' track: ' + (sessionData.track || 'unknown') + ' | user: ' + userId);
     return true;
   }
 
