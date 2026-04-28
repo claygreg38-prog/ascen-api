@@ -2197,6 +2197,8 @@ var Dialogue = (function() {
   function _stripHtml(html){if(!html)return'';return html.replace(/<br\s*\/?>/gi,'. ').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim();}
   function _displayText(html,fadeInMs){if(!_dialogueTextEl)return;_dialogueTextEl.innerHTML=html;if(fadeInMs>0){_dialogueTextEl.style.opacity='0';_dialogueTextEl.style.transition='opacity '+fadeInMs+'ms ease-in';void _dialogueTextEl.offsetWidth;_dialogueTextEl.style.opacity='1';}else{_dialogueTextEl.style.transition='none';_dialogueTextEl.style.opacity='1';}}
   async function _displayFade(html,fadeInMs,holdMs,fadeOutMs){if(!_dialogueTextEl)return;_dialogueTextEl.innerHTML=html;_dialogueTextEl.style.opacity='0';_dialogueTextEl.style.transition='opacity '+fadeInMs+'ms ease-in';void _dialogueTextEl.offsetWidth;_dialogueTextEl.style.opacity='1';await _sleep(fadeInMs);await _sleep(holdMs);if(_deliveryAborted)return;_dialogueTextEl.style.transition='opacity '+fadeOutMs+'ms ease-out';_dialogueTextEl.style.opacity='0';await _sleep(fadeOutMs);}
+  async function _displayFadeIn(html,fadeInMs){if(!_dialogueTextEl)return;_dialogueTextEl.innerHTML=html;_dialogueTextEl.style.opacity='0';_dialogueTextEl.style.transition='opacity '+fadeInMs+'ms ease-in';void _dialogueTextEl.offsetWidth;_dialogueTextEl.style.opacity='1';await _sleep(fadeInMs);}
+  async function _displayFadeOut(fadeOutMs){if(!_dialogueTextEl)return;_dialogueTextEl.style.transition='opacity '+fadeOutMs+'ms ease-out';_dialogueTextEl.style.opacity='0';await _sleep(fadeOutMs);}
   function _clearText(){if(!_dialogueTextEl)return;_dialogueTextEl.innerHTML='';_dialogueTextEl.style.opacity='0';}
 
   // ── AUDIO CONTEXT ──
@@ -2305,8 +2307,18 @@ var Dialogue = (function() {
     var mode=displayMode||DISPLAY_MODES[phase]||'visible';var resolved=dialogueLines?{lines:dialogueLines,source:'override'}:resolveDialogue(phase);var lines=resolved.lines;
     for(var i=0;i<lines.length;i++){if(_deliveryAborted)break;while(_deliveryPaused&&!_deliveryAborted){await _sleep(100);}if(_deliveryAborted)break;_currentLineIdx=i;var line=lines[i];
       if(line===''||line===null||line===undefined){await _sleep(EMPTY_LINE_PAUSE);continue;}var cleanText=_stripHtml(line);
-      if(mode==='none'){}else if(mode==='fade'){await _displayFade(line,FADE_IN_MS,FADE_HOLD_MS,FADE_OUT_MS);}else if(mode==='slow_fade'){_displayText(line,SLOW_FADE_IN_MS);}else{_displayText(line,0);}
-      if(cleanText){await speakLuno(cleanText,_mapPhaseToVoicePhase(phase));}if(mode!=='fade'){await _sleep(POST_TTS_HOLD_MS);}
+      if(mode==='fade'){
+        var ttsPromise=cleanText?speakLuno(cleanText,_mapPhaseToVoicePhase(phase)):Promise.resolve();
+        await _displayFadeIn(line,FADE_IN_MS);
+        if(_deliveryAborted)break;
+        await ttsPromise;
+        if(_deliveryAborted)break;
+        await _displayFadeOut(FADE_OUT_MS);
+      }else{
+        if(mode==='none'){}else if(mode==='slow_fade'){_displayText(line,SLOW_FADE_IN_MS);}else{_displayText(line,0);}
+        if(cleanText){await speakLuno(cleanText,_mapPhaseToVoicePhase(phase));}
+        await _sleep(POST_TTS_HOLD_MS);
+      }
       _dlgEmit('lineDelivered',{phase:phase,lineIndex:i,text:line,mode:mode});
     }
     _deliveryActive=false;_dlgEmit('phaseDialogueComplete',{phase:phase,lineCount:lines.length,source:resolved.source});if(_stateMachine)_stateMachine.dialogueComplete();
