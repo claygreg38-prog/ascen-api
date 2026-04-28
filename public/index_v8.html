@@ -1071,6 +1071,13 @@ var SSM = (function() {
     _ssmEmit('onSessionReset');
   }
   function getCurrentPhase() { return currentPhase; }
+  function getNextPhase() {
+    var nextIdx = currentPhaseIdx + 1;
+    if (nextIdx >= PHASE_ORDER.length) return null;
+    var next = PHASE_ORDER[nextIdx];
+    if (next === 'vault' && sessionNumber < VAULT_MIN_SESSION) return null;
+    return next;
+  }
   function getSessionState() {
     return { currentPhase:currentPhase, currentPhaseIdx:currentPhaseIdx, sessionStartTime:sessionStartTime, sessionNumber:sessionNumber, activeApiSession:activeApiSession, abiSessionActive:abiSessionActive, breathCount:breathCount, totalBreaths:totalBreaths, descentProgress:descentProgress, ascentProgress:ascentProgress, sessionComplete:sessionComplete, sessionData:sessionData, paused:paused, durationSeconds: sessionStartTime ? Math.round((Date.now()-sessionStartTime)/1000) : 0 };
   }
@@ -1078,7 +1085,7 @@ var SSM = (function() {
 
   return {
     setSessionData:setSessionData, startSession:startSession, advancePhase:advancePhase, dialogueComplete:dialogueComplete, sealVault:sealVault, recordBreath:recordBreath,
-    getCurrentPhase:getCurrentPhase, getSessionState:getSessionState, pauseSession:pauseSession, resumeSession:resumeSession, resetSession:resetSession,
+    getCurrentPhase:getCurrentPhase, getNextPhase:getNextPhase, getSessionState:getSessionState, pauseSession:pauseSession, resumeSession:resumeSession, resetSession:resetSession,
     setAbiSessionActive:setAbiSessionActive, on:ssmOn, clearAllTimers:clearAllTimers,
     MAX_BREATHING_SECONDS:MAX_BREATHING_SECONDS, PHASE_ORDER:PHASE_ORDER, DESCENT_DURATION:DESCENT_DURATION, ASCENT_DURATION:ASCENT_DURATION, SHIFT_DURATION:SHIFT_DURATION, VAULT_MIN_SESSION:VAULT_MIN_SESSION, DESCENT_WORDS:DESCENT_WORDS, ASCENT_WORDS:ASCENT_WORDS
   };
@@ -2257,6 +2264,15 @@ var Dialogue = (function() {
     }
   }
 
+  // ── PREFETCH TTS (fire-and-forget cache warm for next phase's first line) ──
+  function _prefetchTTS(text,voicePhase){
+    if(!_ttsAvailable||!text||!_audioUnlocked)return;
+    try{
+      fetch(_apiBaseUrl+'/api/tts/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,character:_currentCharacter,phase:voicePhase||'breathing_milestone',session_number:_sessionNumber||1})}).then(function(r){if(r&&r.body&&r.body.cancel){try{r.body.cancel();}catch(e){}}}).catch(function(){});
+      console.log('[TTS] Prefetching:',text.substring(0,50)+(text.length>50?'...':''));
+    }catch(e){}
+  }
+
   // ── PLAY AUDIO FROM URL (Audio element with pulse + timeout) ──
   function _playAudioFromUrl(url){
     return new Promise(function(resolve){
@@ -2307,6 +2323,7 @@ var Dialogue = (function() {
     var mode=displayMode||DISPLAY_MODES[phase]||'visible';var resolved=dialogueLines?{lines:dialogueLines,source:'override'}:resolveDialogue(phase);var lines=resolved.lines;
     for(var i=0;i<lines.length;i++){if(_deliveryAborted)break;while(_deliveryPaused&&!_deliveryAborted){await _sleep(100);}if(_deliveryAborted)break;_currentLineIdx=i;var line=lines[i];
       if(line===''||line===null||line===undefined){await _sleep(EMPTY_LINE_PAUSE);continue;}var cleanText=_stripHtml(line);
+      if(i===lines.length-1&&_stateMachine&&_stateMachine.getNextPhase){try{var _np=_stateMachine.getNextPhase();var _dlgPhases=['arrival','opening','resistance','before_the_breath','shift','close'];if(_np&&_dlgPhases.indexOf(_np)>=0){var _nextResolved=resolveDialogue(_np);if(_nextResolved&&_nextResolved.lines){for(var _j=0;_j<_nextResolved.lines.length;_j++){var _nl=_nextResolved.lines[_j];if(_nl&&_nl!==''){_prefetchTTS(_stripHtml(_nl),_mapPhaseToVoicePhase(_np));break;}}}}}catch(_e){}}
       if(mode==='fade'){
         var ttsPromise=cleanText?speakLuno(cleanText,_mapPhaseToVoicePhase(phase)):Promise.resolve();
         await _displayFadeIn(line,FADE_IN_MS);

@@ -63,7 +63,7 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
   console.log('[TTS] Env voice_id for', character, ':', envVoiceId ? envVoiceId.substring(0, 8) + '...' : 'NOT SET');
   if (envVoiceId) {
     voiceId = envVoiceId;
-    charConfig = { stability: 0.85, similarity_boost: 0.8, style: 0.3 };
+    charConfig = { stability: 0.85, similarity_boost: 0.8, style: 0.15 };
   }
 
   // 2. Check tenant config (if env var not set)
@@ -140,7 +140,7 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
         voice_settings: {
           stability: charConfig.stability || 0.85,
           similarity_boost: charConfig.similarity_boost || 0.8,
-          style: charConfig.style || 0.3,
+          style: charConfig.style || 0.15,
           use_speaker_boost: true
         }
       })
@@ -279,7 +279,7 @@ async function generateAudioBuffer({ text, tenantId, character, phase, sessionNu
     : process.env.ELEVENLABS_LUNO_VOICE_ID;
   if (envVoiceId) {
     voiceId = envVoiceId;
-    charConfig = { stability: 0.85, similarity_boost: 0.8, style: 0.3 };
+    charConfig = { stability: 0.85, similarity_boost: 0.8, style: 0.15 };
   }
 
   if (!voiceId && tenantId) {
@@ -353,7 +353,7 @@ async function generateAudioBuffer({ text, tenantId, character, phase, sessionNu
         voice_settings: {
           stability: charConfig.stability || 0.85,
           similarity_boost: charConfig.similarity_boost || 0.8,
-          style: charConfig.style || 0.3,
+          style: charConfig.style || 0.15,
           use_speaker_boost: true
         }
       })
