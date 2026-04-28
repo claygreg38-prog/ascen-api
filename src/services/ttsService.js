@@ -141,7 +141,8 @@ async function generateOrCache({ text, tenantId, character, phase, sessionNumber
           stability: charConfig.stability || 0.85,
           similarity_boost: charConfig.similarity_boost || 0.8,
           style: charConfig.style || 0.15,
-          use_speaker_boost: true
+          use_speaker_boost: true,
+          speed: 0.9
         }
       })
     });
@@ -354,7 +355,8 @@ async function generateAudioBuffer({ text, tenantId, character, phase, sessionNu
           stability: charConfig.stability || 0.85,
           similarity_boost: charConfig.similarity_boost || 0.8,
           style: charConfig.style || 0.15,
-          use_speaker_boost: true
+          use_speaker_boost: true,
+          speed: 0.9
         }
       })
     });
