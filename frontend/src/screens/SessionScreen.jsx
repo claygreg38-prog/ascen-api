@@ -53,11 +53,14 @@ export default function SessionScreen() {
         case 'session_complete':
           // v8 handles its own art/vagal/vault flow.
           // When user clicks Done in vault, we return to home.
-          navigate('/app/');
+          // 500ms delay lets postProgress (fire-and-forget in integrationLayer)
+          // land in DB before HomeScreen refetches /api/auth/context. Without
+          // it, next-session can race and return the just-completed S(n) again.
+          setTimeout(() => navigate('/app/', { state: { sessionCompleted: true } }), 500);
           break;
 
         case 'session_exit':
-          navigate('/app/');
+          navigate('/app/', { state: { sessionCompleted: true } });
           break;
 
         case 'view_gallery':

@@ -69,18 +69,23 @@ router.post('/progress', async (req, res) => {
 
     const internalUserId = await resolveUserId(user_id);
 
-    const t = tenantInsert(req.tenantId, 5);
+    const t = tenantInsert(req.tenantId, 6);
 
+    // $6 carries the next session_active value: false on completion, true on in-progress upsert.
+    // It also gates the UPDATE clause so we only flip session_active / completed_at when this
+    // call represents a true completion. Keeping the gate on $6 (not $7+) avoids the
+    // pre-existing param-collision with tenantInsert when tenantId is present.
     await pool.query(`
-      INSERT INTO session_completions (user_id, session_number, coherence_score, active_duration_seconds, exit_type${t.columns}, completed_at)
-      VALUES ($1, $2, $3, $4, $5${t.values}, NOW())
+      INSERT INTO session_completions (user_id, session_number, coherence_score, active_duration_seconds, exit_type, session_active${t.columns}, completed_at)
+      VALUES ($1, $2, $3, $4, $5, $6${t.values}, NOW())
       ON CONFLICT (user_id, session_number)
       DO UPDATE SET
         coherence_score = COALESCE($3, session_completions.coherence_score),
         active_duration_seconds = COALESCE($4, session_completions.active_duration_seconds),
         exit_type = COALESCE($5, session_completions.exit_type),
-        completed_at = CASE WHEN $6 = true THEN NOW() ELSE session_completions.completed_at END
-    `, [internalUserId, session_number, coherence_score || null, duration_seconds || null, completed ? 'completed' : 'in_progress', ...t.params, completed || false]);
+        session_active = CASE WHEN $6 = false THEN false ELSE session_completions.session_active END,
+        completed_at = CASE WHEN $6 = false THEN NOW() ELSE session_completions.completed_at END
+    `, [internalUserId, session_number, coherence_score || null, duration_seconds || null, completed ? 'completed' : 'in_progress', completed !== true, ...t.params]);
 
     res.json({ success: true, session_number });
   } catch (error) {
