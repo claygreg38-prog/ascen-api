@@ -26,11 +26,22 @@ async function registerSession(userId, sessionId, sessionNumber, tenantId) {
   const tid = tenantId || _currentTenantId;
   const t = tenantInsert(tid, 4);
 
+  // Guard: ON CONFLICT must NEVER overwrite a completed row. completed_at IS NOT NULL
+  // means a prior session attempt completed normally and that row is forensic data.
+  // If the conflict matches a completed row, the UPDATE silently no-ops (every column
+  // wrapped in CASE returns the existing value), preserving the historical record.
+  // Caller can detect via xmax = 0 (no row updated) if it needs to differentiate;
+  // current callers don't, and the in-memory return value (sessionKey) is still valid
+  // for the caller's own state tracking.
   await pool.query(`
     INSERT INTO session_completions (user_id, session_number, session_key, session_active, session_state, arrival_started_at${t.columns}, created_at)
     VALUES ($1, $2, $3, true, $4, NOW()${t.values}, NOW())
     ON CONFLICT (user_id, session_number)
-    DO UPDATE SET session_key = $3, session_active = true, session_state = $4, arrival_started_at = NOW()
+    DO UPDATE SET
+      session_key = CASE WHEN session_completions.completed_at IS NULL THEN $3 ELSE session_completions.session_key END,
+      session_active = CASE WHEN session_completions.completed_at IS NULL THEN true ELSE session_completions.session_active END,
+      session_state = CASE WHEN session_completions.completed_at IS NULL THEN $4 ELSE session_completions.session_state END,
+      arrival_started_at = CASE WHEN session_completions.completed_at IS NULL THEN NOW() ELSE session_completions.arrival_started_at END
   `, [userId, sessionNumber, sessionKey, JSON.stringify({
     phase: 'arrival',
     paused: false,
