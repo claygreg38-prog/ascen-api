@@ -376,4 +376,29 @@ router.post('/codes/:code/revoke', async (req, res) => {
   }
 });
 
+// [AUTH-DIAG-3] DB fingerprint endpoint — diag branch only, REVERT before main
+router.get('/diag/db-fingerprint', async (req, res) => {
+  try {
+    const fp = await pool.query(`
+      SELECT
+        current_database() AS db_name,
+        inet_server_addr()::text AS server_ip,
+        inet_server_port() AS server_port,
+        (SELECT count(*) FROM users) AS user_count,
+        (SELECT count(*) FROM users WHERE email = 'clayg@mettle-works.com') AS clay_row_count,
+        (SELECT id FROM users WHERE email = 'clayg@mettle-works.com' LIMIT 1) AS clay_id,
+        (SELECT MAX(created_at) FROM auth_audit_log) AS latest_audit_at,
+        (SELECT count(*) FROM auth_audit_log WHERE created_at > NOW() - INTERVAL '24 hours') AS audit_24h_count,
+        pg_postmaster_start_time() AS pg_start,
+        version() AS pg_version
+    `);
+    const dbHost = (process.env.DATABASE_URL || '').match(/@([^:/?]+)/)?.[1] || 'unknown';
+    let buildStamp = 'no-build-info-file';
+    try { buildStamp = require('../../build-info').stamp; } catch (_) {}
+    res.json({ build_stamp: buildStamp, db_host_from_env: dbHost, ...fp.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message, code: err.code });
+  }
+});
+
 module.exports = router;
