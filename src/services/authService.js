@@ -359,6 +359,17 @@ async function loginWithFacilityPin(participantId, pin, req) {
 
 async function loginWithEmail(email, password, req) {
   const userRow = await pool.query('SELECT * FROM users WHERE email = $1 AND is_active = true', [email.toLowerCase()]);
+  // [AUTH-DIAG-2] post-SELECT — verify which row (if any) was found
+  console.log('[AUTH-DIAG-2] post-SELECT',
+    'email_lower:', email.toLowerCase(),
+    'found_row_count:', userRow.rows.length,
+    'found_user_id:', userRow.rows[0]?.id ?? null,
+    'is_active:', userRow.rows[0]?.is_active ?? null,
+    'is_verified:', userRow.rows[0]?.is_verified ?? null,
+    'password_changed:', userRow.rows[0]?.password_changed ?? null,
+    'has_hash:', !!userRow.rows[0]?.password_hash,
+    'hash_prefix:', userRow.rows[0]?.password_hash?.slice(0, 4) ?? null,
+    'hash_length:', userRow.rows[0]?.password_hash?.length ?? null);
   if (userRow.rows.length === 0) return { error: true, message: 'Invalid email or password.' };
   const user = userRow.rows[0];
 
@@ -369,6 +380,12 @@ async function loginWithEmail(email, password, req) {
   if (!user.password_hash) return { error: true, message: 'Invalid email or password.' };
 
   const match = await bcrypt.compare(password, user.password_hash);
+  // [AUTH-DIAG-2] bcrypt result
+  console.log('[AUTH-DIAG-2] bcrypt',
+    'user_id:', user.id,
+    'password_length:', password?.length ?? 0,
+    'bcrypt_match:', match,
+    'bcryptjs_version:', (() => { try { return require('bcryptjs/package.json').version; } catch { return 'unknown'; } })());
   if (!match) {
     await recordFailedLogin(user.id, req);
     return { error: true, message: 'Invalid email or password.' };
