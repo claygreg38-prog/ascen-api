@@ -100,14 +100,40 @@ router.post('/login/facility', async (req, res) => {
 });
 
 router.post('/login/email', async (req, res) => {
+  // [AUTH-DIAG] temporary instrumentation — remove after diagnosis
+  let buildStamp = 'no-build-info-file';
+  let parentSha = 'unknown';
+  try {
+    const bi = require('../../build-info');
+    buildStamp = bi.stamp || 'no-stamp';
+    parentSha = bi.parent_main_sha || 'unknown';
+  } catch (_) {}
+  const railwaySha = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RAILWAY_GIT_COMMIT_SHA_SHORT || null;
+  let pkgVersion = 'unknown';
+  try { pkgVersion = require('../../package.json').version; } catch (_) {}
+  const dbHost = (process.env.DATABASE_URL || '').match(/@([^:/?]+)/)?.[1] || 'unknown';
+  console.log('[AUTH-DIAG] /login/email entered', new Date().toISOString(),
+    'build_stamp:', buildStamp,
+    'parent_main_sha:', parentSha,
+    'railway_sha:', railwaySha ? railwaySha.slice(0, 7) : 'none',
+    'pkg_version:', pkgVersion,
+    'db_host:', dbHost,
+    'email_provided:', !!req.body?.email,
+    'password_provided:', !!req.body?.password);
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     const result = await authService.loginWithEmail(email, password, req);
+    // [AUTH-DIAG] log which return path fired (no PII, no hashes)
+    console.log('[AUTH-DIAG] /login/email result',
+      'has_jwt:', !!result.jwt,
+      'must_change_password:', !!result.must_change_password,
+      'error:', result.error || false,
+      'message:', result.message || null);
     if (result.error) return res.status(400).json(result);
     res.json(result);
   } catch (err) {
-    console.error('[Auth] Email login failed:', err.message);
+    console.error('[Auth] Email login failed:', err.message, 'code:', err.code, 'at:', err.stack?.split('\n')[1]?.trim());
     Sentry.captureException(err);
     res.status(500).json({ error: 'Login failed' });
   }
