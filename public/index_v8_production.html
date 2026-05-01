@@ -2622,7 +2622,7 @@ var Integration = (function() {
     var urlParams=new URLSearchParams(window.location.search);_isEmbedded=urlParams.get('embedded')==='true';
     if(_isEmbedded)_initEmbeddedMode();_setApiStatus('connecting');
   }
-  function _initEmbeddedMode(){console.log('[EMBEDDED] Mode active');window.parent.postMessage({type:'iframe_ready'},'*');var readyInterval=setInterval(function(){if(_embeddedAuthReceived){clearInterval(readyInterval);return;}window.parent.postMessage({type:'iframe_ready'},'*');},500);window.addEventListener('message',function(event){var data=event.data||{};if(data.type!=='auth')return;if(!data.token){console.warn('[EMBEDDED] Auth message arrived without token — staying in harness mode');_embeddedAuthReceived=true;return;}_embeddedAuthReceived=true;if(_abi)_abi.token=data.token;localStorage.setItem('ascen_jwt',data.token);if(data.apiKey&&_abi)_abi.apiKey=data.apiKey;try{var payload=JSON.parse(atob(data.token.split('.')[1]));var _newUserId=payload.userId||payload.sub||payload.id||_userId;if(_newUserId!==_userId&&_userId&&typeof BioBridge!=='undefined')BioBridge.destroyUser(_userId);_userId=_newUserId;localStorage.setItem('ascen_uid',String(_userId));}catch(e){}console.log('[EMBEDDED] Auth received | userId:',_userId);loadSessions().then(function(sessions){if(!sessions||!sessions.length)return;var urlP=new URLSearchParams(window.location.search);var reqSess=parseInt(urlP.get('session'),10);var reqTrack=urlP.get('track');var validTracks=['foundation','fr_apprentice','coupling','capacity'];var pool=(reqTrack&&validTracks.indexOf(reqTrack)>=0)?sessions.filter(function(s){return s.track===reqTrack}):sessions.filter(function(s){return s.track==='foundation'});if(!pool.length)pool=sessions;var firstSession;if(reqSess&&reqSess>0){firstSession=pool.find(function(s){return s.session_number===reqSess});if(!firstSession){console.warn('[EMBEDDED] Requested session '+reqSess+' not found, falling back');firstSession=pool.find(function(s){return s.session_number===1})||pool[0];}else{console.log('[EMBEDDED] URL override: session='+reqSess+(reqTrack?' track='+reqTrack:''));}}else{firstSession=pool.find(function(s){return s.session_number===1})||pool[0];}if(!firstSession)return;if(!firstSession.session_number&&firstSession.session_number!==0)firstSession.session_number=1;applySession(firstSession);});});}
+  function _initEmbeddedMode(){console.log('[EMBEDDED] Mode active');window.parent.postMessage({type:'iframe_ready'},'*');var readyInterval=setInterval(function(){if(_embeddedAuthReceived){clearInterval(readyInterval);return;}window.parent.postMessage({type:'iframe_ready'},'*');},500);window.addEventListener('message',function(event){var data=event.data||{};if(data.type!=='auth')return;if(!data.token){console.warn('[EMBEDDED] Auth message arrived without token — staying in harness mode');_embeddedAuthReceived=true;return;}_embeddedAuthReceived=true;if(_abi)_abi.token=data.token;localStorage.setItem('ascen_jwt',data.token);if(data.apiKey&&_abi)_abi.apiKey=data.apiKey;try{var payload=JSON.parse(atob(data.token.split('.')[1]));var _newUserId=payload.userId||payload.sub||payload.id||_userId;if(_newUserId!==_userId&&_userId&&typeof BioBridge!=='undefined')BioBridge.destroyUser(_userId);_userId=_newUserId;localStorage.setItem('ascen_uid',String(_userId));}catch(e){}console.log('[EMBEDDED] Auth received | userId:',_userId);loadSessions();});}
   function _notifyParentComplete(sessionNumber){if(_isEmbedded)window.parent.postMessage({type:'session_complete',data:{session_number:sessionNumber}},'*');}
   function _notifyParentExit(){if(_isEmbedded)window.parent.postMessage({type:'session_exit'},'*');}
   function isEmbedded(){return _isEmbedded}
@@ -3158,6 +3158,39 @@ var BiofeedbackSound = (function() {
   // === LOAD SESSIONS ===
   if (Integration.isEmbedded()) {
     console.log('[ASCEN] Embedded mode — waiting for auth...');
+    // Single-fire listener that picks the URL-requested session once
+    // Integration's auth handler fetches the list. applySession lives in this
+    // IIFE's scope (line 3114). _initEmbeddedMode lives in Integration's IIFE
+    // and cannot see applySession directly. We cross the boundary via the
+    // existing 'sessionsLoaded' event Integration emits from loadSessions().
+    var _embeddedOff = Integration.on('sessionsLoaded', function(payload) {
+      if (_embeddedOff) { _embeddedOff(); _embeddedOff = null; }
+      var sessions = payload && payload.sessions;
+      if (!sessions || !sessions.length) return;
+      var urlP = new URLSearchParams(window.location.search);
+      var reqSess = parseInt(urlP.get('session'), 10);
+      var reqTrack = urlP.get('track');
+      var validTracks = ['foundation','fr_apprentice','coupling','capacity'];
+      var pool = (reqTrack && validTracks.indexOf(reqTrack) >= 0)
+        ? sessions.filter(function(s){return s.track===reqTrack})
+        : sessions.filter(function(s){return s.track==='foundation'});
+      if (!pool.length) pool = sessions;
+      var firstSession;
+      if (reqSess && reqSess > 0) {
+        firstSession = pool.find(function(s){return s.session_number===reqSess});
+        if (!firstSession) {
+          console.warn('[EMBEDDED] Requested session '+reqSess+' not found, falling back');
+          firstSession = pool.find(function(s){return s.session_number===1}) || pool[0];
+        } else {
+          console.log('[EMBEDDED] URL override: session='+reqSess+(reqTrack?' track='+reqTrack:''));
+        }
+      } else {
+        firstSession = pool.find(function(s){return s.session_number===1}) || pool[0];
+      }
+      if (!firstSession) return;
+      if (!firstSession.session_number && firstSession.session_number !== 0) firstSession.session_number = 1;
+      applySession(firstSession);
+    });
   } else {
     var sessions = await Integration.loadSessions();
     if (sessions && sessions.length > 0) {
