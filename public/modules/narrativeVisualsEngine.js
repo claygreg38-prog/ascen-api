@@ -10,6 +10,12 @@
 
 var NarrativeVisualsEngine = (function() {
 
+  // ── UTILITIES ──
+  // Standalone-safe linear interpolation. Previously this module relied on
+  // a `lerp` defined in the integrated HTML, which threw ReferenceError when
+  // the module was loaded in isolation (Phase 2 smoke test, Test 2).
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
   // ── VISUAL PRIORITY LEVELS ──
   var VISUAL_PRIORITY = {
     ambient:          0,
@@ -515,6 +521,13 @@ var NarrativeVisualsEngine = (function() {
 
   // ── TRIGGER FLASH (shockwave scatter) ──
   function _triggerFlash() {
+    // NS3 gate (clinical safety, spec §7): suppress if below regulation window.
+    // The shockwave scatter is contraindicated when the user is dysregulated.
+    if (_bioBridge && typeof _bioBridge.isInRegulationWindow === 'function' &&
+        !_bioBridge.isInRegulationWindow()) {
+      console.log('[NVE] trigger_flash suppressed: NS3 below regulation window');
+      return;
+    }
     var particles = document.querySelectorAll('.particle');
     var cx = window.innerWidth / 2;
     var cy = window.innerHeight / 2;
@@ -1137,7 +1150,9 @@ var NarrativeVisualsEngine = (function() {
         // Start breath sync interval
         _breathSyncInterval = setInterval(function() {
           if (_bioBridge && _bioBridge.getActiveSource() === 'h10') {
-            var sample = _bioBridge.getCurrentSample ? _bioBridge.getCurrentSample() : null;
+            // BioBridge exports getCurrentBiometrics, not getCurrentSample.
+            // Phase 1 finding N5: live H10 path silently no-op'd before this rename.
+            var sample = _bioBridge.getCurrentBiometrics ? _bioBridge.getCurrentBiometrics() : null;
             if (sample) {
               _onBreathFrame({ phase: _breathPhase, progress: _breathProgress, bpm: sample.heart_rate, coherence: sample.coherence, cycle_count: _breathCycleCount });
             }
