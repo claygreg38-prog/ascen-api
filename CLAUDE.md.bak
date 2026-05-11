@@ -1,0 +1,938 @@
+# CLAUDE.md — ASCEN BreathWorx
+Updated: March 28, 2026 (Solo-Before-Co-Present Gate + Phase 2 Builds)
+
+## Rules
+- All logic flows through ABI orchestrator. No bypasses.
+- Blockchain writes ONLY through verificationService.js.
+- Contract addresses from contract_registry table. Never hardcoded.
+- ABI selects breath ratios at runtime. YAMLs define ranges only.
+- First Spiral (S121-S150) LOCKED to 6:6.
+- Users never see: NFT, crypto, blockchain, token, wallet, mint.
+- Silent biometric detection only. Never ask about breathing capacity.
+- Luno does not decide what to say — ABI decides. Luno says it.
+- Produce code, not explanations. List files changed. No summaries.
+- Do not search codebase extensively. Ask user if unsure.
+
+## Deployed (DO NOT REDEPLOY)
+- SCT: 0x98A57899C9B34d59FEe484F4e28547E9ebb0c5e5
+- Oracle: 0xBEf693a0d3F72728c9bFe7EB10FD2ED0831bC06A
+- Network: Polygon Mainnet (137)
+- API: hearty-optimism-production-2eb6.up.railway.app
+- DB: resourceful-wisdom (Railway PostgreSQL)
+- ABI 14/14, AXIS active, verificationService live
+- Blockchain writes LIVE — ORACLE_ROLE granted, block 84319510
+- Blockchain attestation queue auto-processing: cron */30 * * * * (processQueue)
+- Blockchain retry processing: cron */15 * * * * (processRetries + processGasDeferred)
+- Blockchain signer balance monitor: daily 9 AM UTC, Sentry alert below 0.1 POL
+- Migration 037: blockchain_tx_hash + blockchain_simulated on session_completions, enrollment_tx_hash on users
+- processQueue() picks up 'ready' and 'awaiting_facilitator' attestations, submits to BiometricOracle
+- checkSignerBalance() on VerificationService for daily monitoring
+- VERIFICATION_SERVICE_PRIVATE_KEY env var required for real writes (fallback: simulation mode)
+- processQueue() cron active every 30 minutes
+- Migration 011: wallet, family, attestation fields
+- Migration 012: somatic_exercises + personalized_closes tables
+- Migration 013: NS3 fields on session_completions
+- FR YAMLs re-seeded with adaptive ratio ranges
+- breathProtocolAdapter: ratio_range on all arcs x tracks
+- determineBreathParams: deployed, wired into onArrivalComplete()
+- buildSessionDataPacket: deployed, wired into onSessionComplete()
+- 9 somatic exercises seeded. 150 personalized closes seeded.
+- Somatic Reset Gateway live in onArrivalComplete()
+- onSomaticComplete() lifecycle method live
+- computeSessionTags() + selectPersonalizedClose() wired
+- NS3 Engine deployed: src/services/ns3Engine.js
+- NS3 Bridge deployed: src/services/ns3AxisBridge.js
+- Test harness at /test (throwaway — delete after pilot)
+- Migration 014: breath art columns on session_completions
+- breathArtEngine.js: deterministic sacred geometry generator
+- ipfsService.js: Pinata IPFS upload + AES-256 clinical encryption
+- Breath art wired into onSessionComplete() (after NS3, before attestation)
+- 5 crown SVGs in src/assets/crowns/ (flower_of_life, metatrons_cube, sri_yantra, seed_of_life, vesica_piscis)
+- Dependencies: sharp, crypto-js
+- Art routes at /api/art (Session 9): gallery, decode, crown, intention, photo-palette
+- photoAbstractionService.js: 6x6 palette extraction
+- Crown SVGs served statically at /assets/crowns/
+- Mirror screen art reveal + gallery UI in test harness
+- Migration 055: harmonic_meta JSONB + container_shape on session_completions
+- galleryHarmonicsEngine.js: aesthetic layer over breathArtEngine. Sacred geometry frames, color wash, container shapes, harmonic progression
+- Pipeline: breathArtEngine → galleryHarmonicsEngine → IPFS upload. breathArtEngine is LOCKED — zero modifications
+- 4 lifecycle phases: Seed (1-50), Root (51-150), Branch (151-300), Crown (301+)
+- Color wash encodes NS3 zone + lifecycle. Max opacity 0.40 — thread is always the hero
+- Harmonic progression: golden ratio-based oscillation. Fully deterministic from sessionNumber
+- Container shapes: square/circle/oval/triangle. User selects at mirror screen. Default: circle
+- Sacred geometry frames: Seed of Life → Flower of Life → Metatron's Cube → Sri Yantra
+- harmonicsMeta stored on session_completions. Contains ZERO clinical values — safe unencrypted
+- Anti-extraction: galleryHarmonicsEngine never reads metadataJSON. Thread encryption unchanged
+- Graceful fallback: if harmonics fail, uploads raw thread PNG (existing behavior preserved)
+- Migration 056: art_personalizations + art_preferences tables (personalization layer)
+- userPersonalizationLayer.js: Stage 3 of art pipeline. NON-DESTRUCTIVE compositing
+- Pipeline: breathArtEngine (LOCKED) → galleryHarmonicsEngine (LOCKED) → userPersonalizationLayer
+- Hue shift (-180 to 180), saturation (0-2x), brightness (0.5-1.5x)
+- 9 filter presets: warm, cool, midnight, golden, muted, vivid, sepia, frost
+- Frame overrides: sacred geometry defaults + minimal, double_ring, organic
+- 7 overlay textures: linen, grain, watercolor, silk, stone, paper (max opacity 0.12)
+- 6 container shapes: circle, square, oval, triangle + hexagon, diamond (personalization-only)
+- Auto-apply: user saves default preferences, new art automatically gets them in orchestrator
+- Revert always available — original harmonics PNG recoverable via IPFS hash
+- Preview endpoint at GET /api/art/preview — rate-limited (10/min/user), no IPFS upload
+- personalizationRoutes.js at /api/art: personalize, revert, personalizations, preferences, presets, preview
+- Placeholder textures in src/assets/textures/ and frames in src/assets/frames/ — replace with production assets
+- Migration 015: personalized_art, showcase_posts, showcase_likes, showcase_reports
+- canvasRoutes.js at /api/canvas: co-creation canvas save/load/update
+- socialRoutes.js at /api/showcase: social gallery feed, like, report, milestones, family
+- contentFilter.js: caption moderation keyword blocklist
+- Canvas UI + Showcase UI in test harness
+- Migration 016: legacy_capsules, capsule_designees, capsule_unlock_log, family_breath_weaves
+- legacyVaultEngine.js: capsule creation, review, edit, lock (BIP39 encryption)
+- capsuleUnlockEngine.js: unlock, recovery (two-person rule), available capsules
+- ancestralBreathEngine.js: ancestral breath sessions from capsule data
+- familyBreathWeave.js: composite family breathing patterns (2:3 floor enforced)
+- legacyRoutes.js at /api/legacy: all legacy vault API endpoints
+- RECOVERY_ENCRYPTION_KEY env var (separate from ART_ENCRYPTION_KEY)
+- Dependencies: bip39
+- Legacy Vault UI in test harness (create capsule + unlock flows)
+- Migration 017: art_aggregations, family_constellations, encryption_key_audit tables
+- artAggregationEngine.js: mandala generation, milestone checks, family constellations
+- Milestone checks wired into onSessionComplete() (after art, before advancement)
+- breathArtEngine.js decode() updated for multi-version encryption keys (getDecryptionKey)
+- merchandiseRoutes.js at /api/merch: export, poster, crest (stub), verify endpoints
+- scripts/rotateArtEncryption.js: standalone key rotation script (batch 100, audit logged)
+- Aggregation art rendered at 1200x1200 (vs session art 800x800)
+- Capstone seed = SHA-256 of ALL packetHashes chronologically — irreproducible
+- Merchandise verify returns signed JWT (24h) — print partners never see raw wallets
+- Gallery + poster UI in test harness (export button, poster generation, aggregation badges)
+- Migration 018: tenants, family_memberships, family_invitations, family_patterns, family_messages, family_escalations, message_templates
+- Default ASCEN tenant seeded + 19 message templates (warrior reassurance framework)
+- tenantResolver.js: multi-tenancy middleware (JWT → header → subdomain → default ASCEN)
+- familyUnitEngine.js: ABI System #14 — family creation, 3-gate progression, invitations
+- familyIntelligence.js: ABI System #15 — pattern correlation, response rules, escalation
+- familyRoutes.js at /api/family: unit CRUD, gates, invite, accept, patterns, messages, escalations
+- sessionOrchestrator.js updated: family intelligence processing after art aggregation
+- Family Intelligence reads ONLY structured metadata (zones, trajectories, engagement). NEVER raw biometrics.
+- Cooldowns enforced per category. Daily cap: 3 messages/individual/24h. Patterns need 3+ observations.
+- tenant_id nullable on users, session_completions, family_units (backward compatible)
+- Family Management UI in test harness (create, invite, join, gates, patterns, messages, escalations)
+- Migration 019: capacity_ledger, capacity_snapshots, capacity_investments, sleep_entries
+- capacityCurrency.js: AXIS output module — composite scoring, ledger, investments, dividends, overdraft
+- capacityRoutes.js at /api/capacity: balance, history, trend, family states, invest, sleep entry
+- capacitySnapshot.js: daily cron at 3AM UTC for snapshot rollup + dividend checks
+- sessionOrchestrator.js updated: capacity currency deposit on every session completion
+- familyIntelligence.js updated: real capacity data for overdraft boundary messaging
+- Family members see STATE only (full/steady/drawing_down/low/depleted) — never raw balances
+- Investment requires balance >= 40. Dividends after 48h if recipient improves 10+ points.
+- Overdraft protection auto-blocks withdrawals at balance <= 19
+- Sleep quality: manual entry for pilot (Terra API PARKED at $400/mo)
+- Capacity UI in test harness (indicator, transactions, savings, family states, sleep entry)
+- Migration 020: lightbridge_devices, lightbridge_events tables + 4 indexes
+- lightBridgeEngine.js: ABI module — LIFX provider, capacity state mapping, session events, celebrations, simulation mode
+- lightBridgeRoutes.js at /api/lightbridge: register, devices, test, state, events, manual override
+- Wired into sessionOrchestrator (session_complete event), capacityCurrency (state change light), familyIntelligence (milestone celebrations)
+- All LightBridge calls non-blocking — device failure never blocks core flows
+- LIGHTBRIDGE_SIMULATE=true env var for testing without hardware
+- Device provider abstracted (LIFX today, Hue/custom tomorrow)
+- Rate limit: 1 capacity state change per 30s per device. 3 consecutive failures deactivates device.
+- LightBridge UI in test harness (simulated light, device registration, events)
+- LightBridge Upgrade: Wyze provider added (alongside LIFX), NS3 state mapping, unified triggerLightBridge()
+- lightBridgeMusicService.js: track selection by NS3 state, family preferences
+- Migration 028: lightbridge_music_library, lightbridge_family_music_prefs, device expansion (wyze_device_id, speaker_endpoint, room, device_subtype), family config (hold_minutes, privacy_mode), member visibility
+- 12 default music tracks seeded across 4 NS3 states
+- Three trigger types: session_complete, arrival_home, manual_override
+- Caregiver-controlled visibility per member, personal privacy mode override
+- Configurable hold duration (default 30 min) with scheduled reset
+- "I'm Home" arrival endpoint for geofence/manual trigger
+- Capacitor Native Wrapper (com.mettleworks.ascen):
+  - capacitor.config.ts: appId com.mettleworks.ascen, webDir dist
+  - BLE plugin (@capacitor-community/bluetooth-le): replaces Web Bluetooth, works on iOS + background
+  - Auto-detect: Capacitor BLE on native, Web Bluetooth fallback on Chrome desktop
+  - Push notifications (@capacitor/push-notifications): APNs + FCM via Firebase
+  - pushNotifications.js: token registration, foreground/background handlers, deep linking
+  - geofencing.js: background home zone monitoring, LightBridge arrival trigger
+  - backgroundMode.js: keeps BLE alive during sessions (Android foreground service, iOS background mode)
+  - Native-only modules externalized in Vite build (background-mode, background-geolocation)
+  - App.jsx: native init (BLE, push, geofencing) on startup
+  - SessionScreen: enableBackgroundMode on start, disableBackgroundMode on complete
+- pushService.js: Firebase Admin SDK push sending, expired token cleanup, simulation mode
+- notificationRoutes.js: register-device, unregister, test (at /api/notifications)
+- Migration 029: push_device_tokens table
+- Push wired into: crisis check-ins, messages, co-breath invites, trial expiry, milestones
+- FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL env vars (optional — simulates without)
+- **Frontend Architecture:** `/breathe` = v8 immersive session engine (standalone + embedded). `/app` = production PWA shell (login, home, gallery, family, profile, session iframe). `/app/session` = v8 launched in iframe with postMessage bridge. `/test` = development only.
+- Migration 034: session_state JSONB, session_key, session_active, arrival_started_at, vault_response_encrypted on session_completions
+- DB-backed session state via sessionStateManager.js — survives Railway redeploys, supports horizontal scaling
+- 15 new ABI endpoints for v8 immersive frontend support (arrival, pause, resume, exit, BLE, drills, state, events, health, vault, progress)
+- Arrival biometric collection: sample → complete → adapted session parameters. Cap at 60 samples (sliding window), 5-min timeout, Sentry alert at 3 min.
+- Session control: pause, resume, exit (honorable exit), BLE disconnect/reconnect (30s grace period)
+- Drill selection from somatic_exercises table (POST /api/abi/drill/select)
+- Event polling for coaching interventions and Luno dialogue (GET /api/abi/session/events/:sessionKey)
+- ABI health check returns DB stats, NS3 availability, Luno status (GET /api/abi/health)
+- Alias endpoints: POST /api/lightbridge/activate, POST /api/blockchain/verify-session (already existed)
+- v8Routes.js at /api/fr: progress upsert + vault save/read endpoints
+- Vault responses ENCRYPTED at rest (AES-256-CBC via ART_ENCRYPTION_KEY). Clinician-only decrypt.
+- JWT auth integrated into v8 frontend. Login overlay with facility PIN + email paths.
+- API key is dev-only fallback, gated behind dev panel (triple-tap Luno).
+- getBio() wrapper: real BLE data when available, synthetic fallback for dev only
+- Stale session cleanup cron every 15 minutes (sessions active > 2 hours)
+- Playwright tests for v8 session lifecycle in tests/v8-session-flow.spec.js
+- Migration 021: users expanded (pin_hash, auth_method, role, participant_id, lockout), refresh_tokens, enrollment_codes, verification_codes, user_wallets, auth_audit_log
+- authService.js: 3 registration methods (facility code, email, phone), 3 login methods, JWT+refresh tokens, password reset, lockout
+- walletService.js: silent ethers.js wallet generation, AES-256-CBC encrypted private key storage
+- emailService.js: pilot console logging, interface ready for Resend/Twilio
+- onboardingEngine.js: ABI module — consent collection, orientation, onboarding state transitions
+- authRoutes.js: 17 endpoints (register, login, verify, refresh, logout, reset, me, codes CRUD)
+- onboardingRoutes.js at /api/onboarding: consent, orientation, state, complete
+- JWT: 1h access + 30-day refresh, role-based (participant/facilitator/clinician/admin)
+- 3 auth methods produce identical JWT claims — downstream code doesn't care how you authenticated
+- PIN: 6 digits, bcrypt 12 rounds. Account lockout after 5 failures for 30 min.
+- Enrollment codes: 8-char alphanumeric (no ambiguous chars), single-use, 7-day expiry, revocable
+- WALLET_ENCRYPTION_KEY separate from ART_ENCRYPTION_KEY and RECOVERY_ENCRYPTION_KEY
+- TEST_HARNESS_API_KEY remains functional alongside JWT (backward compatible)
+- Auth UI in test harness (facility login, email login/register, enrollment, code management)
+- Dependencies: bcryptjs
+- Migration 022: kitchen_table_topics, kitchen_table_sessions, cobreath_sessions, cobreath_rooms + 8 indexes
+- 30 kitchen table topics seeded across 6 categories (family_history, communication, boundaries, accountability, trust, hope)
+- kitchenTableEngine.js: ABI module — capacity-aware topic selection, biometric monitoring, dysregulation detection, journal encryption
+- coBreathEngine.js: ABI module — 3 modes (sync/adaptive/silent), lower-of-two baselines, 2:3 floor, connection scoring, investment integration
+- coBreathWebSocket.js: WebSocket server at /ws/cobreath — real-time breath sync, regulation state only (never raw HRV)
+- kitchenTableRoutes.js at /api/kitchen-table: topic, start, tick, complete, skip, history
+- coBreathRoutes.js at /api/cobreath: initiate, join, room, complete, history, recommend
+- Solo-before-co-present gate: family kitchen table sessions require 1+ completed solo session. Gate in kitchenTableEngine.startSession(). HOS vocabulary: "Your individual practice builds the foundation."
+- Kitchen table feeds topic_response patterns to Family Intelligence
+- Co-breath feeds dyadic patterns to Family Intelligence
+- Capacity Currency: +2 for KT completion, -3 for KT dysregulation, co-breath deposits for both participants
+- LightBridge: co_breath_active fires on initiation
+- WebSocket room expires after 15 min inactivity
+- Dependencies: ws
+- Migration 023: tenant_id on 13 more tables, backfill all existing data to ASCEN tenant, ai_usage_log table, 10 tenant indexes
+- tenantHelper.js: tenantWhere() + tenantInsert() query utilities for tenant-scoped queries
+- aiRouter.js: hybrid Haiku/Sonnet task routing, fallback chain (Sonnet→Haiku→null), cost tracking
+- lunoIntelligence.js updated: uses aiRouter for personalized dialogue with task-based model selection
+- coBreathEngine.js updated: co-created art generation from combined packetHashes, stored in co_art_ipfs_hash
+- AI usage dashboard at GET /api/admin/ai-usage (admin only)
+- ANTHROPIC_MODEL_HAIKU + ANTHROPIC_MODEL_SONNET env vars for configurable model selection
+- AI defaults to Haiku for unknown tasks. Sonnet for clinical reasoning, crisis, deep dialogue.
+- Cost tracking: per-call, per-tenant, input/output tokens, estimated cents
+
+- Migration 024: facilitated_messages, conflict_events, therapeutic_letters, therapy_reports, therapy_consent_audit, clinical_disclosures, story_arcs, vault extensions, premium_tier on family_units
+- facilitatedMessaging.js: ABI module — two-way AI-coached messaging with CRITICAL disclosure classification
+- Disclosure routing: abuse_recipient NEVER delivered to alleged abuser, routed to clinical team + caregiver
+- conflictResolution.js: ABI module — escalation detection, pause/breathe (FIXED 4:6 at 6 BPM), repair framework
+- REVIEW FINDING #4: Conflict resolution breathing is hardcoded 4:6 at 6 BPM — NEVER uses determineBreathParams
+- letterAssistant.js: ABI module — paragraph-level Sonnet feedback on therapeutic letters
+- therapyReportService.js: weekly/monthly reports with granular per-channel consent + legal disclaimer (Review Finding #5)
+- premiumGate.js: tier enforcement middleware — returns 402 (upgrade required), NEVER 403
+- premiumRoutes.js: 18 premium endpoints + 4 clinical endpoints at /api/premium + /api/clinical
+- clinical_disclosures table: CRITICAL safety — abuse disclosure routing with mandatory reporting flag
+- Legacy vault extended: video capsules (clinical human review required — Review Finding #3), story arcs, time-locked capsules
+- BIP39 standardized on 12 words / 128 bits (Review Finding #6)
+- Premium tiers: base (free), guided_bridge ($14.99/mo), family_compass ($29.99/mo)
+- Base tier quality NEVER reduced to incentivize upgrades. Clinical floor is sacred.
+- Migration 025: family_curricula, curriculum_assignments, relationship_predictions, family_healing_maps
+- familyCurriculum.js: ABI module — Sonnet-generated 12-week adaptive curriculum, reassessment at weeks 6/12
+- predictiveRelationship.js: ABI module — weekly predictions with TWO-TIER output (Review Finding #2)
+  - Family-visible: BEHAVIORAL SIGNALS ONLY (message frequency, practice completion, conflict outcomes)
+  - Clinician-only: NS3, HRV, biometric data (sonnet_full_analysis — NEVER returned by family endpoints)
+  - 42 CFR Part 2 enforced at code level: SELECT deliberately excludes sonnet_full_analysis
+- healingMap.js: ABI module — multi-generational pattern visualization, optional genealogy input
+- compassRoutes.js: 10 endpoints at /api/compass with family_compass tier gating
+- weeklyPredictions.js: cron Monday 6 AM UTC for all Family Compass families
+- premiumGate.js updated: family_unit_id PK fix, validateUpgrade prevents tier skipping
+- premiumRoutes.js updated: family_unit_id PK fix, upgrade validation
+- Family Compass requires Guided Bridge — no tier skipping
+- Migration 026: subscriptions, payment_history, subscription_events tables
+- subscriptionService.js: Stripe integration, trial management (14-day Guided Bridge), upgrade/downgrade, pilot mode
+- webhookRoutes.js: Stripe webhook handler (raw body, signature verification) — mounted BEFORE express.json()
+- subscriptionRoutes.js: 10 endpoints at /api/subscription for billing lifecycle
+- premiumGate.js updated: checks subscriptions table, trial expiry, past_due grace period (7 days)
+- Trial: 14-day Guided Bridge, no credit card required, one per tier per family
+- Downgrade preserves ALL data read-only — no data hostage, ever
+- Pilot mode: works without STRIPE_SECRET_KEY (manual tier management)
+- Billing cron: daily 8 AM UTC processes expired trials + past_due grace periods
+- STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_GUIDED_BRIDGE_PRICE_ID, STRIPE_FAMILY_COMPASS_PRICE_ID env vars (optional for pilot)
+- Migration 027: crisis_events, crisis_checkins, steward_actions, crisis_message_templates + privacy_mode on users
+- crisisEngine.js: ABI module — crisis lifecycle (7 phases), steward system, domestic safety
+  - Pre-crisis: 3+ compound signals required, no single indicator triggers
+  - Active crisis: capacity frozen, messaging paused, 72h check-in templates
+  - Recovery message: "You're here. That's enough." — NOT "Welcome back!"
+  - Re-baseline reads fresh data, NEVER compares to pre-crisis
+  - Solo period 7-14 days, reintegration at 3+ steady days, resolution at 14+ steady days
+  - Steward: age 16-17, 30+ sessions, 60+ days, positive savings, adult backup EXISTS
+  - Steward cannot see biometrics (sanitizeFamilyData strips all clinical fields)
+  - Steward: preset messages only, max 2/day, 30-day auto-expiry, escalation to adult only
+  - Privacy mode: hides state from family, NO notification to family, facilitator IS notified
+  - Exit family: any member, any time, no approval, neutral message, data preserved
+  - sanitizeFamilyData strips: hrv, heart_rate, rr_intervals, ns3_peak/mean/floor from family-facing data
+- crisisRoutes.js: participant + facilitator endpoints at /api/crisis
+- 16 crisis message templates seeded across 4 phases
+- Crisis cron: daily 9 AM UTC for check-ins + steward expiry
+- frontend/ — Production PWA (Vite + React), served at /app
+  - LoginScreen: PIN pad (6-digit, auto-submit), participant ID
+  - RegisterScreen: enrollment code + name + PIN creation
+  - OnboardingScreen: 3-step consent flow
+  - HomeScreen: capacity state, next session, recent art, crisis mode
+  - SessionScreen: arrival → breathing → mirror → art reveal → complete (full immersion, no nav)
+  - GalleryScreen: art grid, expanded view, milestone badges
+  - FamilyScreen: members, capacity dots, gates, join via invite
+  - ProfileScreen: self-report crisis, privacy mode, subscription, logout
+  - BreathPacer: requestAnimationFrame-driven, precise inhale/exhale timing
+  - CapacityDot: colored state indicator (full/steady/drawing_down/low/depleted/private)
+  - BottomNav: 4 tabs (Home/Gallery/Family/Profile), hidden during session
+  - BLE service: Web Bluetooth for Polar H10 + Kyto2935
+  - API service: axios with JWT interceptor + auto-refresh
+  - PWA manifest + dark theme (#061a2a)
+- adminRoutes.js at /api/admin: table-check, migration-count, system-health (admin only)
+- Session 24 — Production Frontend Sprint 2 (ship-ready for pilot):
+  - FamilyScreen: tabbed hub (Members/Co-Breath/Messages/Kitchen Table), gate progress, invite/join
+  - CapacityDisplay: personal state circle + trend + transactions, family dots
+  - HelpButton: "SOS" button fixed on every screen (routes to /app/crisis)
+  - FacilitatedChat: Sonnet-coached messaging thread with coaching cards
+  - CoBreathScreen: full-immersion dual BreathPacer with WebSocket sync
+  - VaultScreen: 7-step capsule creation, 12-word seed phrase, unlock flow
+  - ShowcaseScreen: social art feed with likes
+  - LightBridgeScreen: device management + light state visualization
+  - SubscriptionScreen: tier comparison, trial, subscribe/upgrade/downgrade
+  - TherapyReportScreen: consent checkboxes, preview, send to therapist
+  - CurriculumScreen: weekly assignments, progress bar, completion + Sonnet assessment
+  - HealingMapScreen: generational pattern tree + predictions widget
+  - CrisisScreen: self-report, safe confirmation, 4:6 breathe, privacy mode, exit family
+  - FacilitatorScreen: enrollment codes, participant overview, crisis dashboard, disclosures (role-gated)
+  - ProfileScreen: journey stats, capacity display, privacy, subscription, facilitator tools
+  - App.jsx: all routes added, HelpButton on every protected screen, immersion mode for session/cobreath/crisis
+- V8 PWA Integration (React PWA shell + v8 immersive session engine):
+  - v8 immersive integrated into React PWA via full-screen iframe at /app/session
+  - SessionScreen: iframe bridge to /breathe?embedded=true, postMessage auth, full-screen, no nav
+  - **SECURITY: JWT passed via postMessage after iframe_ready, NEVER in URL params**
+  - postMessage protocol: iframe_ready (v8→PWA), auth (PWA→v8), session_complete (v8→PWA), session_exit (v8→PWA), view_gallery (v8→PWA)
+  - Embedded mode in v8: hides login overlay, waits for auth postMessage, auto-selects requested session
+  - Dev panel restricted by role in embedded mode (facilitator/admin/clinician only)
+  - In embedded mode: session complete returns to PWA (no loop), exit returns to PWA
+  - HomeScreen: ocean visual design — Plankton canvas, MiniLuno, CoherenceRings, AuroraHint, Waves
+  - HomeScreen wired to GET /api/auth/context for persona, capacity, next_session, features, streak
+  - GET /api/auth/context: composite endpoint — persona (INDV/ELDR/AFAM/FCLT), features, capacity_state, next_session, gate_state, tenant, streak
+  - Persona derived from role + family_unit_id + family_memberships.role
+  - Features: family_hub, partner_hub, co_breath, lightbridge, facilitator_dashboard (persona-driven)
+  - GET /api/user/next-session: returns next session number, title, arc, duration from session_completions + session_templates
+  - GalleryScreen: 2-column grid, IPFS images, milestone badges, expanded view with date
+  - BottomNav: persona-driven tabs (Family tab only if features.family_hub, Partner if features.partner_hub)
+  - FeaturesContext provider in App.jsx for sharing persona features across components
+  - Session complete returns to PWA home with sessionCompleted location state → completion banner + context refresh
+  - Visual components extracted to frontend/src/components/: Plankton, MiniLuno, CoherenceRings, AuroraHint, Waves, CapacityCard, SessionCard, SessionLauncher
+  - Character color: teal for Luno (default), rose for Luna (tenant.luno_variant === 'spiritual_companion')
+  - Dev controls hidden by default, triple-tap on MiniLuno for facilitator/admin only
+  - Capacitor: allowNavigation added for iframe same-origin, safe-area-inset handling in SessionScreen
+  - Playwright tests: tests/v8-pwa-integration.spec.js (full flow, early exit, persona tabs, security, protected routes)
+- Email/SMS Service (Production Grade):
+  - emailService.js: Resend integration with notification_queue retry (3 attempts, exponential backoff)
+  - smsService.js: Twilio integration with auth gate (503 when unavailable, not silent fail)
+  - Migration 036: notification_queue table — stores all failed/pending deliveries for facilitator visibility
+  - RESEND_API_KEY required for production. Missing = Sentry error + all emails queued in notification_queue.
+  - No console-only delivery. Every notification is sent via Resend/Twilio or queued for retry.
+  - Phone auth returns 503 when Twilio not configured (Finding 1.2 addressed)
+  - Console fallback replaced with notification_queue + retry logic (Finding 1.1 addressed)
+  - Email templates: verification code, password reset, therapy report (with legal disclaimer), family invitation
+  - Therapy report email includes LEGAL_DISCLAIMER from therapyReportService.js (Review Finding #5)
+  - Family invitation emails sent when inviteeName contains @ (email address)
+  - Retry cron every 5 minutes with exponential backoff (5 min, 20 min, 80 min)
+  - 3 failed attempts → status = 'failed' + Sentry alert
+  - Sentry alert on 3+ consecutive failures for same recipient in 24h
+  - Admin endpoints at /api/admin: notifications/failed, notifications/:id/resend, notifications/stats
+  - Auth flow NEVER blocks on email/SMS failure — queues and continues
+  - Backward-compat exports: sendVerificationEmail, sendPasswordResetEmail, sendSMS (authService.js unchanged)
+  - RESEND_API_KEY, EMAIL_FROM env vars for email
+  - TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER env vars for SMS (optional — 503 without)
+  - Dependencies: resend (npm installed)
+  - Twilio loaded dynamically via require('twilio') — no npm install needed until configured
+
+- Prevention Impact Score (PIS) — AXIS actuarial module:
+  - preventionImpactEngine.js: PIS = P(no recidivism | NS3 trajectory, engagement, capacity)
+  - CRITICAL: logisticTransform() is a MANUAL sigmoid — do NOT import from simple-statistics
+  - Confidence tiers: preliminary (<15 sessions, 0.8x valuation cap), standard (15-50), high (>50)
+  - Base rates loaded from base_rates DB table (not constants), staleness alert at 18 months via Sentry
+  - Emergency fallback hardcoded rate (0.40) only if DB has no rates at all + Sentry error
+  - Migration 038: base_rates, prevention_impact_scores tables, PIS columns on users, jurisdiction_code on users
+  - Seeded base rates: MD, MD-PG, MD-BALT from published DOC data
+  - computation_data JSONB stores ALL inputs for full auditability
+  - Admin endpoints: GET /api/admin/pis/:userId, POST /api/admin/pis/compute/:userId, GET/POST /api/admin/base-rates
+  - Monthly cron: 1st of month, 2 AM UTC — computes PIS for all active participants
+  - PIS is clinician/admin only — NEVER shown to participants
+  - Minimum 5 sessions before PIS computed (returns insufficient_data)
+  - Dependencies: simple-statistics (linearRegression, rSquared, mean)
+- Artifact Valuation Engine — AXIS module: defensible dollar value per credential:
+  - artifactValuationEngine.js: base × milestone × NS3Quality × PIS × jurisdiction × disadvantage
+  - $500 per-credential ceiling, $50,000 annual portfolio ceiling (Finding 3.2)
+  - 25% retroactive increase cap per refresh cycle — decreases uncapped (Finding 3.3)
+  - NaN guard on ALL multipliers — defaults to 1.0 + Sentry alert (Finding 3.1)
+  - Census disadvantage data: 9 Maryland counties seeded + DEFAULT fallback (Finding 3.1)
+  - Disadvantage index locked at enrollment, never updated (anti-redlining)
+  - PIS confidence-aware: preliminary caps multiplier at 0.8x
+  - census_data table for Phase 2 zip-code integration (Census ACS API, 60-day deadline) (Finding 3.4)
+  - Migration 039: artifact_valuations, census_data, user columns (county_code, disadvantage_index_at_enrollment, disadvantage_index_multiplier), artifact_value_usd on session_completions
+  - Admin endpoints: GET /api/admin/valuation/:sessionId, GET /api/admin/valuation/user/:id/total, GET /api/admin/valuation/jurisdiction/:code/summary, GET /api/admin/census-data
+  - Monthly valuation refresh cron: 2nd of month, 3 AM UTC (after PIS runs on 1st)
+  - Disadvantage index computed and locked at enrollment in authService.js (both facility and email registration)
+  - Valuation is clinician/admin only — NEVER participant-facing
+
+## Session Monitoring — Phase 1 (Session 27)
+- monitorRoutes.js at /api/monitor: SSE live stream + session reports (clinician+ only)
+- GET /api/monitor/session-stream?session_key=:key — SSE endpoint, emits session_state events every 2s
+  - Auto-flags warnings: BLE gap >5s, NS3 null/stale >30s, coherence outside 0-1, unknown breath ratio, message mid-breath
+  - Events: connected, session_state, session_ended, error
+- GET /api/monitor/session-report/:sessionKey — full session snapshot (active or completed)
+- GET /api/monitor/session-report/latest/:userId — most recent session for a user
+- Active reports: participant, arrival, current biometrics, trajectory, messaging, systems_fired, warnings
+- Completed reports: arrival, landing, journey, session_quality, trajectory, messaging, breath_params, expected_vs_actual, historical_context, systems_fired
+- systems_fired checklist: 30+ boolean/data fields covering full session lifecycle from BLE connect through blockchain queue
+- Structured checkpoint logging (CP1-CP5) in existing code:
+  - CP1: arrival-sample (abiRoutes.js) — BLE_READ | HR, RMSSD, COH
+  - CP2: tick (abiRoutes.js) — TICK | SK, STATUS, LATENCY
+  - CP3: NS3 calculation (sessionOrchestrator.js) — NS3_CALC | SCORE, ZONE, PREV, DEVICE
+  - CP4: tick response (abiRoutes.js) — TICK_RESP | RATIO, NS3, ZONE, DRIFT, BREATH
+  - CP5: coaching trigger (sessionOrchestrator.js) — MSG_TRIGGER | ACTION, THRESHOLD, DECISION, ELAPSED
+- Format: [CPn][ISO_TIMESTAMP] LABEL | KEY:VALUE KEY:VALUE
+- Auth: authenticateOrApiKey('clinician') + requireRole('clinician') — facilitator minimum
+- No dashboard HTML (Phase 2), no Claude integration (Phase 3), no new DB tables
+- **GAP RESOLVED:** Mid-session ratio step-down now implemented (ratioStepDown.js + tick loop integration).
+
+## Mid-Session Ratio Step-Down (Session 28)
+- ratioStepDown.js: ABI module — evaluates biometric sustainability every tick
+- Trigger: HR >15% above arrival + RMSSD <70% of arrival + coherence <0.3 for 60s sustained
+- Ladder: 4:7 -> 4:6 -> 3:5 -> 3:4 -> 2:3 (floor)
+- Max 2 step-downs per session, 90s cooldown between
+- At floor + continued distress -> somatic reset (2 min pause)
+- Post-somatic continued distress -> graceful session end ("You showed up. That's the work.")
+- CP6 structured log on every step-down + somatic reset at floor + graceful end
+- Ratio changes in SSE stream for clinician monitoring (current_ratio, arrival_ratio, ratio_history, step_down_count)
+- Only steps down, never up mid-session
+- No user notification — pacer adjusts silently, facilitator sees in dashboard
+- No step-down without biometric data — device disconnect = maintain current ratio
+- arrival_ratio immutable (preserved for session report comparison), current_ratio tracks active ratio
+- session_state JSONB additions: biometric_buffer, current_ratio, arrival_ratio, step_down_count, last_step_down_at, ratio_history, somatic_reset_triggered, somatic_reset_at, post_somatic_monitoring, graceful_end_triggered
+- Tick response additions: ratio_changed, current_ratio, ratio_step_downs_remaining, somatic_reset, graceful_end, graceful_end_message
+- systems_fired additions: ratio_step_down_evaluated, ratio_step_down_fired, ratio_step_down_count, arrival_ratio, current_ratio, ratio_history, somatic_reset_at_floor, graceful_end_triggered
+- Active + completed session reports include ratio_adaptation section
+
+## Family Crest v2 — Living System Document (Session 29)
+- familyCrestEngine.js: ABI module — Crest exists from day one, versions up on behavioral evidence
+- Version ladder: v1.0 (The Inventory, auto after LACE) → v1.5 (First Release, first deprecation) → v2.0 (The Demonstration, 3 evidence types required) → v2.5 (The Expansion, member joins — can happen at ANY version) → v3.0 (The Pattern Break, biometric improvement, AXIS math)
+- v2.5 evaluated in parallel with sequential next version, not gated behind v2.0
+- Four quadrants: Inheritance (LACE domains/armors/carriers), Release (deprecated patterns), Keepers (armor strengths), Promise (blueprint visions)
+- Crest NEVER shrinks — only adds. Members added, never removed. Patterns deprecated, never erased.
+- Absent members: "Honored in absence. Welcomed when ready." Never "missing" or "non-compliant."
+- Version evaluation is AXIS criteria-based, no AI. Ceremony narration via Haiku (AI_007, ~$0.004/ceremony)
+- getCrest(familyUnitId) for display, getCrestById(crestId) for ceremony narration
+- upgradeVersion dynamic SQL: keys from internal updates object, not user input — safe by design
+- Lineage ledger entry on every version change (crest_versioned)
+- crestRoutes.js at /api/crest: 7 endpoints (get, evidence, upgrade, evaluate, absent-member, ceremony, history)
+- Migration 046: family_crests (UUID PK, UNIQUE family_unit_id, 4 quadrant JSONB), crest_version_evidence
+- Wired into LACE completion flow for auto v1.0 creation
+
+## Child Home Screen (Session 36)
+- frontend/src/screens/ChildHomeScreen.jsx: Bright surface home for elementary and middle school children
+- Age-aware routing: AgeAwareHome in App.jsx checks age bracket, renders ChildHomeScreen or HomeScreen
+- Route: /app/child-home (direct), /app/ (auto-routed via AgeAwareHome)
+- Energy bar wraps deployed capacityDisplay.js output (ENERGY_BAR_DISPLAY for CHLD-E, GAMING_DISPLAY for CHLD-M)
+- PlayfulLuno: 80px canvas character, mood-reactive (bounce/stretch/sit), glow matches energy color
+- Speech bubble on first load: "Hey! Ready to breathe?" — disappears after 3s
+- LightBridge card: ALWAYS POSITIVE. Parent breathed = "Your light is on." Not breathed = "Your family is thinking of you."
+- Fun stats: total breaths, balloons filled (breaths / 3), best streak
+- No clinical terms, no depth metaphor, no NS3/HRV/coherence visible
+- Missing a day: "Welcome back!" not "You missed yesterday"
+
+## Child Breath Screen — Air Dancer (Session 36)
+- frontend/src/screens/ChildBreathScreen.jsx: Air Dancer breathing for CHLD-E and CHLD-M personas
+- Bright sky background, green ground, NO depth metaphor, NO clinical terms, NO ocean/descent
+- 4 phases: color picker → belly breathing teach → active breathing with Air Dancer → done
+- Air Dancer: SVG tube man that inflates/deflates with breath cycle, sways, arms wave higher when full
+- 6 color choices (red/blue/green/purple/orange/pink), selected before session starts
+- Breath ratios from age_config: elementary 3:5 (inhale:exhale ms), middle_school 4:5
+- Max breaths capped: elementary 30 (~4 min), middle_school 50 (~7.5 min) — keeps it engaging
+- Progressive encouragement every 3 breaths (elementary) or 5 breaths (middle_school)
+- Elementary language: exclamation-heavy, emoji teaching ("Make your belly push your hand out!")
+- Middle school language: chill, understated ("Nice rhythm.", "Steady.", "You got this.")
+- Route: /app/child-breathe — immersive (no nav, no help), same pattern as SessionScreen
+- HomeScreen handleDiveIn: if age_config.bracket is elementary or middle_school → /app/child-breathe
+- High school and adult: existing descent/session flow unchanged
+- No biometric integration (children don't wear BLE sensors in pilot)
+- No blockchain, no NS3, no vault — just breathing with a fun character
+
+## Age-Gated Content System (Session 29)
+- personaEngine.js: computeAgeBracket(dateOfBirth) → elementary/middle_school/high_school/adult
+- ageFilter.js: middleware adds req.ageFilter with bracket, actualAge, sqlValue, display config
+- sqlValue uses user's ACTUAL age from date_of_birth, not bracket ceiling (a 6-year-old filters min_age <= 6, not min_age <= 10)
+- No date_of_birth = adult (safe default — adults see everything, children restricted)
+- Four brackets: elementary (6-10, 5 min max, drawing format, energy_bar display), middle_school (11-13, 12 min, writing, gaming display), high_school (14-17, 12 min, speaking, standard), adult (18+, 20 min, reflective, standard)
+- Kitchen table topics: min_age column (default 18), sensitivity_level (high/medium/low)
+- Firmware templates: min_age column (Cache Clearing all ages, most firmware 14+)
+- content_age_variants table for per-age content overrides
+- capacityDisplay.js: GAMING_DISPLAY (power levels for CHLD-M) + ENERGY_BAR_DISPLAY (stars for CHLD-E)
+- /api/auth/context extended with age_config (bracket, max_session_minutes, content_format, capacity_display, ui_style)
+- ageFilter middleware applied to /api/kitchen-table and /api/firmware routes
+- Age filtering is SERVER-SIDE. Frontend never decides what content a child can see.
+- Migration 047: min_age + sensitivity_level on kitchen_table_topics, min_age on firmware_templates, content_age_variants table
+
+## Partnership Module — Couples/Intimate Partner Co-Regulation (Session 30)
+- partnershipEngine.js: ABI module — dyadic co-regulation, pattern detection, relationship account, repair protocol
+- Solo before dyad: both partners need 5+ individual sessions before partnership work (ENROLLMENT_THRESHOLD = 5)
+- Relationship Account starts at 30 (must earn into high-sensitivity topics). Range 0-100. Deposits: co-breath +3, kitchen table +5, repair +8, firmware +6. Withdrawals: pursuit-withdrawal -3, mutual escalation -5, stonewalling -8, flooding -10.
+- Below 20: co-breath only (no kitchen table until account rebuilds)
+- Pattern detection uses SUSTAINED WINDOWS (not single-tick): pursuit-withdrawal 30s, mutual escalation 30s, stonewalling 60s, flooding 60s. Rolling dyadic_buffer accumulated in session state.
+- Stonewalling is baseline-relative: RMSSD < 25% of arrival + HR > 110% of arrival (not hardcoded thresholds)
+- System NEVER identifies "problem partner" — role fields (pursuer/withdrawer/stonewaller/flooded) are INTERNAL ONLY for clinician dashboard. Tick response strips them, returns only { pattern, label } with HOS vocabulary.
+- HOS labels: "One system is reaching while the other is retreating" (pursuit-withdrawal), "Both systems are heating up together" (mutual escalation), "One system has gone offline" (stonewalling), "One system is overwhelmed" (flooding)
+- Flooding = immediate session_pause (non-negotiable). Stonewalling = individual_reset (separate, then reconnect).
+- Per-partner ratio step-down during co-breath: each partner has own ratio ladder, cooldown, step-down count (Fix #9, uses ratioStepDown.js)
+- Repair protocol: 5 steps (individual reset → acknowledgment → co-breath reconnect → one sentence each → closing co-breath). Always available — rupture is information.
+- Partnership unique constraint is order-independent: LEAST/GREATEST index. enroll() canonicalizes lower ID as partner_a.
+- 20 partnership topics seeded across 5 categories: connection (balance >= 20), inherited_patterns (40+), repair (45+), future (20+), intimacy (60+)
+- PRTN persona activates when partnership_practices has active row. partner_hub feature flag set.
+- partnershipRoutes.js at /api/partnership: 15 endpoints (enrollment, sessions, kitchen table, repair, account, baseline)
+- Migration 048: partnership_practices, partnership_sessions (session_completion_id INTEGER FK), partnership_topics (with min_age for age-gating)
+- ageFilter middleware applied to /api/partnership routes (adult-only content)
+- Sentry in all catch blocks
+
+## Prenatal Module — System Preparation (Session 32)
+- prenatalEngine.js: ABI module — trimester-based content, session adaptations, fetal environment estimation, Heritage/Price focus, birth/loss lifecycle
+- triadBreathEngine.js: ABI module — 3-system sync (parent + partner + unborn child), triad openings, drifting words
+- EXPT persona activates on prenatal enrollment. Features: prenatal_dashboard, triad_breath, trimester_content.
+- Three phases: Foundation (T1 weeks 1-12, 3:5 ratio, 10 min max, gentle somatic only), Deepening (T2 weeks 13-27, 4:6, 15 min, Heritage/Price available), Preparation (T3 weeks 28-40, 4:6, 12 min, birth breath practice)
+- Prenatal Heritage/Price: "Which code do I NOT want to install in this child?" Per-armor: "What would it look like if your child never needed [armor]?"
+- Triad drifting words: "Safe inside." "They feel you." "Already home." Peak coherence = silence.
+- Fetal environment estimation is a REFLECTION tool, NOT medical diagnosis. 4 states: calm, settling, stressed, activated. Language: "Your body is creating..." never "Your baby's cortisol..."
+- Prenatal breath_ratio OVERRIDES determineBreathParams output (breath_ratio_override: true). T1 requires 3:5 regardless of arrival biometrics. A strong arrival does not mean the pregnant body should do 4:7.
+- Overdue pregnancy (week > 42): returns T3 adaptations with overdue: true, facilitator_review_needed: true. No automated messages.
+- Pregnancy loss handled with absolute dignity: enrollment NOT deleted, work honored, all prenatal notifications stopped immediately, human facilitator contact only (not AI), lineage record honors sessions
+- Post-natal transition: enrollment completes, lineage entry records prenatal practice, LightBridge available for nursery
+- Birth breath techniques: extended_exhale_8, visualization_opening, partner_anchor_breath (practiced in T3)
+- Concurrent with solo spine — parent continues individual practice + adds prenatal content
+- computeGestationalWeek(dueDate): 280 days total gestation, week 1-42 clamped
+- session_completion_id on triad_sessions is INTEGER (matches migration 030 fix)
+- Engine functions return data, routes format user-facing messages (e.g., loss dignity message in route layer)
+- trimester_content has UNIQUE constraint (trimester, week_start, category, title) for idempotent seed
+- prenatalRoutes.js at /api/prenatal: 14 endpoints (enroll, status, partner, content, heritage-focus, codes-to-deprecate, triad start/tick/complete, adaptations, birth-plan, birth, loss, dashboard)
+- Migration 050: prenatal_enrollments, trimester_content (10 entries seeded across 3 trimesters), triad_sessions
+- Sentry in all catch blocks
+- 10 trimester content entries seeded: T1 (3), T2 (4), T3 (3)
+
+## Quilting Intelligence — System Weave (Session 31)
+- quiltingEngine.js: ABI module — 4-session graduated quilt assembly with AXIS evaluation between sessions
+- gateEvaluationEngine.js: AXIS module — 4 biometric-based gates (Network Boot/Stable/Resilient/Woven)
+- asymmetricVulnerabilityCheck.js: AXIS module — 5-check parent readiness evaluation before child speaks
+  - Checks: child-adjacent HP response, capacity trajectory (14d Steady), bridge biometrics, parent-child co-reg, dimension alignment
+  - Hard fail (3+ checks): gate stays closed. Soft fail (1-2): targeted preparation recommended.
+- quiltingMonitor.js: ABI module — Session 3 real-time Sonnet monitoring of parent/elder biometrics during child's sharing
+  - 4 triggers: parent_hrv_crash (>20% for >60s), child_coherence_drop, elder_defensive, any_below_window (>90s = HARD STOP)
+  - Hard stop is non-negotiable. Below_window >90s = session converts to co-breath. No exceptions.
+- isolationPrevention.js: service — post-session check-ins (2h), co-breath priority (48h), distress detection
+  - Distress detection requires 2+ keyword matches to reduce false positives. Single keyword = facilitator review only.
+- quiltingRoutes.js at /api/quilting: 12 endpoints (gates, sessions, monitoring, check-ins, generational activities)
+- Migration 049: gate_evaluations (with UNIQUE constraint for upsert), quilting_sessions, generational_activities, quilting_checkins
+  - co_breath_priority + co_breath_priority_until added to family_units
+- Session 1: Elder → Parent (child not present). Session 2: Parent → Elder (child not present).
+- Session 3: Child → Parent + Elder (Sonnet monitored, highest stakes). Session 4: Full family weave.
+- Gate 2 hp_without_mutual_dysregulation: NO fallback — requires clean HP session (no sustained dysregulation >3 min)
+- Child mirror format respects age brackets: elementary=drawing, middle_school=written (Luno reads), high_school=spoken
+- Abuse disclosure protocol wired into existing disclosureRouter (facilitatedMessaging.js) — NOT reimplemented
+  - Gets existing abuse_recipient blocking, mandatory_reporting_flag, role constraints from migration 035
+  - Quilting-specific additions (immune flag, session conversion) layer on top
+- routeDisclosure exported from facilitatedMessaging.js (was internal-only before)
+- quilting_session_monitoring task added to aiRouter (Sonnet tier)
+- Family NEVER knows gates exist. Luno says "Let's keep building" not "You're not ready."
+- Co-breath bookends every session. Receipt before response. ONE sentence. Not defense.
+- Quilted pattern (Session 4) stored on lineage_profiles.quilted_insight + lineage ledger entry
+- Crest version evaluation triggered on quilt completion
+- Facilitator notified after every quilting session (if facilitator exists)
+- LightBridge warm pattern: TODO — future build (override columns don't exist on lightbridge_devices yet)
+- ns3_mean confirmed as top-level INTEGER column on session_completions (Migration 013) — no JSONB extraction needed
+
+## Healing Economy — LIT/LHX/FCR/FIS (Session 33)
+- litEngine.js: AXIS module — LIT credential value accounting (NOT cryptocurrency — database ledger)
+  - creditCredential: records LIT on session completion with artifact value, updates FCR
+  - recordRevaluation: tracks monthly revaluation deltas from artifact valuation refresh
+  - creditBondBonus: distributes maturation bonuses equally to family members
+  - getPortfolio: balance, credentials, ceiling utilization ($50K annual ceiling from upstream)
+  - Every LIT credit traces to a session_completion_id — full auditability
+- fcrManager.js: AXIS module — Family Capital Reserve (family-level LIT accumulation)
+  - updateFCR: upserts reserve, tracks per-member contributions, auto-routes FACC (5-10%)
+  - FACC auto-contribution is non-negotiable — 5% default of every credential value flows to community capital
+- fisEngine.js: AXIS module — Family Investment Score (0-100, 6 weighted inputs)
+  - Weights: PIS avg (0.25), engagement (0.20), co-regulation (0.20), field tests (0.15), crest (0.10), real world (0.10)
+  - Crest scores: v1.0=20, v1.5=40, v2.0=60, v2.5=70, v3.0=100
+  - NaN guard per component AND final score — Sentry alert on NaN
+  - Confidence tiers: low (<15 sessions), medium (15-50), high (>50)
+  - Pure AXIS math — no AI. Defensible to courts and investors.
+- bondMaturationEngine.js: AXIS module — Breathing Bond maturation (Seed → Growth → Mature → Legacy)
+  - Growth: 30 sessions, 30 days, FIS 25, 5 co-breaths
+  - Mature: 90 sessions, 90 days, FIS 50, 20 co-breaths, 3 field tests, Crest 2.0
+  - Legacy: 250 sessions, 180 days, FIS 75, 50 co-breaths, 10 field tests, Crest 3.0, quilting done
+  - Maturation bonuses: Growth $50, Mature $200, Legacy $500 — split equally among family members
+  - Outcome-based, not time-based. Quality thresholds must be met regardless of speed.
+- healingEconomyRoutes.js at /api/economy: 14 endpoints (portfolio, LIT history, FCR, FIS, bond, recognition)
+- Migration 051: lit_ledger, lhx_recognition_partners, family_capital_reserves (UNIQUE family_unit_id), family_investment_scores, bond_maturation_events
+  - 3 PG County recognition partners seeded (Circuit Court, DOC, MD Workforce Development)
+- LIT credited during monthly valuation refresh (revaluation deltas tracked)
+- Monthly FIS + bond maturation cron: 1st of month, 4 AM UTC (after PIS at 2AM, valuation refresh at 3AM)
+- Family NEVER sees "investment" language — they see "your family's healing record"
+- $500 credential ceiling and $50K annual portfolio ceiling remain enforced upstream (Artifact Valuation)
+
+## Anti-Redlining Architecture — System Equity (Session 33)
+- antiRedliningEngine.js: AXIS module — 5 systemic mechanisms preventing extraction:
+  1. Disadvantage Floor: multiplier 1.0-1.5 based on disadvantage_index. No community receives less than base value.
+  2. Geographic Redistribution: FACC flows to communities below 0.85 equity ratio target.
+  3. Barrier Recognition: +0.05 boost per active barrier (incarceration, foster system, economic hardship, immigration, disability). Max 0.15.
+  4. Extraction Detection: automated alerts when value disparity > 2:1 between communities or recognition gaps.
+  5. Recognition Equity: ensures LHX partners available in all jurisdictions (min 2 per jurisdiction).
+- Barrier boost applied in artifactValuationEngine.js BEFORE $500 credential ceiling — disadvantaged families get higher % of maximum
+- Anti-redlining adjustments recorded in computation_data JSONB for full auditability
+- equityRoutes.js at /api/admin/equity: 8 admin endpoints (scores, alerts, resolve, coverage, scan, config, FACC pool)
+- Migration 052: community_equity_scores, extraction_alerts, equity_config (5 mechanisms seeded with DB-driven config)
+- Weekly extraction scan cron: Monday 5 AM UTC
+- Equity ratio target: 0.85-1.15 across all communities. Below 0.85 triggers high-severity alert.
+- Configuration stored in database (equity_config table), not hardcoded — governance can adjust without deployment
+- Disadvantage index locked at enrollment — NEVER updated. The barrier at entry is permanent recognition.
+- Barrier recognition is NOT charity — it acknowledges harder healing work = higher value.
+- The 5 mechanisms work as a system. Disabling one weakens all. Designed to be permanent.
+
+## Clinical Kitchen Table Layer (Session 34)
+- **Clinical Layer:** clinician-facing features on top of Session 17's kitchen table. Family NEVER sees any of this.
+- clinicalCoachingEngine.js — Sonnet trigger-based coaching (dysregulation, cascade, breakthrough, withdrawal, co-regulation, coach-me)
+- promptImpactEngine.js — 60-second tick-based biometric impact window per topic, per member (stored in session_state, not setTimeout)
+- communicationAnalyzer.js — per-session communication pattern metrics (speaking %, listening quality, interruptions, co-regulation events)
+- clinicalKitchenTableRoutes.js — 6 endpoints at /api/kitchen-table/clinical/* (clinician role required)
+- 3 new tables: kitchen_table_prompt_impacts, kitchen_table_communication, kitchen_table_coaching_logs
+- impact_monitoring JSONB column added to kitchen_table_sessions for tick-based monitoring state
+- WebSocket engagement event logging added to coBreathWebSocket.js (logEngagementEvent, getEngagementEvents, clearEngagementEvents)
+- WebSocket role-based filtering: clinician gets full biometrics, family gets capacity state only
+- Coaching card format: OBSERVED (biometric fact) → LIKELY (interpretation) → CONSIDER (dialogue suggestion)
+- AI routing: clinical_biometric_classification (Haiku), clinical_coaching_card (Sonnet) added to aiRouter.js
+- Sonnet cooldown: 30 seconds between Sonnet calls per member per session (cost protection)
+- Coach Me server-side rate limit: 30 seconds between requests per session (429 if exceeded)
+- Cost: Haiku for continuous classification (~$0.04-0.06/session), Sonnet for triggered coaching (~$0.06-0.10/session). Total <$0.20/session.
+- All clinical data is clinician-only. Family members never access reports, coaching logs, or raw biometrics.
+- Communication analysis runs at session completion (non-blocking). If it fails, session still completes.
+- Sentry in all catch blocks across all clinical layer files
+- Migration 053: 3 tables + indexes + impact_monitoring column
+
+## Clinician Dashboard Frontend (Session 6)
+- /app/clinician/session/:id — Live kitchen table session dashboard
+- Requires clinician role. ClinicianOnly wrapper in App.jsx redirects non-clinicians.
+- 4-zone CSS grid: NS Map (top-left), Prompt+Engagement (top-right 340px), Timeline (bottom-left), Alerts+Coaching (bottom-right 340px)
+- Background: linear-gradient(135deg, #0A1220, #0E1828, #0A1420). Header bar fixed 40px.
+- BioRing component: capacity-state color, pulse speed from RR, thickness from coherence, HR/HRV badges, tap for detail panel
+- SessionTimeline: ref-based canvas, HRV traces per member, event markers (topic/dysregulation/co-breath/coaching), playhead
+- WebSocket connection to co-breath room with clinician JWT for full biometric payload (hr, hrv, coherence, rr, ns3, capacity_state)
+- Real-time engagement tracking per member (reflecting/listening/disengaged), withdrawn highlight
+- Session controls: Co-Breath (teal), Next Prompt (amber), Pause (orange) — immediate, no confirmation
+- Coaching cards: 3 visual types (coaching=amber, co-regulation=teal, dysregulation=orange), OBSERVED/LIKELY/CONSIDER format
+- Coach Me button: on-demand Sonnet analysis via POST /api/kitchen-table/clinical/coach-me, 30s client-side rate limit
+- Dismiss logs was_seen via POST /api/kitchen-table/clinical/coaching/feedback
+- Auto-reconnect WebSocket with exponential backoff, reconnection indicator
+- Ring animations use CSS animation (not requestAnimationFrame) for tablet CPU efficiency
+- No family-facing routes link to /app/clinician/*
+- frontend/src/screens/ClinicianDashboardScreen.jsx — main 4-zone dashboard
+- frontend/src/screens/ChildBreathScreen.jsx — Air Dancer breathing for CHLD-E/CHLD-M children
+- frontend/src/components/BioRing.jsx — biometric ring + detail panel
+- frontend/src/components/SessionTimeline.jsx — ref-based canvas HRV timeline
+
+## Recovery Designee — Dual-Key Seed Phrase Backup (Session 35)
+- vaultRecoveryService.js: dual-key encryption (clinician + admin), AES-256-GCM, HKDF key derivation
+- Participant NEVER knows the backup exists. It is a safety net for facility transfers, confiscation, lost phrases.
+- Neither approver can decrypt alone. Dual key = HMAC(concat(HMAC(RECOVERY_KEY, clinician_id), HMAC(RECOVERY_KEY, admin_id)))
+- Recovery requires BOTH original approvers. Approver mismatch throws error + Sentry warning.
+- Every recovery event logged permanently in vault_recovery_events (who, why, when, IP). Seed phrase NEVER in logs.
+- Seed phrase displayed ONCE during recovery, then cleared from client memory. Never cached.
+- Approver rotation: re-encrypts backup with new approver pair when staff leaves.
+- vaultRecoveryRoutes.js at /api/vault/recovery: 5 endpoints (backup, recover, history, revoke, rotate)
+- Migration 054: vault_recovery_backups, vault_recovery_events tables + 5 indexes
+- Auto-backup wired into legacyVaultEngine.js createCapsule (non-blocking — failure does not block capsule creation)
+- legacyRoutes.js updated: passes clinician_id, admin_id, tenant_id to createCapsule
+- Routes mounted with authenticateOrApiKey('clinician') — clinician or admin role required
+- RECOVERY_ENCRYPTION_KEY env var is root of trust. Rotate with key rotation script from Session 12.
+- Recovery reasons constrained: facility_transfer, lost_phrase, confiscated, damaged, facility_policy, other
+- Sentry warning-level alert on every recovery event and every backup revocation
+
+## Family Breath Weave Ratio Floor Enhancement (Session 35)
+- familyBreathWeave.js: RATIO_FLOOR constant (2/3 = 0.6667) matches ratioStepDown.js individual floor
+- Structured JSON logging when floor is hit: family_unit_id, raw_composite, clamped_to, members_on_capacity_track
+- ratioToDecimal() and decimalToRatio() helper functions for string ratio conversion
+- Floor clamp runs AFTER weighted average computation, not before. Individual members can be at 2:3.
+- Below 2:3 is physiologically meaningless for vagal tone improvement. No exceptions.
+- Log helps facilitator understand why the family's composite is clamped (capacity track member count).
+
+## Do NOT Build Unless Assigned
+- Screenshot protection (dummyArtEngine.js) — Session 10+
+- Invisible watermark injection — Session 10+
+- Display offset for clinical values — Session 10+
+- Terra API wearable integration
+- Frequent Flyer Scoring Engine
+- Family Platform (18-section spec)
+
+## Session Status Override
+Contracts are live. verificationService is live. Do NOT redeploy.
+Focus only on the task assigned in the session prompt.
+
+## Key Files
+- src/abi/sessionOrchestrator.js — spine, 14 systems, all lifecycle
+- src/abi/breathProtocolAdapter.js — arc x track transformation
+- src/abi/determineBreathParams.js — arrival baseline → ratio selection
+- src/abi/buildSessionDataPacket.js — canonical hash for blockchain
+- src/abi/lunoIntelligence.js — Luno API calls, voice tiers
+- src/abi/axisEngine.js — AXIS ingest, refine, distribute
+- src/abi/biometricResilience.js — BLE disconnect handling
+- src/services/ns3Engine.js — NS3 scoring engine
+- src/services/ns3AxisBridge.js — NS3 → AXIS bridge
+- src/abi/breathArtEngine.js — deterministic breath art generator
+- src/services/ipfsService.js — Pinata IPFS upload + AES-256
+- src/assets/crowns/ — 5 sacred geometry crown SVGs
+- src/blockchain/verificationService.js — all blockchain writes
+- src/routes/abiRoutes.js — ABI endpoints
+- src/routes/artRoutes.js — art gallery/decode/crown/intention API
+- src/services/photoAbstractionService.js — 6x6 palette extraction
+- src/routes/canvasRoutes.js — co-creation canvas save/load/update
+- src/routes/socialRoutes.js — showcase feed/like/report
+- src/services/contentFilter.js — caption moderation
+- src/abi/legacyVaultEngine.js — capsule creation, review, edit, lock
+- src/abi/capsuleUnlockEngine.js — unlock, recovery, available capsules
+- src/abi/ancestralBreathEngine.js — ancestral breath sessions
+- src/abi/familyBreathWeave.js — composite family breathing patterns
+- src/routes/legacyRoutes.js — legacy vault API endpoints
+- src/routes/axisRoutes.js — AXIS endpoints
+- src/abi/artAggregationEngine.js — mandala + constellation generation
+- src/routes/merchandiseRoutes.js — export, poster, verify endpoints
+- scripts/rotateArtEncryption.js — key rotation script
+- src/middleware/tenantResolver.js — multi-tenancy resolution
+- src/abi/familyUnitEngine.js — family creation, gates, invitations
+- src/abi/familyIntelligence.js — pattern correlation, response rules, escalation
+- src/routes/familyRoutes.js — family API endpoints
+- src/abi/capacityCurrency.js — capacity scoring, ledger, investments, dividends
+- src/routes/capacityRoutes.js — capacity currency API endpoints
+- src/jobs/capacitySnapshot.js — daily snapshot cron job
+- src/abi/lightBridgeEngine.js — IoT light control, LIFX provider, simulation mode
+- src/routes/lightBridgeRoutes.js — LightBridge API endpoints
+- src/services/authService.js — registration, login, JWT, refresh tokens, lockout
+- src/services/walletService.js — embedded wallet generation, encrypted storage
+- src/services/emailService.js — pilot console logging for email/SMS
+- src/abi/onboardingEngine.js — onboarding state machine
+- src/routes/authRoutes.js — production auth endpoints
+- src/routes/onboardingRoutes.js — onboarding endpoints
+- src/abi/kitchenTableEngine.js — topic selection, biometric monitoring, journal encryption
+- src/abi/coBreathEngine.js — co-breath sessions, 3 modes, connection scoring
+- src/services/coBreathWebSocket.js — WebSocket real-time breath sync
+- src/routes/kitchenTableRoutes.js — kitchen table API endpoints
+- src/routes/coBreathRoutes.js — co-breath API endpoints
+- src/utils/tenantHelper.js — tenant-scoped query utilities
+- src/services/aiRouter.js — hybrid AI model routing + cost tracking
+- src/abi/facilitatedMessaging.js — two-way AI-coached messaging + disclosure classification
+- src/abi/conflictResolution.js — escalation detection, pause/breathe, repair framework
+- src/abi/letterAssistant.js — therapeutic letter writing with paragraph-level Sonnet feedback
+- src/services/therapyReportService.js — therapy prep reports with consent + legal disclaimer
+- src/middleware/premiumGate.js — tier enforcement (402 not 403), validateUpgrade
+- src/routes/premiumRoutes.js — premium + clinical endpoints
+- src/abi/familyCurriculum.js — 12-week adaptive curriculum, Sonnet assessments
+- src/abi/predictiveRelationship.js — two-tier predictions (behavioral + clinician-only)
+- src/abi/healingMap.js — multi-generational pattern map
+- src/routes/compassRoutes.js — Family Compass endpoints
+- src/jobs/weeklyPredictions.js — Monday 6 AM prediction cron
+- src/services/subscriptionService.js — Stripe + pilot mode billing, trial, lifecycle
+- src/routes/subscriptionRoutes.js — billing endpoints
+- src/routes/webhookRoutes.js — Stripe webhook (raw body)
+- src/abi/crisisEngine.js — crisis lifecycle, steward system, domestic safety, sanitizeFamilyData
+- src/routes/crisisRoutes.js — crisis participant + facilitator endpoints
+- src/routes/adminRoutes.js — system audit endpoints (table check, migration count, health)
+- frontend/ — production PWA + Capacitor app (Vite + React, built to frontend/dist, served at /app)
+- src/services/pushService.js — Firebase push sending (APNs + FCM)
+- src/routes/notificationRoutes.js — push token management
+- src/services/sessionStateManager.js — DB-backed session state (replaces in-memory Map)
+- src/routes/v8Routes.js — FR progress, vault (encrypted), clinician vault read
+- public/index_v8.html — v8 immersive breathing frontend (served at /breathe)
+- tests/v8-session-flow.spec.js — Playwright tests for v8 session lifecycle
+- server.js — Express, route mounting, cron, WebSocket
+- src/routes/contextRoute.js — GET /api/auth/context composite endpoint
+- src/routes/nextSessionRoute.js — GET /api/user/next-session endpoint
+- frontend/src/components/Plankton.jsx — Canvas particle system (coherence + sessionCount driven)
+- frontend/src/components/MiniLuno.jsx — Small breathing organism with character colors
+- frontend/src/components/CoherenceRings.jsx — Three alignment rings (drift/align)
+- frontend/src/components/AuroraHint.jsx — Subtle aurora bands (coherence-gated)
+- frontend/src/components/Waves.jsx — Animated horizontal wave lines
+- frontend/src/components/CapacityCard.jsx — Capacity state display with CAPACITY_STATES map
+- frontend/src/components/SessionCard.jsx — Next session card with MiniLuno + Begin button
+- frontend/src/components/SessionLauncher.jsx — Full-screen session launch overlay
+- tests/v8-pwa-integration.spec.js — Playwright tests for PWA-v8 integration
+- src/services/smsService.js — Twilio SMS with auth gate (503 when unavailable)
+- src/axis/preventionImpactEngine.js — PIS: manual sigmoid on NS3 trajectory + engagement + capacity
+- migrations/036_notification_queue.sql — notification_queue table for email/SMS retry
+- migrations/038_prevention_impact.sql — base_rates, prevention_impact_scores, PIS user columns
+- src/axis/artifactValuationEngine.js — defensible artifact dollar values with ceilings + NaN guards
+- migrations/039_artifact_valuation.sql — artifact_valuations, census_data, user/session valuation columns
+- src/services/ttsService.js — ElevenLabs TTS with per-variant caching
+- src/routes/ttsRoutes.js — TTS API endpoints (generate, available, prewarm, stats)
+- frontend/src/utils/audioPlayer.js — TTS audio playback utility
+- migrations/043_tts_cache.sql — tts_cache table + ASCEN voice config seed
+- src/abi/heritagePriceEngine.js — Heritage/Price Engine: 8 HOS dimensions, 6 prompt types each, armor-dimension mapping, Haiku guidance
+- src/routes/heritagePriceRoutes.js — Heritage/Price API (9 endpoints at /api/heritage)
+- src/abi/familyDesignEngine.js — Blueprint + Sandbox + Vision Board (System Design Mode)
+- src/routes/familyDesignRoutes.js — System Design Mode API (17 endpoints at /api/design)
+- migrations/044_family_design.sql — heritage_price_sessions, family_blueprints, sandbox_sessions, vision_board_entries, preset_scenarios
+- src/abi/ratioStepDown.js — mid-session ratio step-down evaluator (biometric sustainability)
+- src/abi/familyCrestEngine.js — Family Crest living document, version evaluation, ceremony narration
+- src/routes/crestRoutes.js — Family Crest API (7 endpoints at /api/crest)
+- src/services/personaEngine.js — age bracket computation from date_of_birth
+- src/middleware/ageFilter.js — server-side age content gating middleware
+- src/utils/capacityDisplay.js — age-appropriate capacity state labels (gaming/energy_bar/standard)
+- migrations/046_family_crest.sql — family_crests + crest_version_evidence tables
+- migrations/047_age_gated_content.sql — min_age columns + content_age_variants table
+- src/abi/partnershipEngine.js — dyadic co-regulation, pattern detection, relationship account, repair
+- src/routes/partnershipRoutes.js — Partnership API (15 endpoints at /api/partnership)
+- migrations/048_partnership_module.sql — partnership_practices, partnership_sessions, partnership_topics
+- src/abi/prenatalEngine.js — trimester phases, fetal environment estimation, Heritage/Price focus, birth/loss lifecycle
+- src/abi/triadBreathEngine.js — three-system sync (parent + partner + unborn child), triad openings, drifting words
+- src/routes/prenatalRoutes.js — Prenatal API (13 endpoints at /api/prenatal)
+- migrations/050_prenatal_module.sql — prenatal_enrollments, trimester_content, triad_sessions
+- src/abi/quiltingEngine.js — 4-session quilting assembly, disclosure protocol, generational activities
+- src/abi/quiltingMonitor.js — Session 3 Sonnet real-time biometric monitoring
+- src/axis/gateEvaluationEngine.js — 4 biometric gates for quilting readiness
+- src/axis/asymmetricVulnerabilityCheck.js — 5-check parent readiness before child speaks
+- src/services/isolationPrevention.js — post-quilting check-ins, co-breath priority, distress detection
+- src/routes/quiltingRoutes.js — Quilting API (12 endpoints at /api/quilting)
+- migrations/049_quilting_intelligence.sql — gate_evaluations, quilting_sessions, generational_activities, quilting_checkins
+- src/axis/litEngine.js — LIT credential value accounting (database ledger, not crypto)
+- src/axis/fcrManager.js — Family Capital Reserve with FACC auto-contribution
+- src/axis/fisEngine.js — Family Investment Score (6 weighted inputs, 0-100)
+- src/axis/bondMaturationEngine.js — Bond maturation (Seed/Growth/Mature/Legacy)
+- src/axis/antiRedliningEngine.js — 5 anti-extraction mechanisms
+- src/routes/healingEconomyRoutes.js — Healing Economy API (14 endpoints at /api/economy)
+- src/routes/equityRoutes.js — Anti-Redlining admin API (8 endpoints at /api/admin/equity)
+- migrations/051_healing_economy.sql — lit_ledger, lhx_recognition_partners, family_capital_reserves, family_investment_scores, bond_maturation_events
+- migrations/052_anti_redlining.sql — community_equity_scores, extraction_alerts, equity_config
+- src/routes/monitorRoutes.js — SSE live stream + session reports (clinician+ facilitator view)
+- src/abi/promptImpactEngine.js — tick-based prompt impact scoring (60s window)
+- src/abi/communicationAnalyzer.js — per-session communication pattern metrics
+- src/abi/clinicalCoachingEngine.js — Sonnet coaching trigger engine (dysregulation/cascade/breakthrough/withdrawal/co-regulation)
+- src/routes/clinicalKitchenTableRoutes.js — clinical kitchen table API (6 endpoints at /api/kitchen-table/clinical)
+- migrations/053_clinical_kitchen_table.sql — prompt_impacts, communication, coaching_logs tables
+- frontend/src/screens/ClinicianDashboardScreen.jsx — live kitchen table clinician dashboard (4-zone grid)
+- frontend/src/screens/CrestViewerScreen.jsx — Family Crest living document viewer (canvas + quadrant cards)
+- frontend/src/screens/WearableSyncScreen.jsx — BLE wearable sync pre-session flow (ocean canvas + HR ring)
+- frontend/src/components/BioRing.jsx — biometric ring + detail panel (clinician only)
+- frontend/src/components/SessionTimeline.jsx — ref-based canvas HRV timeline (clinician only)
+- public/test.html — throwaway test harness
+- src/services/vaultRecoveryService.js — dual-key seed phrase backup/recovery (AES-256-GCM)
+- src/routes/vaultRecoveryRoutes.js — vault recovery API (5 endpoints at /api/vault/recovery)
+- migrations/054_recovery_designee.sql — vault_recovery_backups, vault_recovery_events
+
+## HOS Family Layer (Session 25)
+- **HOS vocabulary enforced** across all user-facing strings. Clinical terms in code comments only.
+- N1: "therapeutic" → "system work", "dysregulation" → "system under load" in API responses
+- laceEngine.js — LACE (Legacy ACE) assessment with breath-first diagnostic
+  - 15 domains (LACE_001-LACE_014 + LACE_OPP) from legacy-ace-v2-dual-axis.yaml
+  - 6 clusters: External Threat, System Contact, Household/Relational, Economic/Material, Identity/Cultural, Unknown
+  - Inter-cluster breath baselines — intelligence before disclosure
+  - LACE NEVER produces a SCORE. It produces a MAP. This is absolute.
+  - 15 armor names: The Sentinel, The Fortress, The Ghost, The Atlas, The Override, The Chameleon, The Scanner, The Hoarder, The Spender, The Nomad, The Wanderer, The Refuser, The Doubter, The Inventor, The Inheritor
+  - Armor strength named BEFORE cost. Always.
+- lineage_profiles table — family code naming (elder only), carriers with generation level, dominant armors
+- 8 YAML-defined firmware (foundation): cache_clearing, baseline_reboot, file_recovery, legacy_thread, legacy_code_deprecation, gratitude_patch, cultural_source_code_recovery, network_expansion_protocol
+- 1 extension firmware: boundary_firmware
+- firmwareRecommender.js — AXIS reads confirmed armors, recommends firmware sequence. Cache Clearing always first.
+- lineage_entries table — permanent milestone record with SHA-256 attestation hash
+  - Entry types: armor_confirmed, firmware_installed, firmware_completed, field_test_passed, crest_versioned, family_code_named, quilting_completed, heritage_mapped
+- lineageService.js — records milestones, wired into sessionOrchestrator for firmware tracking
+- laceRoutes.js at /api/lace: start, domain, breath-baseline, confirm-armor, complete, status, map, domains, family/code-name
+- firmwareRoutes.js at /api/firmware: recommended, progress, :number
+- lineageRoutes.js at /api/lineage: ledger, timeline, family
+- Migration 040: lace_assessments, lineage_profiles
+- Migration 041: firmware_templates (9 seeded), firmware columns on session_completions
+- Migration 042: lineage_entries
+
+## Alignment Backend Extensions (Session 24)
+- /api/family/unit/:id extended: per-member capacity_state + lightbridge_state, co_breath_suggestion
+- GET /api/user/vagal-journey/:sessionId — arrival + landing NS3 with HOS zone labels
+- GET /api/user/vagal-pattern — 30-day trend with improving/stable/declining direction
+- drifting_word added to tick response — milestone-triggered words for textless UI (arriving, deeper, steady, building, rooted)
+- vagalRoutes.js at /api/user: vagal-journey, vagal-pattern
+- HOS zone vocabulary: Regulated (71-100), Settling (41-70), Activated (25-40), Protected (0-24) — never clinical terms
+- Privacy: family members see capacity STATE only — never balance, never NS3, never biometrics
+- Co-breath suggestion requires 3+ historical co-breath sessions before surfacing
+- Drifting word fires at milestone moments only. 99% of ticks return null.
+
+## Depth Metaphor — Frontend (Session 25, LOCKED)
+- **Surface = sunny PWA, deep = dark v8 session.** Weather = biofeedback (capacity state → clouds/warmth/calm).
+- SurfaceOcean.jsx: single continuous canvas — sky + sun + clouds + horizon + water + plankton. Weather interpolates at 2% per frame (~2 second transitions). Canvas NEVER restarts on prop changes (all ref-based).
+- HomeScreen.jsx: sunny surface with sky-zone cards (white, dark text) above waterline, water-zone cards (dark, light text) below. MiniLuno at waterline. "Dive In" not "Begin."
+- DescentAnimation.jsx: 10 seconds, 6 depth zones (Luno/Luna palettes), easeInOut cubic bezier. IS the first exercise — not a loading screen. Luno's glow increases → sole light at midnight.
+- Ascent: 8 seconds, reverse descent. Return to potentially clearer sky if NS3 improved. Never punish with worse weather if NS3 declined.
+- DriftingWord.jsx: coherence-gated word bank. Simpler words at low coherence, absent at peak (0.85+). Backend drifting_word overrides local bank.
+- PullDownShade.jsx: opt-in text overlay. Never defaults to open. Swipe or tap chevron to reveal.
+- VagalJourneyScreen.jsx: vertical 4-zone bar (Regulated/Settling/Activated/Protected) with arrival/landing dots. No numbers, no clinical terms.
+- 30-day pattern: arrival dots migrating upward. Trend: improving/stable/declining with compassionate text.
+- SessionScreen.jsx flow: descent → somatic (if NS3<25) → breathing (v8 iframe with sessionKey) → ascent → journey → vault → home.
+- v8 iframe receives sessionKey param to continue SAME session (no duplicate session/start).
+- Weather never storms. Even at Depleted: heavy overcast, grey and still. Never threatening.
+- Voice hooks marked with VOICE_HOOK comments for future ElevenLabs TTS. Drifting words carry the load without voice.
+- Design references: HomeScreen.depth-v5.design.jsx, DescentAnimation.design.jsx (in frontend/src/screens/)
+
+## ElevenLabs TTS Integration (Session 26)
+- ttsService.js — ElevenLabs TTS with per-variant caching. Cache key = SHA-256(text + voice_id + character + phase).
+- GET /api/tts/generate — returns audio_url or null (fallback to text/drifting words)
+- GET /api/tts/available — check if TTS is configured
+- POST /api/tts/prewarm — pre-generate audio for upcoming session
+- GET /api/tts/stats — cache statistics (admin only)
+- tts_cache table (Migration 043) — stores generated audio with use tracking
+- Audio files served from /audio/tts/ (public/audio/tts/ directory)
+- Prewarm fires on context load (fire-and-forget in contextRoute.js, non-blocking)
+- Cache cleanup: weekly cron (Sunday 4 AM UTC) removes unused entries older than 90 days
+- TTS is ENHANCEMENT, not dependency. System works without ELEVENLABS_API_KEY.
+- Per-tenant voice config in tenants.voice_config JSONB: voice_id, stability, similarity_boost, style, speaking_rate
+- Two characters: Luno (grounded guide) and Luna (warm healer)
+- Frontend: audioPlayer.js utility for playback with graceful fallback
+- Three voice moments: arrival (descent start), breathing milestone (conditional), closing affirmation
+- Voice cached per variant. Once generated, same audio serves every participant at that session + phase + tenant.
+- Cost: ~$0.005-0.01 per NEW generation, $0 for cached playback
+- ELEVENLABS_API_KEY env var required. voice_id values set in tenant voice_config after ElevenLabs dashboard setup.
+- Luno's silence rule still applies: no real-time verbal biometric feedback. TTS is for scripted moments only.
+
+## Heritage/Price Engine (Session 26)
+- heritagePriceEngine.js — standalone ABI module, maps confirmed armors to 8 HOS heritage dimensions
+- **8 HOS Dimensions:** Body, Heart, Mind, People, Work, Money/Time, Spirit, Home
+- Each dimension has 6 prompt types: heritage_prompt, price_prompt, elder_prompt, parent_prompt, child_prompt, child_elementary (drawing)
+- Heritage = what the armor PROTECTED (strength language). Price = what the armor COST (cost language). Never "trauma assessment."
+- ARMOR_DIMENSION_COSTS: per-armor cost scores across dimensions (e.g., The Sentinel: body 8, heart 6, home 7)
+- startSession requires completed LACE assessment (status='completed')
+- recordDimension stores heritage text, price text, action (keep/modify/deprecate), role, biometric snapshot
+- Breath baselines captured between dimensions (same pattern as LACE clusters)
+- completeSession identifies high_cost_dimensions (modify/deprecate with highest biometric activation)
+- completeSession builds armor_dimension_map (which armor shows up in which dimension)
+- completeSession updates lineage_profiles.heritage_dimensions and records heritage_mapped lineage entry
+- getPrompts returns age-appropriate: elementary=drawing, teen=direct, adult=reflective
+- getPrompts returns role-appropriate: elder/parent/child differ per dimension
+- Haiku transition guidance fires ONLY for unsupervised families (no facilitator)
+- Haiku fallback to static text when API unavailable
+- Family-map endpoint aggregates heritage/price data across all family members
+- Routes mounted at /api/heritage (9 endpoints): start, prompts, dimension, breath, response, complete, current, transition, family-map
+- DIM_TO_DB mapping: body→physical, heart→emotional, mind→educational, people→relational, work→vocational, money_time→financial, spirit→spiritual, home→communal
+
+## Family Design Interface — System Design Mode (Session 26)
+- **Arc position:** LACE → Armor → Heritage/Price → System Design Mode → Firmware → Field Testing
+- **Stages of change:** Blueprint = contemplation→preparation, Sandbox = preparation→action, Vision Board = preparation→maintenance
+- familyDesignEngine.js — three modes: Blueprint (imagine), Sandbox (rehearse), Vision Board (manifest)
+- Blueprint: per-dimension visions from 3 generational roles (elder, parent, child), family declaration (elder only)
+- Blueprint prompts filtered to high-cost dimensions only (those marked modify/deprecate in Heritage/Price)
+- Blueprint statement auto-generated when all 3 roles contribute to a dimension
+- Blueprint completion updates lineage_profiles.family_blueprint and records blueprint_created lineage entry
+- Sandbox: replay (redo past), preview (practice future), contrast (old code vs new code with biometric comparison)
+- Biometric comparison: participants see regulation_improved boolean ONLY — never raw NS3 values
+- 15 preset scenarios seeded in preset_scenarios table (5 replay, 5 preview, 5 contrast) covering common armor × dimension combinations
+- Scenario suggest: AXIS recommends based on confirmed armors from LACE, excludes already-completed scenarios
+- Vision Board: auto-assembled from blueprint + milestones + sandbox history. No manual creation step.
+- Blueprint before Sandbox. You cannot rehearse what you haven't imagined.
+- Drawing prompts for elementary children. They draw the future, they don't write it.
+- Child's Contrast role — "Tell us which family you want to live in" — the Mirror speaks truth.
+- All endpoints require family membership. Declaration is elder-only.
+- Migration 044: heritage_price_sessions (with lace_assessment_id, dimensions, biometric_snapshots, breath_baselines, armor_dimension_map), family_blueprints, sandbox_sessions, vision_board_entries, preset_scenarios
+- lineage_entries CHECK constraint extended: blueprint_created, sandbox_completed, heritage_price_completed added
+
+## BLE Devices
+- Polar H10: ECG, gold standard, deviceConfidence = 1.0
+- Kyto2935: PPG finger clip, deviceConfidence = 0.75
+- Both use BLE HR Service UUID 0x180D
+- Chrome only. Not iOS Safari.
+- Disconnect mid-session: fall back to synthetic, do not crash.
+- Pause biometric evaluation during somatic exercises.
