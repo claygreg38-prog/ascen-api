@@ -114,6 +114,31 @@
 #bleBtn .ble-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; background: rgba(255,255,255,0.6); }
 #bleBtn.ble-connected .ble-dot { background: rgba(78,205,196,0.9); box-shadow: 0 0 6px rgba(78,205,196,0.6); }
 
+#srcBadge { position: fixed; top: 36px; right: 16px; z-index: 999; display: flex; align-items: center; gap: 6px; pointer-events: none; font-family: 'Outfit', sans-serif; font-size: 9px; letter-spacing: 1.5px; padding: 4px 8px; border-radius: 10px; transition: all 0.3s; }
+#srcBadge .src-pip { width: 7px; height: 7px; border-radius: 50%; }
+#srcBadge.src-h10 { background: rgba(78,205,196,0.10); border: 1px solid rgba(78,205,196,0.35); color: rgba(78,205,196,0.95); }
+#srcBadge.src-h10 .src-pip { background: #4ecdc4; box-shadow: 0 0 6px rgba(78,205,196,0.7); }
+#srcBadge.src-synthetic { background: rgba(255,136,68,0.10); border: 1px solid rgba(255,136,68,0.45); color: rgba(255,170,100,0.98); }
+#srcBadge.src-synthetic .src-pip { background: #ff8844; box-shadow: 0 0 6px rgba(255,136,68,0.7); }
+#srcBadge.src-hidden { display: none; }
+#srcGateOv { position: fixed; inset: 0; background: rgba(8,18,32,0.92); display: none; z-index: 1500; align-items: center; justify-content: center; padding: 32px; }
+#srcGateOv.active { display: flex; }
+#srcGateOv .sg-c { max-width: 420px; text-align: center; color: #e8f1ff; font-family: 'Outfit', sans-serif; }
+#srcGateOv .sg-title { font-size: 18px; letter-spacing: 1px; margin-bottom: 12px; color: #e8f1ff; }
+#srcGateOv .sg-body { font-size: 14px; line-height: 1.6; color: #a8c4e0; margin-bottom: 24px; }
+#srcGateOv .sg-actions { display: flex; flex-direction: column; gap: 10px; }
+#srcGateOv .sg-btn { padding: 12px 18px; border-radius: 6px; font-size: 13px; letter-spacing: 1.5px; cursor: pointer; font-family: 'Outfit', sans-serif; transition: all 0.2s; }
+#srcGateOv .sg-btn-primary { background: rgba(78,205,196,0.15); border: 1px solid rgba(78,205,196,0.5); color: #4ecdc4; }
+#srcGateOv .sg-btn-primary:hover { background: rgba(78,205,196,0.25); }
+#srcGateOv .sg-btn-secondary { background: transparent; border: 1px solid rgba(255,255,255,0.25); color: rgba(232,241,255,0.85); }
+#srcGateOv .sg-btn-secondary:hover { border-color: rgba(255,255,255,0.45); }
+#srcGateOv .sg-disclosure { display: none; font-size: 12px; line-height: 1.6; color: rgba(255,170,100,0.95); margin-top: 18px; padding: 12px; border: 1px solid rgba(255,136,68,0.35); border-radius: 6px; background: rgba(255,136,68,0.06); text-align: left; }
+#srcGateOv.show-disclosure .sg-disclosure { display: block; }
+#mirrorOv .m-synth-notice { display: none; margin-top: 16px; padding: 10px 14px; border: 1px solid rgba(255,136,68,0.4); border-radius: 6px; background: rgba(255,136,68,0.08); color: rgba(255,170,100,0.95); font-size: 12px; line-height: 1.5; text-align: left; }
+#mirrorOv.synth-used .m-synth-notice { display: block; }
+#mirrorOv .m-synth-mixed { display: none; }
+#mirrorOv.synth-mixed .m-synth-mixed { display: inline; }
+
 .dialogue { position: absolute; top: 12%; left: 50%; transform: translateX(-50%); max-width: 580px; text-align: center; padding: 0 40px; z-index: 20; }
 .dialogue-text { font-size: 20px; font-weight: 300; line-height: 1.8; color: rgba(200,220,240,0.88); }
 .dialogue-text .hl { color: rgba(255,225,160,0.92); font-weight: 400; }
@@ -335,7 +360,7 @@
   <div class="tap-prompt tap-disabled" id="tapP">Tap when you're ready<div class="tap-subtitle" id="tapSub">Pair your sensor or wait for baseline...</div></div>
 
   <div class="ov" id="checkinOv"><div class="ov-bg"></div><div class="ov-c"><div class="ci-q">One word for how that felt:</div><div class="ci-opts"><div class="ci-btn">Calm</div><div class="ci-btn">Weird</div><div class="ci-btn">Hard</div><div class="ci-btn">Good</div><div class="ci-btn">Nothing</div><div class="ci-btn">Different</div></div></div></div>
-  <div class="ov" id="mirrorOv"><div class="ov-bg"></div><div class="ov-c"><div class="m-stats"><div class="m-stat"><div class="m-val" id="mirrorBreaths">0</div><div class="m-lbl">breaths</div></div><div class="m-stat"><div class="m-val gold" id="mirrorCoh">0.72</div><div class="m-lbl">peak coh</div></div><div class="m-stat"><div class="m-val" id="mirrorDur">12m</div><div class="m-lbl">duration</div></div></div><div class="m-truth" id="mirrorTruth">Something shifted in you.<br>Not from outside.<br>From your own breath.</div><div class="m-cont" id="mirrorCont">continue →</div></div></div>
+  <div class="ov" id="mirrorOv"><div class="ov-bg"></div><div class="ov-c"><div class="m-stats"><div class="m-stat"><div class="m-val" id="mirrorBreaths">0</div><div class="m-lbl">breaths</div></div><div class="m-stat"><div class="m-val gold" id="mirrorCoh">0.72</div><div class="m-lbl">peak coh</div></div><div class="m-stat"><div class="m-val" id="mirrorDur">12m</div><div class="m-lbl">duration</div></div></div><div class="m-truth" id="mirrorTruth">Something shifted in you.<br>Not from outside.<br>From your own breath.</div><div class="m-synth-notice" id="mirrorSynthNotice">This session ran in synthetic mode. Biometric data shown is simulated, not from your sensor.<span class="m-synth-mixed"> Some portions used real sensor data and some used synthetic — peak coherence reflects whichever was active.</span></div><div class="m-cont" id="mirrorCont">continue →</div></div></div>
   <div class="ov" id="vaultOv"><div class="ov-bg"></div><div class="ov-c"><div class="v-prompt" id="vaultPrompt">"Before this session, I thought my body ___.<br>Now I'm learning ___."</div><textarea class="v-input" id="vaultInput" placeholder="Write what's real. No one sees this but you."></textarea><div class="v-seal" id="vaultSeal">Seal in Vault</div><div class="v-skip">skip for now</div></div></div>
 
   <!-- COACHING INTERVENTION OVERLAY -->
@@ -352,6 +377,17 @@
   <div class="ov" id="ratioOv"><div class="ov-bg"></div><div class="ov-c">
     <div class="ci-q">Choose the breath pattern that feels right today:</div>
     <div class="ci-opts" id="ratioOpts"></div>
+  </div></div>
+
+  <!-- SOURCE GATE OVERLAY — fires when 15s elapses without BLE pairing -->
+  <div id="srcGateOv"><div class="sg-c">
+    <div class="sg-title">Connect your sensor to begin</div>
+    <div class="sg-body">Live biometrics from your H10 or Kyto sensor anchor this session. Without a sensor, the system will simulate values.</div>
+    <div class="sg-actions">
+      <button class="sg-btn sg-btn-primary" id="sgPair">Pair Now</button>
+      <button class="sg-btn sg-btn-secondary" id="sgContinue">Continue without sensor</button>
+    </div>
+    <div class="sg-disclosure" id="sgDisclosure">Synthetic mode: heart rate, HRV, and coherence will be simulated, not measured. The session will run, but biometric feedback is not based on your body. Tap "Confirm" to proceed, or "Pair Now" to connect a sensor.</div>
   </div></div>
 
   <div class="ctrls">
@@ -2400,16 +2436,23 @@ var SessionUI = (function() {
   var _lunoTapCount=0,_lunoTapTimer=null,_apiBaseUrl='',_apiStatus='connecting',_apiSessions=[],_completedSessions={};
   var _stateMachine=null,_biometricBridge=null,_dialogueDelivery=null,_boundUserId=null,_bleButtonAvailable=false;
   var _baselineReady=false,_synthFallbackTimer=null;
+  var _sawH10=false,_sawSynthetic=false,_explicitSyntheticOptIn=false,_continueClickCount=0;
   function _enableTapButton(source){_baselineReady=true;if(_synthFallbackTimer){clearTimeout(_synthFallbackTimer);_synthFallbackTimer=null;}var tp=$('tapP');if(tp){tp.classList.remove('tap-disabled');}var sub=$('tapSub');if(sub){sub.textContent='Ready. Tap when you are.';}console.log('[UI] Session start button enabled — baseline:',source);}
   function _updateTapSubtitle(text){var sub=$('tapSub');if(sub)sub.textContent=text;}
+  function _initSrcBadge(){if($('srcBadge'))return;var b=document.createElement('div');b.id='srcBadge';b.className='src-hidden';b.innerHTML='<span class="src-pip"></span><span id="srcLbl">SYNTHETIC</span>';document.body.appendChild(b);}
+  function _setSrcBadge(source){var b=$('srcBadge');if(!b)return;var lbl=$('srcLbl');if(source==='h10'){b.className='src-h10';if(lbl)lbl.textContent='H10 • LIVE';}else if(source==='synthetic'){b.className='src-synthetic';if(lbl)lbl.textContent='SYNTHETIC';}else{b.className='src-hidden';}}
+  function _showSourceGate(){var ov=$('srcGateOv');if(ov)ov.classList.add('active');console.log('[UI] Source gate shown — 15s elapsed without BLE pairing');}
+  function _hideSourceGate(){var ov=$('srcGateOv');if(ov){ov.classList.remove('active');ov.classList.remove('show-disclosure');}var btn=$('sgContinue');if(btn)btn.textContent='Continue without sensor';_continueClickCount=0;}
+  function _resetSessionSourceTracking(){_sawH10=false;_sawSynthetic=false;_explicitSyntheticOptIn=false;_continueClickCount=0;var b=$('srcBadge');if(b)b.className='src-hidden';}
 
   function initSessionUI(containerElement,apiBaseUrl){
     _containerEl=containerElement;_apiBaseUrl=(apiBaseUrl||window.location.origin||'').replace(/\/$/,'');
     try{_completedSessions=JSON.parse(localStorage.getItem('ascen_progress')||'{}');}catch(e){_completedSessions={};}
     var lunoCon=$('lunoCon');if(lunoCon){lunoCon.addEventListener('click',function(e){e.stopPropagation();_lunoTapCount++;if(_lunoTapTimer)clearTimeout(_lunoTapTimer);_lunoTapTimer=setTimeout(function(){_lunoTapCount=0},500);if(_lunoTapCount>=3){_lunoTapCount=0;var ctrls=document.querySelector('.ctrls');if(ctrls)ctrls.classList.toggle('dev-visible');}});}
     var tapP=$('tapP');if(tapP){tapP.addEventListener('click',async function(){if(tapP.classList.contains('tap-disabled'))return;if(_dialogueDelivery)await _dialogueDelivery.unlockAudio();if(_stateMachine)_stateMachine.advancePhase();});}
-    // Synthetic baseline fallback: enable tap after 15s if no BLE connects
-    _synthFallbackTimer=setTimeout(function(){if(!_baselineReady){_enableTapButton('synthetic');console.log('[UI] Synthetic baseline fallback — 15s elapsed, no BLE');}},15000);
+    // Source gate: at 15s without BLE pairing, show explicit choice overlay (no silent synthetic fallback)
+    _initSrcBadge();
+    _synthFallbackTimer=setTimeout(function(){if(!_baselineReady)_showSourceGate();},15000);
     var vaultSeal=$('vaultSeal');if(vaultSeal){vaultSeal.addEventListener('click',async function(){var vaultInput=$('vaultInput');var text=vaultInput?vaultInput.value||'':'';_uiEmit('vaultSealed',{text:text});if(_stateMachine)_stateMachine.sealVault();});}
     var vaultSkip=document.querySelector('.v-skip');if(vaultSkip){vaultSkip.addEventListener('click',function(){if(_stateMachine)_stateMachine.sealVault();});}
     var mirrorCont=$('mirrorCont');if(mirrorCont){mirrorCont.addEventListener('click',function(){_uiEmit('mirrorContinue',{});if(_stateMachine)_stateMachine.advancePhase();});}
@@ -2438,6 +2481,33 @@ var SessionUI = (function() {
         });
       }else{bleBtn.style.display='none';}
     }
+    // Source gate handlers — Pair Now restarts BLE flow, Continue requires double-click confirmation
+    var sgPair=$('sgPair');
+    if(sgPair){
+      sgPair.addEventListener('click',function(){
+        _hideSourceGate();
+        var btn=$('bleBtn');if(btn)btn.click();
+        // Re-arm fallback so the gate fires again if pairing is cancelled or fails
+        if(_synthFallbackTimer)clearTimeout(_synthFallbackTimer);
+        _synthFallbackTimer=setTimeout(function(){if(!_baselineReady)_showSourceGate();},15000);
+      });
+    }
+    var sgCont=$('sgContinue');
+    if(sgCont){
+      sgCont.addEventListener('click',function(){
+        _continueClickCount++;
+        if(_continueClickCount===1){
+          var ov=$('srcGateOv');if(ov)ov.classList.add('show-disclosure');
+          sgCont.textContent='Confirm — continue without sensor';
+          return;
+        }
+        _explicitSyntheticOptIn=true;_sawSynthetic=true;
+        _hideSourceGate();
+        _enableTapButton('synthetic_opt_in');
+        _setSrcBadge('synthetic');
+        console.log('[UI] User explicitly opted into synthetic mode');
+      });
+    }
     setApiStatus('connecting');
   }
 
@@ -2455,7 +2525,7 @@ var SessionUI = (function() {
 
   function _updatePhaseUI(phase){var phaseLabel=$('phaseLabel');if(phaseLabel){var labels={surface:'',arrival:'ARRIVAL',descent:'DESCENDING',opening:'OPENING',resistance:'RESISTANCE',before_the_breath:'BEFORE THE BREATH',breathing:'BREATHE',shift:'SHIFT',close:'CLOSE',vault:'VAULT',ascent:'SURFACING',surface_return:''};phaseLabel.textContent=labels[phase]||phase.toUpperCase();}var tapP=$('tapP');if(tapP){if(phase==='arrival'){tapP.style.display='block';tapP.textContent="Tap when you're ready";}else{tapP.style.display='none';}}var dialogue=$('dialogue');if(dialogue){if(phase==='breathing')dialogue.style.display='none';else dialogue.style.display='block';}if(phase==='breathing')showPacer();else hidePacer();['checkinOv','mirrorOv','vaultOv','coachingOv','ratioOv'].forEach(function(id){var el=$(id);if(el)el.className='ov';});if(phase==='vault')showOverlay('vault');document.querySelectorAll('.pb').forEach(function(b){b.classList.remove('active');if(b.textContent.toLowerCase().replace(/[- ]/g,'_')===phase)b.classList.add('active');});}
 
-  function showOverlay(type,data){var overlayMap={checkin:'checkinOv',mirror:'mirrorOv',vault:'vaultOv',coaching:'coachingOv',ratio:'ratioOv'};var id=overlayMap[type];if(!id)return;var el=$(id);if(el)el.className='ov active';if(type==='mirror'&&data){var breaths=$('mirrorBreaths');if(breaths)breaths.textContent=data.breathCount||0;var coh=$('mirrorCoh');if(coh)coh.textContent=(data.coherencePeak||0).toFixed(2);var dur=$('mirrorDur');if(dur){var minutes=data.durationMinutes||(data.durationSeconds?Math.round(data.durationSeconds/60):0);dur.textContent=(minutes||1)+'m';}var truth=$('mirrorTruth');if(truth&&data.affirmation)truth.innerHTML=data.affirmation;}if(type==='coaching'&&data){var msg=$('coachingMsg');if(msg&&data.message)msg.textContent=data.message;}if(type==='vault'&&data){var prompt=$('vaultPrompt');if(prompt&&data.vault_prompt)prompt.textContent='"'+data.vault_prompt+'"';}}
+  function showOverlay(type,data){var overlayMap={checkin:'checkinOv',mirror:'mirrorOv',vault:'vaultOv',coaching:'coachingOv',ratio:'ratioOv'};var id=overlayMap[type];if(!id)return;var el=$(id);if(el)el.className='ov active';if(type==='mirror'&&data){var breaths=$('mirrorBreaths');if(breaths)breaths.textContent=data.breathCount||0;var coh=$('mirrorCoh');if(coh)coh.textContent=(data.coherencePeak||0).toFixed(2);var dur=$('mirrorDur');if(dur){var minutes=data.durationMinutes||(data.durationSeconds?Math.round(data.durationSeconds/60):0);dur.textContent=(minutes||1)+'m';}var truth=$('mirrorTruth');if(truth&&data.affirmation)truth.innerHTML=data.affirmation;var mOv=$('mirrorOv');if(mOv){if(data.syntheticUsed)mOv.classList.add('synth-used');else mOv.classList.remove('synth-used');if(data.syntheticMixed)mOv.classList.add('synth-mixed');else mOv.classList.remove('synth-mixed');}}if(type==='coaching'&&data){var msg=$('coachingMsg');if(msg&&data.message)msg.textContent=data.message;}if(type==='vault'&&data){var prompt=$('vaultPrompt');if(prompt&&data.vault_prompt)prompt.textContent='"'+data.vault_prompt+'"';}}
   function hideOverlay(type){var overlayMap={checkin:'checkinOv',mirror:'mirrorOv',vault:'vaultOv',coaching:'coachingOv',ratio:'ratioOv'};var id=overlayMap[type];if(!id)return;var el=$(id);if(el)el.className='ov';}
   function showRatioSelection(ratios,onSelect){var el=$('ratioOpts');if(!el)return;el.innerHTML='';ratios.forEach(function(r){var btn=document.createElement('div');btn.className='ci-btn';btn.textContent=r.replace(':',' : ');btn.addEventListener('click',function(){hideOverlay('ratio');if(onSelect)onSelect(r);});el.appendChild(btn);});showOverlay('ratio');}
   function showCoachingIntervention(coaching,onChoice){var msg=$('coachingMsg');if(msg)msg.textContent=coaching.message||'Your body is telling us something.';var bp=$('breathPacer');if(bp)bp.style.opacity='0.3';showOverlay('coaching');var opts=$('coachingOpts');if(opts){opts.querySelectorAll('.ci-btn').forEach(function(btn){var handler=function(){hideOverlay('coaching');if(bp)bp.style.opacity='1';var choice=btn.textContent.toLowerCase().includes('keep')?'continue':btn.textContent.toLowerCase().includes('ground')?'drill':'exit';if(onChoice)onChoice(choice);};var newBtn=btn.cloneNode(true);newBtn.addEventListener('click',handler);btn.parentNode.replaceChild(newBtn,btn);});}}
@@ -2484,7 +2554,7 @@ var SessionUI = (function() {
     ssm.on('onBreathTick',function(data){updateBreathCounter(data.breathCount,data.totalBreaths);});
     ssm.on('onBreathPhase',function(data){updateBreathPhaseLabel(data.phase);});
     ssm.on('onBreathingStart',function(data){_buildDots(data.totalBreaths);_updateDots(1,data.totalBreaths);var totalEl=$('breathTotal');if(totalEl)totalEl.textContent=data.totalBreaths;var numEl=$('breathNum');if(numEl)numEl.textContent='1';var counterEl=$('breathCounter');if(counterEl)counterEl.style.display='flex';});
-    ssm.on('onSessionComplete',function(metrics){hidePacer();var mirrorData={breathCount:metrics.breathCount,durationSeconds:metrics.durationSeconds,coherencePeak:(_biometricBridge&&_boundUserId)?_biometricBridge.getCoherencePeak(_boundUserId):0};showOverlay('mirror',mirrorData);});
+    ssm.on('onSessionComplete',function(metrics){hidePacer();var mirrorData={breathCount:metrics.breathCount,durationSeconds:metrics.durationSeconds,coherencePeak:(_biometricBridge&&_boundUserId)?_biometricBridge.getCoherencePeak(_boundUserId):0,syntheticUsed:_sawSynthetic,syntheticMixed:_sawH10&&_sawSynthetic};showOverlay('mirror',mirrorData);});
     ssm.on('onDriftingWord',function(data){showDriftingWord(data.text,data.duration)});
     ssm.on('onPhaseChange',function(phase){if(phase==='descent'){showDescentOverlay();var lc=$('lunoCon');if(lc)lc.classList.add('lc-revealed');}if(phase==='opening')hideDescentOverlay();if(phase==='surface'){hideDescentOverlay();var lc2=$('lunoCon');if(lc2)lc2.classList.remove('lc-revealed');}});
     ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');var lc=$('lunoCon');if(lc)lc.classList.remove('lc-revealed');});
@@ -2518,6 +2588,7 @@ var SessionUI = (function() {
   function bindUser(userId){
     if(!userId||!_biometricBridge)return;
     _boundUserId=userId;
+    _resetSessionSourceTracking();
     var bio=_biometricBridge;
     bio.on(userId,'arrivalComplete',function(baseline){
       var ratio=bio.getSelectedRatio(userId);
@@ -2528,9 +2599,16 @@ var SessionUI = (function() {
       var remaining=30-data.sampleNumber;
       if(remaining>0)_updateTapSubtitle('Capturing baseline... ~'+remaining+'s remaining');
     });
-    bio.on(userId,'biometricTick',function(data){updateDashboard(data.sample);});
+    bio.on(userId,'biometricTick',function(data){
+      updateDashboard(data.sample);
+      if(data&&data.sample&&data.sample.source==='h10')_sawH10=true;
+      if(data&&data.sample&&data.sample.source==='synthetic')_sawSynthetic=true;
+    });
     bio.on(userId,'bleConnected',function(){
       _updateBleBtn(true);
+      _sawH10=true;
+      _setSrcBadge('h10');
+      _hideSourceGate();
       var running=bio._isArrivalRunning(userId);
       var baseline=bio.getArrivalBaseline(userId);
       var currentSampleSource=bio._getArrivalSampleSource(userId);
@@ -2545,7 +2623,12 @@ var SessionUI = (function() {
         console.log('[BIO] CASE 3: BLE connected — arrival state OK (baseline:',!!baseline,'running:',running,'source:',currentSampleSource,'), no action needed');
       }
     });
-    bio.on(userId,'sourceChanged',function(data){if(data.source==='synthetic')_updateBleBtn(false);});
+    bio.on(userId,'sourceChanged',function(data){
+      if(data.source==='synthetic')_updateBleBtn(false);
+      if(data.source==='h10')_sawH10=true;
+      if(data.source==='synthetic')_sawSynthetic=true;
+      var b=$('srcBadge');if(b&&!b.classList.contains('src-hidden'))_setSrcBadge(data.source);
+    });
     if(!bio.getArrivalBaseline(userId)&&!bio._isArrivalRunning(userId)){
       bio.startArrivalCollection(userId);
       console.log('[BIO] Session init — starting arrival collection (Bug 3 fix)');
