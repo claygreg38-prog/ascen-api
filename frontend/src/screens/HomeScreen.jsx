@@ -123,13 +123,15 @@ export default function HomeScreen() {
       navigate('/app/child-breathe');
       return;
     }
-    // Adults route through wearable sync first, then to session
+    // Adults go directly to the session. The v8 src gate inside /breathe
+    // (public/index_v8.html, #srcGateOv added 2026-05-08) is the canonical
+    // pairing surface for both Kyto and Polar H10. The older /app/wearable-sync
+    // intermediate predates Kyto support and is bypassed here — route + screen
+    // remain in code as orphaned Band B cleanup.
     const sessionRoute = context?.next_session?.number
       ? `/app/session?s=${context.next_session.number}`
       : '/app/session';
-    navigate('/app/wearable-sync', {
-      state: { nextRoute: sessionRoute, mode: 'solo' },
-    });
+    navigate(sessionRoute);
   }
 
   // Text colors adapt: dark on sky (top cards), light on water (bottom cards)
