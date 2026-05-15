@@ -640,60 +640,66 @@ function createOrchestrator(callbacks = {}) {
     // ── SILENT DETECTION ────────────────────────────────
     let detectionResult = { auto_assigned: false };
 
-    if (biometricsAvailable && user.breath_track_provisional !== false) {
-      const indicators = {
-        elevated_hr: cleanBaseline.resting_hr > 90,
-        low_hrv: cleanBaseline.resting_hrv !== null && cleanBaseline.resting_hrv !== undefined && cleanBaseline.resting_hrv < 20,
-        rapid_breathing: cleanBaseline.respiratory_rate > 20
-      };
-      const flagCount = Object.values(indicators).filter(Boolean).length;
+    // Gated behind ENABLE_SILENT_TRACK_DETECTION env flag. Default unset = disabled.
+    // Re-enable post-pilot via Railway env var once Capacity Track (S0.5-S4.5) is wired —
+    // until then, silently routing arrival-anxious users to a 'minimal' ramp with no
+    // surrounding content explaining it would be a worse experience than no routing.
+    if (process.env.ENABLE_SILENT_TRACK_DETECTION === 'true') {
+      if (biometricsAvailable && user.breath_track_provisional !== false) {
+        const indicators = {
+          elevated_hr: cleanBaseline.resting_hr > 90,
+          low_hrv: cleanBaseline.resting_hrv !== null && cleanBaseline.resting_hrv !== undefined && cleanBaseline.resting_hrv < 20,
+          rapid_breathing: cleanBaseline.respiratory_rate > 20
+        };
+        const flagCount = Object.values(indicators).filter(Boolean).length;
 
-      if (flagCount >= 2) {
-        const newTrack = flagCount >= 3 ? 'minimal' : 'gentle';
+        if (flagCount >= 2) {
+          const newTrack = flagCount >= 3 ? 'minimal' : 'gentle';
 
-        if (!user.breath_track || user.breath_track === 'standard' || user._fallback_applied) {
-          await pool.query(
-            `UPDATE users SET
-               breath_track = $1,
-               breath_track_set_at = NOW(),
-               breath_track_source = 'arrival_detection',
-               breath_track_detection_session = $2,
-               breath_track_provisional = TRUE,
-               breath_track_first_hr = $3,
-               breath_track_first_hrv = $4,
-               breath_track_first_rr = $5,
-               capacity_track = CASE
-                 WHEN total_sessions_completed = 0 THEN TRUE
-                 ELSE capacity_track
-               END,
-               updated_at = NOW()
-             WHERE user_id = $6
-               AND (breath_track IS NULL OR breath_track = 'standard')
-               AND (breath_track_source IS NULL OR breath_track_source = 'no_biometric_fallback')`,
-            [newTrack, rawSession.session_number || 1, cleanBaseline.resting_hr, cleanBaseline.resting_hrv, cleanBaseline.respiratory_rate, userId]
-          );
+          if (!user.breath_track || user.breath_track === 'standard' || user._fallback_applied) {
+            await pool.query(
+              `UPDATE users SET
+                 breath_track = $1,
+                 breath_track_set_at = NOW(),
+                 breath_track_source = 'arrival_detection',
+                 breath_track_detection_session = $2,
+                 breath_track_provisional = TRUE,
+                 breath_track_first_hr = $3,
+                 breath_track_first_hrv = $4,
+                 breath_track_first_rr = $5,
+                 capacity_track = CASE
+                   WHEN total_sessions_completed = 0 THEN TRUE
+                   ELSE capacity_track
+                 END,
+                 updated_at = NOW()
+               WHERE user_id = $6
+                 AND (breath_track IS NULL OR breath_track = 'standard')
+                 AND (breath_track_source IS NULL OR breath_track_source = 'no_biometric_fallback')`,
+              [newTrack, rawSession.session_number || 1, cleanBaseline.resting_hr, cleanBaseline.resting_hrv, cleanBaseline.respiratory_rate, userId]
+            );
 
-          user.breath_track = newTrack;
-          detectionResult = {
-            auto_assigned: true,
-            track: newTrack,
-            indicators,
-            flagCount
-          };
+            user.breath_track = newTrack;
+            detectionResult = {
+              auto_assigned: true,
+              track: newTrack,
+              indicators,
+              flagCount
+            };
 
-          // RE-ADAPT the session with the new track
-          const isFR = String(sessionId).startsWith('FR');
-          adaptedSession = isFR
-            ? adaptFRBreathProtocol(rawSession, user, false)
-            : adaptBreathProtocol(rawSession, user);
+            // RE-ADAPT the session with the new track
+            const isFR = String(sessionId).startsWith('FR');
+            adaptedSession = isFR
+              ? adaptFRBreathProtocol(rawSession, user, false)
+              : adaptBreathProtocol(rawSession, user);
 
-          const bridge = applyGraduationBridge(rawSession, user);
-          if (bridge) {
-            Object.assign(adaptedSession, bridge);
+            const bridge = applyGraduationBridge(rawSession, user);
+            if (bridge) {
+              Object.assign(adaptedSession, bridge);
+            }
+
+            // Update state engine track
+            if (stateEngine) stateEngine.track = newTrack;
           }
-
-          // Update state engine track
-          if (stateEngine) stateEngine.track = newTrack;
         }
       }
     }
