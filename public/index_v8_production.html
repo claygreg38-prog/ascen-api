@@ -178,6 +178,9 @@
 .m-lbl { font-size: 10px; color: rgba(160,196,232,0.35); letter-spacing: 2px; text-transform: uppercase; margin-top: 8px; }
 .m-truth { font-size: 17px; font-weight: 300; color: rgba(200,220,240,0.65); max-width: 420px; text-align: center; line-height: 1.8; margin-bottom: 40px; }
 .m-cont { font-size: 11px; color: rgba(160,196,232,0.3); letter-spacing: 2px; cursor: pointer; text-transform: uppercase; }
+.m-art { width: clamp(280px, 65vmin, 600px); aspect-ratio: 1 / 1; margin: 0 auto 36px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 1.2s ease-in; }
+.m-art.m-art-loaded { opacity: 1; }
+.m-art svg { width: 100%; height: 100%; display: block; }
 .v-prompt { font-size: 17px; font-weight: 300; color: rgba(200,220,240,0.75); max-width: 480px; text-align: center; line-height: 1.8; margin-bottom: 32px; font-style: italic; }
 .v-input { width: 480px; min-height: 120px; padding: 20px; background: rgba(20,40,60,0.4); border: 1px solid rgba(160,196,232,0.1); border-radius: 12px; color: rgba(200,220,240,0.85); font-size: 16px; font-family: 'Outfit', sans-serif; font-weight: 300; line-height: 1.7; resize: none; outline: none; }
 .v-seal { margin-top: 24px; padding: 12px 40px; background: rgba(160,196,232,0.06); border: 1px solid rgba(160,196,232,0.15); border-radius: 24px; color: rgba(160,196,232,0.6); font-size: 12px; letter-spacing: 2px; cursor: pointer; font-family: 'Outfit', sans-serif; }
@@ -360,7 +363,7 @@
   <div class="tap-prompt tap-disabled" id="tapP">Tap when you're ready<div class="tap-subtitle" id="tapSub">Pair your sensor or wait for baseline...</div></div>
 
   <div class="ov" id="checkinOv"><div class="ov-bg"></div><div class="ov-c"><div class="ci-q">One word for how that felt:</div><div class="ci-opts"><div class="ci-btn">Calm</div><div class="ci-btn">Weird</div><div class="ci-btn">Hard</div><div class="ci-btn">Good</div><div class="ci-btn">Nothing</div><div class="ci-btn">Different</div></div></div></div>
-  <div class="ov" id="mirrorOv"><div class="ov-bg"></div><div class="ov-c"><div class="m-stats"><div class="m-stat"><div class="m-val" id="mirrorBreaths">0</div><div class="m-lbl">breaths</div></div><div class="m-stat"><div class="m-val gold" id="mirrorCoh">0.72</div><div class="m-lbl">peak coh</div></div><div class="m-stat"><div class="m-val" id="mirrorDur">12m</div><div class="m-lbl">duration</div></div></div><div class="m-truth" id="mirrorTruth">Something shifted in you.<br>Not from outside.<br>From your own breath.</div><div class="m-synth-notice" id="mirrorSynthNotice">This session ran in synthetic mode. Biometric data shown is simulated, not from your sensor.<span class="m-synth-mixed"> Some portions used real sensor data and some used synthetic — peak coherence reflects whichever was active.</span></div><div class="m-cont" id="mirrorCont">continue →</div></div></div>
+  <div class="ov" id="mirrorOv"><div class="ov-bg"></div><div class="ov-c"><div id="mirrorArt" class="m-art"></div><div class="m-stats"><div class="m-stat"><div class="m-val" id="mirrorBreaths">0</div><div class="m-lbl">breaths</div></div><div class="m-stat"><div class="m-val gold" id="mirrorCoh">0.72</div><div class="m-lbl">peak coh</div></div><div class="m-stat"><div class="m-val" id="mirrorDur">12m</div><div class="m-lbl">duration</div></div></div><div class="m-truth" id="mirrorTruth">Something shifted in you.<br>Not from outside.<br>From your own breath.</div><div class="m-synth-notice" id="mirrorSynthNotice">This session ran in synthetic mode. Biometric data shown is simulated, not from your sensor.<span class="m-synth-mixed"> Some portions used real sensor data and some used synthetic — peak coherence reflects whichever was active.</span></div><div class="m-cont" id="mirrorCont">continue →</div></div></div>
   <div class="ov" id="vaultOv"><div class="ov-bg"></div><div class="ov-c"><div class="v-prompt" id="vaultPrompt">"Before this session, I thought my body ___.<br>Now I'm learning ___."</div><textarea class="v-input" id="vaultInput" placeholder="Write what's real. No one sees this but you."></textarea><div class="v-seal" id="vaultSeal">Seal in Vault</div><div class="v-skip">skip for now</div></div></div>
 
   <!-- COACHING INTERVENTION OVERLAY -->
@@ -749,7 +752,7 @@ var SSM = (function() {
 
   var PHASE_ORDER = [
     'surface','arrival','descent','opening','resistance',
-    'before_the_breath','breathing','shift','close','vault',
+    'before_the_breath','breathing','shift','close','mirror','vault',
     'ascent','surface_return'
   ];
   var MAX_BREATHING_SECONDS = 180;
@@ -836,6 +839,11 @@ var SSM = (function() {
     if (nextPhase === 'descent') { _setPhase('descent'); _runDescent(function(){ _setPhase('opening'); _ssmEmit('onDialogueNeeded', 'opening'); }); return; }
     if (nextPhase === 'breathing') { _setPhase('breathing'); _startBreathingTimer(); return; }
     if (nextPhase === 'shift') { _setPhase('shift'); _shiftTimer = _trackTimeout(function(){ _shiftTimer=null; advancePhase(); }, SHIFT_DURATION); return; }
+    if (nextPhase === 'mirror') {
+      _setPhase('mirror');
+      _ssmEmit('onMirrorReady', { sessionNumber: sessionNumber, breathCount: breathCount, totalBreaths: totalBreaths, durationSeconds: sessionStartTime ? Math.round((Date.now()-sessionStartTime)/1000) : 0, startTime: sessionStartTime });
+      return;
+    }
     if (nextPhase === 'vault') {
       if (sessionNumber < VAULT_MIN_SESSION) { _setPhase('ascent'); _runAscent(function(){ _onSessionEnd(); }); return; }
       _setPhase('vault'); return;
@@ -849,6 +857,7 @@ var SSM = (function() {
     if (currentPhase === 'opening' || currentPhase === 'resistance' || currentPhase === 'before_the_breath' || currentPhase === 'close') { advancePhase(); }
   }
 
+  function mirrorContinue() { if (currentPhase !== 'mirror') return; advancePhase(); }
   function sealVault() { if (currentPhase !== 'vault') return; advancePhase(); }
 
   function _runDescent(onComplete) {
@@ -1120,7 +1129,7 @@ var SSM = (function() {
   function setAbiSessionActive(active, sessionKey) { abiSessionActive=!!active; if(sessionKey!==undefined) activeApiSession=sessionKey; }
 
   return {
-    setSessionData:setSessionData, startSession:startSession, advancePhase:advancePhase, dialogueComplete:dialogueComplete, sealVault:sealVault, recordBreath:recordBreath,
+    setSessionData:setSessionData, startSession:startSession, advancePhase:advancePhase, dialogueComplete:dialogueComplete, mirrorContinue:mirrorContinue, sealVault:sealVault, recordBreath:recordBreath,
     getCurrentPhase:getCurrentPhase, getNextPhase:getNextPhase, getSessionState:getSessionState, pauseSession:pauseSession, resumeSession:resumeSession, resetSession:resetSession,
     setAbiSessionActive:setAbiSessionActive, on:ssmOn, clearAllTimers:clearAllTimers,
     MAX_BREATHING_SECONDS:MAX_BREATHING_SECONDS, PHASE_ORDER:PHASE_ORDER, DESCENT_DURATION:DESCENT_DURATION, ASCENT_DURATION:ASCENT_DURATION, SHIFT_DURATION:SHIFT_DURATION, VAULT_MIN_SESSION:VAULT_MIN_SESSION, DESCENT_WORDS:DESCENT_WORDS, ASCENT_WORDS:ASCENT_WORDS
@@ -2434,7 +2443,7 @@ var SessionUI = (function() {
 
   var _containerEl=null,_activeView='immersive',_pacerRatio={inhale:4,hold:0,exhale:6},_pacerCycleMs=10000,_orbitRaf=null;
   var _lunoTapCount=0,_lunoTapTimer=null,_apiBaseUrl='',_apiStatus='connecting',_apiSessions=[],_completedSessions={};
-  var _stateMachine=null,_biometricBridge=null,_dialogueDelivery=null,_boundUserId=null,_bleButtonAvailable=false;
+  var _stateMachine=null,_biometricBridge=null,_dialogueDelivery=null,_integration=null,_boundUserId=null,_bleButtonAvailable=false;
   var _baselineReady=false,_synthFallbackTimer=null;
   var _sawH10=false,_sawSynthetic=false,_explicitSyntheticOptIn=false,_continueClickCount=0;
   function _enableTapButton(source){_baselineReady=true;if(_synthFallbackTimer){clearTimeout(_synthFallbackTimer);_synthFallbackTimer=null;}var tp=$('tapP');if(tp){tp.classList.remove('tap-disabled');}var sub=$('tapSub');if(sub){sub.textContent='Ready. Tap when you are.';}console.log('[UI] Session start button enabled — baseline:',source);}
@@ -2455,7 +2464,7 @@ var SessionUI = (function() {
     _synthFallbackTimer=setTimeout(function(){if(!_baselineReady)_showSourceGate();},15000);
     var vaultSeal=$('vaultSeal');if(vaultSeal){vaultSeal.addEventListener('click',async function(){var vaultInput=$('vaultInput');var text=vaultInput?vaultInput.value||'':'';_uiEmit('vaultSealed',{text:text});if(_stateMachine)_stateMachine.sealVault();});}
     var vaultSkip=document.querySelector('.v-skip');if(vaultSkip){vaultSkip.addEventListener('click',function(){if(_stateMachine)_stateMachine.sealVault();});}
-    var mirrorCont=$('mirrorCont');if(mirrorCont){mirrorCont.addEventListener('click',function(){_uiEmit('mirrorContinue',{});if(_stateMachine)_stateMachine.advancePhase();});}
+    var mirrorCont=$('mirrorCont');if(mirrorCont){mirrorCont.addEventListener('click',function(){_uiEmit('mirrorContinue',{});if(_stateMachine&&_stateMachine.mirrorContinue)_stateMachine.mirrorContinue();else if(_stateMachine)_stateMachine.advancePhase();});}
     document.querySelectorAll('#checkinOv .ci-btn').forEach(function(btn){btn.addEventListener('click',function(){var mood=btn.textContent;_uiEmit('checkinResponse',{mood:mood});hideOverlay('checkin');if(_stateMachine)_stateMachine.advancePhase();});});
     document.querySelectorAll('.mode-btn').forEach(function(btn){btn.addEventListener('click',function(){var view=btn.textContent.trim().toLowerCase();setView(view);});});
     // BLE pairing button
@@ -2523,9 +2532,9 @@ var SessionUI = (function() {
   function _updateDots(current,total){var show=Math.min(total,MAX_DOTS);var ratio=total>MAX_DOTS?MAX_DOTS/total:1;var activeDot=Math.min(Math.floor((current-1)*ratio),show-1);for(var i=0;i<show;i++){var d=$('bdot_'+i);if(!d)continue;if(i<activeDot)d.className='bdot done';else if(i===activeDot)d.className='bdot active';else d.className='bdot';}}
   function _pulseBreathNum(){var el=$('breathNum');if(!el)return;el.style.animation='none';void el.offsetWidth;el.style.animation='breathPulseNum 0.8s ease-out forwards';}
 
-  function _updatePhaseUI(phase){var phaseLabel=$('phaseLabel');if(phaseLabel){var labels={surface:'',arrival:'ARRIVAL',descent:'DESCENDING',opening:'OPENING',resistance:'RESISTANCE',before_the_breath:'BEFORE THE BREATH',breathing:'BREATHE',shift:'SHIFT',close:'CLOSE',vault:'VAULT',ascent:'SURFACING',surface_return:''};phaseLabel.textContent=labels[phase]||phase.toUpperCase();}var tapP=$('tapP');if(tapP){if(phase==='arrival'){tapP.style.display='block';tapP.textContent="Tap when you're ready";}else{tapP.style.display='none';}}var dialogue=$('dialogue');if(dialogue){if(phase==='breathing')dialogue.style.display='none';else dialogue.style.display='block';}if(phase==='breathing')showPacer();else hidePacer();['checkinOv','mirrorOv','vaultOv','coachingOv','ratioOv'].forEach(function(id){var el=$(id);if(el)el.className='ov';});if(phase==='vault')showOverlay('vault');document.querySelectorAll('.pb').forEach(function(b){b.classList.remove('active');if(b.textContent.toLowerCase().replace(/[- ]/g,'_')===phase)b.classList.add('active');});}
+  function _updatePhaseUI(phase){var phaseLabel=$('phaseLabel');if(phaseLabel){var labels={surface:'',arrival:'ARRIVAL',descent:'DESCENDING',opening:'OPENING',resistance:'RESISTANCE',before_the_breath:'BEFORE THE BREATH',breathing:'BREATHE',shift:'SHIFT',close:'CLOSE',mirror:'MIRROR',vault:'VAULT',ascent:'SURFACING',surface_return:''};phaseLabel.textContent=labels[phase]||phase.toUpperCase();}var tapP=$('tapP');if(tapP){if(phase==='arrival'){tapP.style.display='block';tapP.textContent="Tap when you're ready";}else{tapP.style.display='none';}}var dialogue=$('dialogue');if(dialogue){if(phase==='breathing')dialogue.style.display='none';else dialogue.style.display='block';}if(phase==='breathing')showPacer();else hidePacer();['checkinOv','mirrorOv','vaultOv','coachingOv','ratioOv'].forEach(function(id){var el=$(id);if(el)el.className='ov';});if(phase==='vault')showOverlay('vault');document.querySelectorAll('.pb').forEach(function(b){b.classList.remove('active');if(b.textContent.toLowerCase().replace(/[- ]/g,'_')===phase)b.classList.add('active');});}
 
-  function showOverlay(type,data){var overlayMap={checkin:'checkinOv',mirror:'mirrorOv',vault:'vaultOv',coaching:'coachingOv',ratio:'ratioOv'};var id=overlayMap[type];if(!id)return;var el=$(id);if(el)el.className='ov active';if(type==='mirror'&&data){var breaths=$('mirrorBreaths');if(breaths)breaths.textContent=data.breathCount||0;var coh=$('mirrorCoh');if(coh)coh.textContent=(data.coherencePeak||0).toFixed(2);var dur=$('mirrorDur');if(dur){var minutes=data.durationMinutes||(data.durationSeconds?Math.round(data.durationSeconds/60):0);dur.textContent=(minutes||1)+'m';}var truth=$('mirrorTruth');if(truth&&data.affirmation)truth.innerHTML=data.affirmation;var mOv=$('mirrorOv');if(mOv){if(data.syntheticUsed)mOv.classList.add('synth-used');else mOv.classList.remove('synth-used');if(data.syntheticMixed)mOv.classList.add('synth-mixed');else mOv.classList.remove('synth-mixed');}}if(type==='coaching'&&data){var msg=$('coachingMsg');if(msg&&data.message)msg.textContent=data.message;}if(type==='vault'&&data){var prompt=$('vaultPrompt');if(prompt&&data.vault_prompt)prompt.textContent='"'+data.vault_prompt+'"';}}
+  function showOverlay(type,data){var overlayMap={checkin:'checkinOv',mirror:'mirrorOv',vault:'vaultOv',coaching:'coachingOv',ratio:'ratioOv'};var id=overlayMap[type];if(!id)return;var el=$(id);if(el)el.className='ov active';if(type==='mirror'&&data){var breaths=$('mirrorBreaths');if(breaths)breaths.textContent=data.breathCount||0;var coh=$('mirrorCoh');if(coh)coh.textContent=(data.coherencePeak||0).toFixed(2);var dur=$('mirrorDur');if(dur){var minutes=data.durationMinutes||(data.durationSeconds?Math.round(data.durationSeconds/60):0);dur.textContent=(minutes||1)+'m';}var truth=$('mirrorTruth');if(truth&&data.affirmation)truth.innerHTML=data.affirmation;var mOv=$('mirrorOv');if(mOv){if(data.syntheticUsed)mOv.classList.add('synth-used');else mOv.classList.remove('synth-used');if(data.syntheticMixed)mOv.classList.add('synth-mixed');else mOv.classList.remove('synth-mixed');}var art=$('mirrorArt');if(art){if(data.breathArtSvg){art.innerHTML=data.breathArtSvg;art.classList.add('m-art-loaded');}else{art.innerHTML='';art.classList.remove('m-art-loaded');}}}if(type==='coaching'&&data){var msg=$('coachingMsg');if(msg&&data.message)msg.textContent=data.message;}if(type==='vault'&&data){var prompt=$('vaultPrompt');if(prompt&&data.vault_prompt)prompt.textContent='"'+data.vault_prompt+'"';}}
   function hideOverlay(type){var overlayMap={checkin:'checkinOv',mirror:'mirrorOv',vault:'vaultOv',coaching:'coachingOv',ratio:'ratioOv'};var id=overlayMap[type];if(!id)return;var el=$(id);if(el)el.className='ov';}
   function showRatioSelection(ratios,onSelect){var el=$('ratioOpts');if(!el)return;el.innerHTML='';ratios.forEach(function(r){var btn=document.createElement('div');btn.className='ci-btn';btn.textContent=r.replace(':',' : ');btn.addEventListener('click',function(){hideOverlay('ratio');if(onSelect)onSelect(r);});el.appendChild(btn);});showOverlay('ratio');}
   function showCoachingIntervention(coaching,onChoice){var msg=$('coachingMsg');if(msg)msg.textContent=coaching.message||'Your body is telling us something.';var bp=$('breathPacer');if(bp)bp.style.opacity='0.3';showOverlay('coaching');var opts=$('coachingOpts');if(opts){opts.querySelectorAll('.ci-btn').forEach(function(btn){var handler=function(){hideOverlay('coaching');if(bp)bp.style.opacity='1';var choice=btn.textContent.toLowerCase().includes('keep')?'continue':btn.textContent.toLowerCase().includes('ground')?'drill':'exit';if(onChoice)onChoice(choice);};var newBtn=btn.cloneNode(true);newBtn.addEventListener('click',handler);btn.parentNode.replaceChild(newBtn,btn);});}}
@@ -2554,7 +2563,8 @@ var SessionUI = (function() {
     ssm.on('onBreathTick',function(data){updateBreathCounter(data.breathCount,data.totalBreaths);});
     ssm.on('onBreathPhase',function(data){updateBreathPhaseLabel(data.phase);});
     ssm.on('onBreathingStart',function(data){_buildDots(data.totalBreaths);_updateDots(1,data.totalBreaths);var totalEl=$('breathTotal');if(totalEl)totalEl.textContent=data.totalBreaths;var numEl=$('breathNum');if(numEl)numEl.textContent='1';var counterEl=$('breathCounter');if(counterEl)counterEl.style.display='flex';});
-    ssm.on('onSessionComplete',function(metrics){hidePacer();var mirrorData={breathCount:metrics.breathCount,durationSeconds:metrics.durationSeconds,coherencePeak:(_biometricBridge&&_boundUserId)?_biometricBridge.getCoherencePeak(_boundUserId):0,syntheticUsed:_sawSynthetic,syntheticMixed:_sawH10&&_sawSynthetic};showOverlay('mirror',mirrorData);});
+    ssm.on('onSessionComplete',function(metrics){hidePacer();});
+    ssm.on('onMirrorReady',function(){hidePacer();renderMirror();});
     ssm.on('onDriftingWord',function(data){showDriftingWord(data.text,data.duration)});
     ssm.on('onPhaseChange',function(phase){if(phase==='descent'){showDescentOverlay();var lc=$('lunoCon');if(lc)lc.classList.add('lc-revealed');}if(phase==='opening')hideDescentOverlay();if(phase==='surface'){hideDescentOverlay();var lc2=$('lunoCon');if(lc2)lc2.classList.remove('lc-revealed');}});
     ssm.on('onSessionReset',function(){hidePacer();hideDescentOverlay();_updatePhaseUI('surface');var lc=$('lunoCon');if(lc)lc.classList.remove('lc-revealed');});
@@ -2636,6 +2646,22 @@ var SessionUI = (function() {
   }
   function _updateBleBtn(connected){var btn=$('bleBtn');if(!btn)return;if(connected){btn.className='ble-connected';btn.innerHTML='<span class="ble-dot"></span>H10 CONNECTED';}else{btn.className='';btn.innerHTML='<span class="ble-dot"></span>CONNECT';}}
   function connectToDialogueDelivery(dlg){_dialogueDelivery=dlg;}
+  function connectToIntegration(integ){_integration=integ;}
+  function renderMirror(){
+    var state=_stateMachine?_stateMachine.getSessionState():{};
+    var affirmation=(_integration&&_integration.getMirrorAffirmation)?_integration.getMirrorAffirmation():null;
+    var breathArt=(_integration&&_integration.getMirrorBreathArt)?_integration.getMirrorBreathArt():null;
+    var mirrorData={
+      breathCount:state.breathCount||0,
+      durationSeconds:state.durationSeconds||0,
+      coherencePeak:(_biometricBridge&&_boundUserId)?_biometricBridge.getCoherencePeak(_boundUserId):0,
+      syntheticUsed:_sawSynthetic,
+      syntheticMixed:_sawH10&&_sawSynthetic,
+      affirmation:affirmation,
+      breathArtSvg:(breathArt&&breathArt.svgString)?breathArt.svgString:null
+    };
+    showOverlay('mirror',mirrorData);
+  }
   function showSessionStartError(){var overlay=document.createElement('div');overlay.id='sessionStartErrorOverlay';overlay.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(10,37,64,0.95);color:#e8f1ff;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:9999;font-family:inherit;padding:40px;text-align:center;';overlay.innerHTML='<div style="max-width:400px;line-height:1.6;"><p style="font-size:18px;margin-bottom:16px;">Take a breath.</p><p style="font-size:16px;margin-bottom:16px;">The system needs a moment to connect.</p><p style="font-size:14px;color:#7aa8d4;margin-bottom:32px;">Please try again in a minute. Your work is safe.</p><button id="sessionErrorDismiss" style="background:#2db8d4;color:#0a2540;border:none;padding:12px 32px;font-size:14px;border-radius:4px;cursor:pointer;font-family:inherit;">Return to surface</button></div>';document.body.appendChild(overlay);document.getElementById('sessionErrorDismiss').addEventListener('click',function(){var el=document.getElementById('sessionStartErrorOverlay');if(el)el.parentNode.removeChild(el);if(typeof SSM!=='undefined'&&SSM.resetSession)SSM.resetSession();});}
 
   return {
@@ -2646,7 +2672,7 @@ var SessionUI = (function() {
     updateDashboard:updateDashboard,updateSessionTitle:updateSessionTitle,setApiStatus:setApiStatus,
     showDescentOverlay:showDescentOverlay,hideDescentOverlay:hideDescentOverlay,showDriftingWord:showDriftingWord,
     showSessionStartError:showSessionStartError,
-    connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,connectToDialogueDelivery:connectToDialogueDelivery,
+    connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,connectToDialogueDelivery:connectToDialogueDelivery,connectToIntegration:connectToIntegration,renderMirror:renderMirror,
     bindUser:bindUser,setBleButtonAvailable:setBleButtonAvailable,
     on:uiOn
   };
@@ -2692,7 +2718,7 @@ var Integration = (function() {
   var _isEmbedded=false,_embeddedAuthReceived=false;
   var _stateMachine=null,_biometricBridge=null,_sessionUI=null;
   var _activeSessionNumber=0,_activeSessionData=null,_abiSessionActive=false,_abiCoherencePeak=0;
-  var _abiMirror=null,_abiAffirmation=null,_abiAdvancement=null,_abiModeConfig=null,_tickInterval=null,_lastKnownCoherence=0.25;
+  var _abiMirror=null,_abiAffirmation=null,_abiAdvancement=null,_abiBreathArt=null,_abiModeConfig=null,_tickInterval=null,_lastKnownCoherence=0.25;
   var _abiTickQueue=[],_abiTickQueueMaxSize=60;
 
   function initIntegrations(apiBase){
@@ -2723,7 +2749,7 @@ var Integration = (function() {
     // No try/catch — errors propagate to caller. Caller handles retry + hard block.
     var r=await _abi.startSession(userIdSnapshot,sid,{facility_mode:false});
     if(r&&r.session_blocked){console.error('[ABI] Session blocked by orchestrator');throw new Error('Session blocked by orchestrator');}
-    _abiSessionActive=true;_abiCoherencePeak=0;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;_lastKnownCoherence=0.25;
+    _abiSessionActive=true;_abiCoherencePeak=0;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;_abiBreathArt=null;_lastKnownCoherence=0.25;
     if(_stateMachine)_stateMachine.setAbiSessionActive(true,_abi.sessionKey);
     console.log('[ABI] Session registered:',sid,'| sessionKey:',_abi.sessionKey);
     return true;
@@ -2762,8 +2788,8 @@ var Integration = (function() {
   function _abiStartTicks(){if(!_abiSessionActive){console.log('[ABI] Ticks NOT started — _abiSessionActive is false');return;}if(_tickInterval){console.log('[ABI] Ticks NOT started — _tickInterval already set (stale?)');return;}console.log('[ABI] Starting biometric ticks');var tickCount=0;_tickInterval=setInterval(async function(){tickCount++;var userIdSnapshot=_userId;if(!userIdSnapshot){console.warn('[ABI] tick fired without userId — skipping');return;}var bio=_biometricBridge?_biometricBridge.getCurrentBiometrics(userIdSnapshot):{};bio.coherence=_lastKnownCoherence;if(bio.coherence>_abiCoherencePeak)_abiCoherencePeak=bio.coherence;try{var r=await _abi.tick(bio);console.log('[ABI] Tick',tickCount,'response | coherence:',r?r.coherence:'no response','| ns3:',r?r.ns3:'no response','| keys:',r?Object.keys(r).join(','):'none');if(r&&r.coherence!==undefined&&r.coherence!==null){_lastKnownCoherence=r.coherence;if(_biometricBridge&&_biometricBridge.applyServerCoherence)_biometricBridge.applyServerCoherence(userIdSnapshot,r.coherence);if(typeof DepthEngine!=='undefined'&&DepthEngine.setCoherence)DepthEngine.setCoherence(r.coherence);if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.setCoherence(r.coherence);if(typeof VisualDNA!=='undefined'&&VisualDNA.setCohDisplay)VisualDNA.setCohDisplay(r.coherence*100);}if(_biometricBridge){_biometricBridge.updateFromTickResponse(userIdSnapshot,r);var refreshed=_biometricBridge.getCurrentBiometrics(userIdSnapshot);refreshed.coherence=_lastKnownCoherence;_biometricBridge.emitTick(userIdSnapshot,{sample:refreshed,ns3:(r&&r.ns3!==undefined&&r.ns3!==null)?r.ns3:0,coherence:_lastKnownCoherence,coherencePeak:_abiCoherencePeak,tickCount:tickCount});}if(r.adjustments&&r.adjustments.visual_warmth!==undefined)_intEmit('visualWarmthChanged',{warmth:r.adjustments.visual_warmth});if(r.coaching&&r.coaching.type==='pause_and_choose')_abiShowIntervention(r.coaching);if(_abiTickQueue.length>0){var queued=_abiTickQueue.shift();try{await _abi.tick(queued);console.log('[ABI] Drained queued tick, backlog:',_abiTickQueue.length);}catch(drainErr){_abiTickQueue.unshift(queued);}}}catch(e){console.warn('[ABI] Tick POST failed, queuing:',e.message||e,'| status:',e.status||'unknown');if(_abiTickQueue.length<_abiTickQueueMaxSize){_abiTickQueue.push(bio);}else{_abiTickQueue.shift();_abiTickQueue.push(bio);console.error('[ABI] Tick queue full, dropped oldest. Backlog:',_abiTickQueue.length);}}if(tickCount%10===0&&_abiTickQueue.length>0)console.log('[ABI] Tick queue depth:',_abiTickQueue.length);},1000);}
   function _abiStopTicks(){if(_tickInterval){clearInterval(_tickInterval);_tickInterval=null;}_abiTickQueue=[];}
   function _abiShowIntervention(coaching){_abiStopTicks();if(_stateMachine)_stateMachine.pauseSession();if(_sessionUI){_sessionUI.showCoachingIntervention(coaching,async function(choice){if(choice==='continue'){try{await _abi.resume();}catch(e){}if(_stateMachine)_stateMachine.resumeSession();_abiStartTicks();}else if(choice==='drill'){try{await _abi.selectDrill('five_senses');}catch(e){if(_stateMachine)_stateMachine.resumeSession();}}else if(choice==='exit'){try{await _abi.exit();}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);_notifyParentExit();}});}}
-  async function _abiCompleteSession(){if(!_abiSessionActive)return;var userIdSnapshot=_userId;_abiStopTicks();var state=_stateMachine?_stateMachine.getSessionState():{};var metrics={coherence_peak:_abiCoherencePeak,coherence_end:_lastKnownCoherence,cycle_completion_rate:state.totalBreaths>0?Math.min(1,state.breathCount/state.totalBreaths):0.85,breath_count:state.breathCount||0,duration_seconds:state.durationSeconds||0};try{var r=await _abi.completeSession(metrics);_abiMirror=r.mirror||null;_abiAffirmation=r.affirmation||null;_abiAdvancement=r.advancement||null;_verifyOnChain(state.durationSeconds||0);}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);}
-  function _abiCleanup(){var userIdSnapshot=_userId;_abiStopTicks();_abiSessionActive=false;_abiCoherencePeak=0;_abiModeConfig=null;_lastKnownCoherence=0.25;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;if(_abi)_abi.sessionKey=null;if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.teardown();if(userIdSnapshot&&typeof BioBridge!=='undefined')BioBridge.destroyUser(userIdSnapshot);}
+  async function _abiCompleteSession(){if(!_abiSessionActive)return;var userIdSnapshot=_userId;_abiStopTicks();var state=_stateMachine?_stateMachine.getSessionState():{};var metrics={coherence_peak:_abiCoherencePeak,coherence_end:_lastKnownCoherence,cycle_completion_rate:state.totalBreaths>0?Math.min(1,state.breathCount/state.totalBreaths):0.85,breath_count:state.breathCount||0,duration_seconds:state.durationSeconds||0};try{var r=await _abi.completeSession(metrics);_abiMirror=r.mirror||null;_abiAffirmation=r.affirmation||null;_abiAdvancement=r.advancement||null;_abiBreathArt=r.breath_art||null;_verifyOnChain(state.durationSeconds||0);if(_stateMachine&&_stateMachine.getCurrentPhase&&_stateMachine.getCurrentPhase()==='mirror'&&_sessionUI&&_sessionUI.renderMirror)_sessionUI.renderMirror();}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);}
+  function _abiCleanup(){var userIdSnapshot=_userId;_abiStopTicks();_abiSessionActive=false;_abiCoherencePeak=0;_abiModeConfig=null;_lastKnownCoherence=0.25;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;_abiBreathArt=null;if(_abi)_abi.sessionKey=null;if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.teardown();if(userIdSnapshot&&typeof BioBridge!=='undefined')BioBridge.destroyUser(userIdSnapshot);}
 
   async function postVaultEntry(data){var userIdSnapshot=_userId;try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/vault',{method:'POST',headers:headers,body:JSON.stringify({user_id:userIdSnapshot,session_number:data.session_number||_activeSessionNumber,vault_response:data.text||'',session_type:'individual'})});}catch(e){}}
   async function postProgress(metrics){var userIdSnapshot=_userId;try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/progress',{method:'POST',headers:headers,body:JSON.stringify({user_id:userIdSnapshot,session_number:metrics.sessionNumber||_activeSessionNumber,completed:true,coherence_score:metrics.coherencePeak||(_abiCoherencePeak>0?_abiCoherencePeak:0.5),duration_seconds:metrics.durationSeconds||0,session_type:'individual'})});}catch(e){}}
@@ -2796,6 +2822,8 @@ var Integration = (function() {
     _biometricBridge.on(userId,'arrivalComplete',function(baseline){_abiForwardArrivalComplete(baseline);});
   }
   function connectToSessionUI(ui){_sessionUI=ui;ui.on('vaultSealed',function(data){postVaultEntry(data)});}
+  function getMirrorAffirmation(){return _abiAffirmation;}
+  function getMirrorBreathArt(){return _abiBreathArt;}
   function getAbi(){return _abi}
   function getUserId(){return _userId}
 
@@ -2804,7 +2832,7 @@ var Integration = (function() {
     postVaultEntry:postVaultEntry,postProgress:postProgress,activateLightBridge:activateLightBridge,
     setApiStatus:setApiStatus,getApiStatus:getApiStatus,isEmbedded:isEmbedded,getAbi:getAbi,getUserId:getUserId,
     getModeConfig:getModeConfig,
-    connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,connectToSessionUI:connectToSessionUI,
+    connectToStateMachine:connectToStateMachine,connectToBiometricBridge:connectToBiometricBridge,connectToSessionUI:connectToSessionUI,getMirrorAffirmation:getMirrorAffirmation,getMirrorBreathArt:getMirrorBreathArt,
     bindUser:bindUser,
     on:intOn
   };
@@ -3182,6 +3210,9 @@ var BiofeedbackSound = (function() {
 
   // Session UI → Integration Layer
   Integration.connectToSessionUI(SessionUI);
+
+  // Integration → Session UI (for renderMirror to pull affirmation/breath_art on demand)
+  SessionUI.connectToIntegration(Integration);
 
   // Integration → visual warmth
   Integration.on('visualWarmthChanged', function(data) {

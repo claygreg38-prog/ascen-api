@@ -2072,7 +2072,7 @@ function createOrchestrator(callbacks = {}) {
         zone_time_profile: zoneProfile,
         coherence_momentum: coherenceMomentum?.getSummary ? coherenceMomentum.getSummary() : null,
         coaching_effectiveness: coachingEffectiveness?.getSummary ? coachingEffectiveness.getSummary() : null,
-        breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
+        breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash, svgString: artResult.svgString } : null,
         aggregation: aggregationResult,
         family_intelligence: familyIntelResult,
         capacity: capacityResult
@@ -2093,7 +2093,7 @@ function createOrchestrator(callbacks = {}) {
       personalized_close: lunoPersonalizedClose,
       mirror: mirrorData,
       victory_lap: victoryLap,
-      breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash } : null,
+      breath_art: artResult ? { imageHash: artResult.imageHash, metadataHash: artResult.metadataHash, svgString: artResult.svgString } : null,
       aggregation: aggregationResult,
       family_intelligence: familyIntelResult,
       capacity: capacityResult
