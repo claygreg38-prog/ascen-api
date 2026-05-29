@@ -24,11 +24,13 @@ export default function SessionScreen() {
   const [iframeReady, setIframeReady] = useState(false);
 
   const sessionNumber = searchParams.get('s') || null;
+  const replay = searchParams.get('replay') === '1';   // demo mode: pin + in-place restart, keep H10
   const apiBase = import.meta.env.VITE_API_URL || '';
 
   // Build iframe URL — v8 engine handles everything
   let breatheUrl = `${apiBase}/breathe?embedded=true`;
   if (sessionNumber) breatheUrl += `&session=${sessionNumber}`;
+  if (replay) breatheUrl += `&replay=1`;   // in replay mode v8 handles complete in-place (no session_complete postMessage)
 
   // ── Listen for postMessage events from v8 iframe ──────────
   useEffect(() => {
