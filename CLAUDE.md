@@ -66,8 +66,8 @@ Local: C:\Users\clayg\ascen-api
 ## 5-Port Architecture (LOCKED)
 All new systems connect through these 5 ports. Never create new ports. Extend interfaces if needed.
 
-Port 1 — Session Lifecycle: sessionStateMachine.js
-Port 2 — Biometric Stream: biometricBridge.js (zero userId references lines 1195-1442; blocks RRM)
+Port 1 — Session Lifecycle: sessionStateManager.js
+Port 2 — Biometric Stream: biometricBridge — not a standalone file; connectToBiometricBridge() lives as a method inside ABI/NVE (zero userId references lines 1195-1442; blocks RRM)
 Port 3 — Content Delivery: dialogueDelivery.js (speakLuno in v8, not standalone yet — methods scattered across routes)
 Port 4 — Visual Layer: depthEngine.js + narrativeVisualsEngine.js
 Port 5 — Data Persistence: integrationLayer.js (methods scattered across routes, NOT consolidated)
