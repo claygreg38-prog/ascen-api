@@ -6,6 +6,9 @@
 ## PRIMARY DIRECTIVE
 All work flows through ABI orchestrator (14 systems) and AXIS brain stem. No bypasses. No exceptions.
 
+## Tooling
+Codebase map (Graphify): a prebuilt code graph lives in graphify-out/. For locating files/symbols or understanding structure, delegate to the ascen-map subagent rather than grepping source. The graph is CODE-ONLY — reliable for file/symbol existence, NOT for dependency/routing (not drawn until the resolved-import build). Rebuild after structural changes; the graph is stamped with its build SHA so staleness is detectable.
+
 ## Rules
 - HOS vocabulary everywhere participant-facing (Armor, Firmware, Heritage/Price, System Code). No clinical terminology.
 - 5th grade reading level on all participant content.
