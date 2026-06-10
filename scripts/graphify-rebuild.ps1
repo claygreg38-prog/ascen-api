@@ -41,4 +41,11 @@ if (-not $py) {
 }
 
 & $py (Join-Path $PSScriptRoot "graphify_rebuild.py")
-exit $LASTEXITCODE
+$code = $LASTEXITCODE
+if ($code -eq 0) {
+    # Resolved-import graph (filesystem-resolved require()/import edges) so dependency /
+    # routing questions are answerable; writes import-graph.json + IMPORT_REPORT.md + stamp.
+    & $py (Join-Path $PSScriptRoot "resolve_imports.py")
+    $code = $LASTEXITCODE
+}
+exit $code
