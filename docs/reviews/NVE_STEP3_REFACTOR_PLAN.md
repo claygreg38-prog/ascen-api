@@ -91,6 +91,18 @@ NVE touches the shared DOM `.particle` plankton (owned/created by VisualDNA `gen
 
 ---
 
+## Content verification — S01–S21 authored visuals (addendum, 2026-06-11)
+
+**S01–S10 (particle-centric):** the authored beats *are* the choreography C1 drops (anchor sink S04, foundation build S05, HRV rhythm/expand S08, tax→refund S09, trigger_flash + gap_practice S10). ~27 of ~39 S01–S10 visuals are C1-DROPPED; only the background/gap-centric S02 and S03 survive C1 intact. → If the demo session is somatic (S04/S05/S08/S09/S10) or "the full S01–S10 arc," **C1 guts it and C2 is required**; if the demo is background/gap-centric (S02/S03-style), C1 is fine.
+
+**S11–S21 — CORRECTED finding (earlier "unauthored / UNIMPL" wording was wrong):**
+- The `visual_narrative` **content EXISTS and is authored.** Blocks are present at: S11–S15 spec lines **183 / 403 / 627 / 850 / 1122**; S16–S30 spec lines **162 / 330 / 544 / 728 / 906 / 1077** (covering S16–S21). Additional authored visual content also exists in the **S41–S70 Visual Narrative Layer** file and the **S103–S150 Visual Narrative Patch**.
+- The gap is **ENGINE-SIDE, not content-side.** The NVE module's `_dispatchVisual` switch implements render cases for the **S01–S10 vocabulary only (~40 handlers)**. S11+ visual names (`two_gears`, `archaeology_layers`, `loop_form`, `shame_weight`, `bridge_form`, …) have **no matching `case`** and fall through to `default: console.log('[NVE] Unknown visual')` (catalog + switch at module:756–763 / 795–1052).
+- Therefore S11+ is **implementation-FROM-spec** — build render cases from the existing authored content — **not authoring.**
+- This is **orthogonal to the C1/C2 plankton-ownership decision** and is **post-demo expansion**; it does not affect the demo path or the Step-3 refactor.
+
+---
+
 ## Honest caveats
 - Items 4–5 change a **locked file** (`narrativeVisualsEngine.js`) and the inlined DepthEngine — Plan Mode + verify-ascen + dual-file MD5 apply.
 - C1 trades narrative richness for separation + stability. If the authored foundation `visual_narrative` requires field choreography, C1 will under-render those beats — confirm against the S01–S21 authored content before locking C1.
