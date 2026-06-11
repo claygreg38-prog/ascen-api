@@ -125,6 +125,19 @@ var NarrativeVisualsEngine = (function() {
   var _pacerPhase = 'exhale';
   var _pacerProgress = 0;
 
+  // ── NVE FIELD STATE (C2 step 2 — own narrative-particle canvas) ──
+  // Beat-scoped, empty by default. Never touches VisualDNA's DOM plankton
+  // layer or the water background; renders only on NVE's own #nveCanvas (z5).
+  // #nveBgOverlay (z2) is created here for item-4 use.
+  var NVE_FIELD_BUDGET = { full: 44, reduced: 18 };
+  var _nveCanvas = null;
+  var _nveCtx = null;
+  var _nveBgOverlay = null;
+  var _nveField = [];           // {x,y,vx,vy,sz,col,alpha,targetAlpha,ph,ps}
+  var _nveRAF = null;
+  var _nveFrameSkip = false;    // reduced tier draws every 2nd frame
+  var _nveFieldFrozen = false;
+
   // ── PERFORMANCE TIER DETECTION ──
   function _detectPerformanceTier() {
     try {
@@ -140,6 +153,169 @@ var NarrativeVisualsEngine = (function() {
       _performanceTier = 'full';
     }
     console.log('[NVE] Performance tier:', _performanceTier);
+  }
+
+  // ── NVE FIELD — surfaces, spawn/draw/dissolve, RAF lifecycle (C2.1) ──
+  function _nveCreateSurfaces() {
+    if (_nveCanvas) return;
+    var host = document.getElementById('immersiveView') || document.body;
+    if (!host) return;
+    _nveBgOverlay = document.createElement('div');
+    _nveBgOverlay.id = 'nveBgOverlay';
+    _nveBgOverlay.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none;opacity:0;transition:opacity 3000ms ease;';
+    host.appendChild(_nveBgOverlay);
+    _nveCanvas = document.createElement('canvas');
+    _nveCanvas.id = 'nveCanvas';
+    _nveCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none;';
+    host.appendChild(_nveCanvas);
+    _nveCtx = _nveCanvas.getContext('2d');
+    _nveResize();
+    window.addEventListener('resize', _nveResize);
+  }
+
+  function _nveResize() {
+    if (!_nveCanvas || !_nveCtx) return;
+    var dpr = _performanceTier === 'reduced' ? 1 : (window.devicePixelRatio || 1);
+    var w = _nveCanvas.offsetWidth || window.innerWidth;
+    var h = _nveCanvas.offsetHeight || window.innerHeight;
+    _nveCanvas.width = w * dpr;
+    _nveCanvas.height = h * dpr;
+    _nveCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function _nveFieldBudget() {
+    return NVE_FIELD_BUDGET[_performanceTier] || NVE_FIELD_BUDGET.full;
+  }
+
+  function _nveFieldSpawn(opts) {
+    opts = opts || {};
+    _nveCreateSurfaces();
+    if (!_nveCtx) return 0;
+    var budget = _nveFieldBudget();
+    var count = Math.min(opts.count || budget, budget);
+    var w = _nveCanvas.offsetWidth || window.innerWidth;
+    var h = _nveCanvas.offsetHeight || window.innerHeight;
+    var col = opts.color || [150, 190, 230];
+    _nveField = [];
+    for (var i = 0; i < count; i++) {
+      _nveField.push({
+        x: Math.random() * w,
+        y: h * 0.2 + Math.random() * h * 0.7,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.15,
+        sz: 1.5 + Math.random() * 3.5,
+        col: col,
+        alpha: 0,
+        targetAlpha: 0.25 + Math.random() * 0.45,
+        ph: Math.random() * Math.PI * 2,
+        ps: 0.01 + Math.random() * 0.02
+      });
+    }
+    _nveFieldFrozen = false;
+    _nveStartRAF();
+    return _nveField.length;
+  }
+
+  function _nveFieldDissolve(fadeMs) {
+    // targetAlpha -> 0; the draw loop clears the field and stops the RAF
+    // once fully transparent (beat-scoped / empty-by-default rule).
+    var ms = fadeMs || 2000;
+    var step = ms > 0 ? (16 / ms) : 1;
+    for (var i = 0; i < _nveField.length; i++) {
+      _nveField[i].targetAlpha = 0;
+      _nveField[i].fadeStep = step;
+    }
+    _nveFieldFrozen = false;
+    if (_nveField.length) _nveStartRAF();
+  }
+
+  function _nveStartRAF() {
+    if (_nveRAF || _nveFieldFrozen) return;
+    _nveRAF = requestAnimationFrame(_nveDraw);
+  }
+
+  function _nveStopRAF() {
+    if (_nveRAF) { cancelAnimationFrame(_nveRAF); _nveRAF = null; }
+  }
+
+  function _nveClearCanvas() {
+    if (_nveCtx && _nveCanvas) _nveCtx.clearRect(0, 0, _nveCanvas.width, _nveCanvas.height);
+  }
+
+  function _nveDraw() {
+    _nveRAF = null;
+    if (!_nveCtx || _nveFieldFrozen) return;
+    var reduced = _performanceTier === 'reduced';
+    if (reduced) {
+      // Reduced tier: draw every 2nd frame (~30fps)
+      _nveFrameSkip = !_nveFrameSkip;
+      if (_nveFrameSkip) { _nveRAF = requestAnimationFrame(_nveDraw); return; }
+    }
+    var w = _nveCanvas.offsetWidth || window.innerWidth;
+    var h = _nveCanvas.offsetHeight || window.innerHeight;
+    _nveCtx.clearRect(0, 0, w, h);
+    var live = 0;
+    for (var i = 0; i < _nveField.length; i++) {
+      var p = _nveField[i];
+      p.ph += p.ps;
+      p.x += p.vx + Math.sin(p.ph * 0.5) * 0.05;
+      p.y += p.vy + Math.cos(p.ph * 0.3) * 0.03;
+      if (p.x < -10) p.x = w + 10;
+      if (p.x > w + 10) p.x = -10;
+      if (p.y < -10) p.y = h + 10;
+      if (p.y > h + 10) p.y = -10;
+      if (p.alpha < p.targetAlpha) p.alpha = Math.min(p.targetAlpha, p.alpha + 0.02);
+      else if (p.alpha > p.targetAlpha) p.alpha = Math.max(p.targetAlpha, p.alpha - (p.fadeStep || 0.02));
+      if (p.alpha > 0.01 || p.targetAlpha > 0.01) live++;
+      if (p.alpha <= 0.01) continue;
+      _nveCtx.save();
+      _nveCtx.globalAlpha = p.alpha * (0.85 + Math.sin(p.ph) * 0.15);
+      _nveCtx.fillStyle = 'rgb(' + p.col[0] + ',' + p.col[1] + ',' + p.col[2] + ')';
+      if (!reduced) {
+        // shadowBlur is the dominant canvas cost — full tier only (C2.4)
+        _nveCtx.shadowColor = _nveCtx.fillStyle;
+        _nveCtx.shadowBlur = 6 + p.sz * 2;
+      }
+      _nveCtx.beginPath();
+      _nveCtx.arc(p.x, p.y, p.sz, 0, Math.PI * 2);
+      _nveCtx.fill();
+      _nveCtx.restore();
+    }
+    if (live === 0) {
+      // Field fully dissolved — empty-by-default: clear canvas, stop RAF.
+      _nveField = [];
+      _nveClearCanvas();
+      return;
+    }
+    _nveRAF = requestAnimationFrame(_nveDraw);
+  }
+
+  function _nveFieldCopy(arr) {
+    return arr.map(function(p) {
+      return { x: p.x, y: p.y, vx: p.vx, vy: p.vy, sz: p.sz,
+               col: [p.col[0], p.col[1], p.col[2]],
+               alpha: p.alpha, targetAlpha: p.targetAlpha, ph: p.ph, ps: p.ps };
+    });
+  }
+
+  function _nveFieldSnapshot() { return _nveFieldCopy(_nveField); }
+
+  function _nveFieldRestore(snapshot) {
+    if (!snapshot) return;
+    _nveField = _nveFieldCopy(snapshot);
+    _nveFieldFrozen = false;
+    if (_nveField.length) _nveStartRAF();
+  }
+
+  function _nveFieldFreeze() {
+    // Stop the field RAF — canvas keeps its last painted frame, positions held.
+    _nveFieldFrozen = true;
+    _nveStopRAF();
+  }
+
+  function _nveFieldUnfreeze() {
+    _nveFieldFrozen = false;
+    if (_nveField.length) _nveStartRAF();
   }
 
   // ── SNAPSHOT / RESTORE FOR gap_reveal ──
@@ -167,6 +343,8 @@ var NarrativeVisualsEngine = (function() {
     if (_depthEngine && typeof _depthEngine.getParticleSnapshot === 'function') {
       snapshot.depthParticles = _depthEngine.getParticleSnapshot();
     }
+    // Snapshot NVE narrative field (own canvas — C2)
+    snapshot.nveField = _nveFieldSnapshot();
     return snapshot;
   }
 
@@ -179,6 +357,8 @@ var NarrativeVisualsEngine = (function() {
     if (_depthEngine && typeof _depthEngine.restoreParticleSnapshot === 'function' && snapshot.depthParticles) {
       _depthEngine.restoreParticleSnapshot(snapshot.depthParticles, easeDuration);
     }
+    // Restore NVE narrative field from snapshot (own canvas — C2)
+    if (snapshot.nveField) _nveFieldRestore(snapshot.nveField);
     // Resume CSS animations on DOM particles
     var particles = document.querySelectorAll('.particle');
     particles.forEach(function(p) {
@@ -215,6 +395,8 @@ var NarrativeVisualsEngine = (function() {
     // Freeze waves
     var waves = document.querySelectorAll('.wave');
     waves.forEach(function(w) { w.style.animationPlayState = 'paused'; });
+    // Freeze NVE narrative field (own canvas RAF — C2)
+    _nveFieldFreeze();
     // Signal depth engine to freeze its rAF loop
     if (_depthEngine && typeof _depthEngine.freeze === 'function') {
       _depthEngine.freeze();
@@ -236,6 +418,7 @@ var NarrativeVisualsEngine = (function() {
     auroraBands.forEach(function(b) { b.style.animationPlayState = 'running'; });
     var waves = document.querySelectorAll('.wave');
     waves.forEach(function(w) { w.style.animationPlayState = 'running'; });
+    _nveFieldUnfreeze();
     if (_depthEngine && typeof _depthEngine.unfreeze === 'function') {
       _depthEngine.unfreeze();
     }
@@ -794,6 +977,12 @@ var NarrativeVisualsEngine = (function() {
     // Dispatch to specific handler
     switch(name) {
       // ── PARTICLE FIELD ──
+      case 'field_test':
+        // C2 step-2 harness trigger — exercises the NVE field in isolation.
+        // Not part of any authored visual_narrative vocabulary.
+        _nveFieldSpawn({ color: opts.color, count: opts.count });
+        break;
+
       case 'depth_pulse':
         _fieldState.speedMul = 2.5;
         _fieldState.rhythm = 'erratic';
@@ -1087,6 +1276,7 @@ var NarrativeVisualsEngine = (function() {
     _stopHrvPulse();
     _stopPacerFallback();
     _clearBlueprintLines();
+    _nveFieldDissolve(fd);
     _breathSyncActive = false;
     _ladderZone = null;
     if (_gapFreezeTimer) { clearTimeout(_gapFreezeTimer); _gapFreezeTimer = null; _unfreezeAll(); }
@@ -1235,6 +1425,7 @@ var NarrativeVisualsEngine = (function() {
   // ── INIT ──
   function init() {
     _detectPerformanceTier();
+    _nveCreateSurfaces();
     _cacheParticleColors();
     console.log('[NVE] Narrative Visuals Engine initialized | tier:', _performanceTier);
   }
@@ -1247,7 +1438,17 @@ var NarrativeVisualsEngine = (function() {
     connectToStateMachine: connectToStateMachine,
     connectToBiometricBridge: connectToBiometricBridge,
     connectToDepthEngine: connectToDepthEngine,
-    getState: getState
+    getState: getState,
+    // Debug/harness surface for the C2 field engine (not used by production wiring)
+    nveField: {
+      isRunning: function() { return !!_nveRAF; },
+      count: function() { return _nveField.length; },
+      budget: _nveFieldBudget,
+      spawn: _nveFieldSpawn,
+      dissolve: _nveFieldDissolve,
+      snapshot: _nveFieldSnapshot,
+      setTierForTest: function(t) { _performanceTier = t; }
+    }
   };
 
 })();
