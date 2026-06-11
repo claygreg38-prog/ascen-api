@@ -107,3 +107,97 @@ NVE touches the shared DOM `.particle` plankton (owned/created by VisualDNA `gen
 - Items 4–5 change a **locked file** (`narrativeVisualsEngine.js`) and the inlined DepthEngine — Plan Mode + verify-ascen + dual-file MD5 apply.
 - C1 trades narrative richness for separation + stability. If the authored foundation `visual_narrative` requires field choreography, C1 will under-render those beats — confirm against the S01–S21 authored content before locking C1.
 - This plan builds nothing. Execution is a separate, approved step.
+
+---
+
+# C2 BUILD PLAN — NVE Own-Particle-Layer (detailed scope, 2026-06-11)
+
+**Status:** Plan only — nothing built. Re-architecture **on top of what exists**: authored S01–S10 `visual_narrative` + Manus's ~40 render cases (case logic kept, render target swapped) + Manus's DepthEngine hooks (ported per item 1). Not from-scratch.
+
+## C2.1 Particle layer architecture
+
+Three sovereign fields after C2:
+
+| Layer | Owner | Surface | z | Role |
+|---|---|---|---|---|
+| Water + canvas plankton (`_depthParticles`, ~80) | DepthEngine | `#depthCanvas` | 0 | Biofeedback (coherence-driven). Untouched except ported freeze/snapshot hooks |
+| Ambient plankton (60 × DOM `.particle`, `genPlankton`) | VisualDNA | `#plkLayer` | 4 | Ambient — modulated every frame by `render()`. NVE never writes it |
+| **Narrative field (NEW)** | **NVE** | **`#nveCanvas`** | **5** | Narrative choreography only |
+
+Plus `#nveBgOverlay` (item 4 warmth/storm) at z 1–2; blueprint canvas stays z8; alignment ring stays a DOM child of `.coh-rings`.
+
+**Mode: canvas, not DOM.** Mirrors the proven DepthEngine `_drawLoop` pattern; choreography is array math + one draw pass; freeze = stop RAF (exact for gap_reveal); snapshot = copy array; no CSS-animation contention by construction.
+
+**Ownership/lifecycle:** NVE creates `#nveCanvas` + `#nveBgOverlay` in `init()` (small HTML diff). One RAF (`_nveRAF`), **stopped when no narrative visual is active and phase ≠ breathing** (zero idle cost). `reset(fadeMs)` fades/clears field + cancels RAF; `onSessionReset` destroys state. **Field is beat-scoped: empty by default; particles materialize for a visual and dissolve after** — the anti-"double plankton" rule.
+
+**Locked-separation guarantees (mechanically checkable):**
+- Zero `.particle` writes: all write sites removed; blueprint lines re-target NVE's own field positions (array reads). gap_reveal's transient ambient pause is laundered through a new **additive** `VisualDNA.freezeAmbient()/resumeAmbient()` API (≈6 lines, both HTMLs) so the module ends with **zero `.particle` references**. verify-ascen addition: `grep "\.particle" narrativeVisualsEngine.js` → 0 hits.
+- Zero `oceanBg` writes: `_applyBgState` → `#nveBgOverlay` only. verify-ascen addition: `grep "oceanBg" narrativeVisualsEngine.js` → 0 hits.
+
+## C2.2 Per-visual re-mapping (S01–S10 vocabulary)
+
+| Visual | C2 rendering on NVE field | Fidelity |
+|---|---|---|
+| `depth_pulse` | materialize field, erratic velocities ×2.5 | ✅ |
+| `breath_thread` | one glowing NVE particle | ✅ (better — no ambient hijack) |
+| `environment_sync(_begin)` + breath drift | field drifts inward on inhale / outward on exhale (vx/vy in draw loop) | ⚠️ overlay — ambient itself no longer breathes (locked) |
+| `anchor_descend/deepen/set` | warm center-bottom cluster, sink gravity, per-exhale deepen | ✅ |
+| `ladder_emerge/climb` | triband (gold-steady / amber-erratic / blue-frozen) + per-exhale climb | ✅ |
+| `hrv_rhythm/expand` | size-pulse field at `_hrvPulseMs`; interval widens | ✅ |
+| `tax_weight`, `weight_of_everything` | field slows/drags + `#nveBgOverlay` darkens | ⚠️ partial — ambient/biofeedback not slowed (locked) |
+| `tax_erosion` | dim field edge particles | ⚠️ same caveat |
+| `refund_begins/accumulate` | warm center return; per-exhale edge restore | ✅ |
+| `five_signals` | 5 warm clusters at distinct depths | ✅ (more faithful than today's colorShift hack) |
+| `not_broken_reveal` / `foundation_build` / `body_memory_map` / `score_rewritten` / `surplus_visible` / `six_seconds_weight` | direct field-state equivalents | ✅ |
+| `trigger_flash` (NS3 gate retained @526) | radial shockwave scatter of NVE particles, ease back | ⚠️/✅ ambient stays calm — spec-cleaner but visually smaller than today's all-particle scatter |
+| `gap_practice` | hold field positions at inhale peak (kills the N7 CSS-thrash flicker class) | ✅ |
+| `gap_installed` | replay trigger_flash → gap_reveal on own field | ✅ |
+| `position_marker` | unchanged (own DOM ring) | ✅ |
+| `blueprint_*`, `authorship_glow` | blueprint canvas connects NVE field positions | ✅ cleaner |
+| bg atmosphere (6 visuals) | `#nveBgOverlay` (item 4) | ✅ |
+| `text_*` | unchanged | ✅ |
+
+**Cannot reproduce fully faithfully (flagged):** the whole-environment beats — `environment_sync` ("the world breathes with you"), `tax_weight`/`weight_of_everything` ("everything slows"). Under the locked rule these render as narrative-field + bg-overlay interpretations. *Optional escape hatch (decision, default NO): a sanctioned `VisualDNA.setNarrativeMood({speedBias})` API would let ambient respond — but it re-couples the layers this refactor exists to separate.*
+
+## C2.3 gap_reveal under C2 — works; freeze scope expands, nothing breaks
+
+`_snapshotState` = copy NVE field array + `_depthEngine.getParticleSnapshot()` (**ported hooks still required, unchanged**) → `_freezeAll` = stop NVE RAF + `VisualDNA.freezeAmbient()` + `DepthEngine.freeze()` + pause Luno/rings/aurora/waves → timer → restore: restart NVE RAF from snapshot; `restoreParticleSnapshot()` ease-in-cubic on the depth canvas; `resumeAmbient()`. The NVE-field freeze is the easiest part (canvas owns its loop). All verify-ascen criteria (freeze ±100ms, gentle resume, priority queue, reset) remain testable unchanged.
+
+## C2.4 Perf tier (CRC tablets ≤4 cores / ≤4 GB → `reduced` via existing `_detectPerformanceTier`)
+
+| | full | reduced |
+|---|---|---|
+| Field budget | 40–48 particles | **16–20** |
+| Draw | shadowBlur glow, DPR-native | **no shadowBlur** (dominant canvas cost), DPR=1, every-2nd-RAF (~30fps) |
+| Breath-sync interval | 500ms | **1000ms** (closes Phase 1 §5B deviation) |
+| Idle | RAF stopped outside active beats | same — zero idle cost |
+
+Scene totals on reduced: 80 depth + 60 ambient + ≤20 narrative. **Must be validated on the actual CRC tablet.**
+
+## C2.5 Dual-file + locked-file governance
+
+- Edited: `public/modules/narrativeVisualsEngine.js` (locked — the major diff) + `index_v8.html` **and** `index_v8_production.html` identically (DepthEngine hooks ≈25 lines, `freezeAmbient/resumeAmbient` ≈6 lines, `<script src>` + wiring behind `?nve=1`).
+- NVE creates its own DOM at `init()` → no static HTML element additions.
+- Gates: Plan Mode + verify-ascen per locked-file change; MD5 equality re-verified after each edit pass; module stays external.
+
+## C2.6 Effort, risk, sequencing
+
+**Build order (isolation-first; steps 1–5 validate entirely in the harness before production is touched):**
+1. **Harness** (Phase-2 pattern: file://, mock SSM/BioBridge + mock DepthEngine carrying a copy of the ported hooks). Module already standalone-importable (lerp fixed).
+2. **NVEField canvas engine** (spawn/draw/RAF/tier/reset) — ~1–2 days.
+3. **Re-map ~20 field cases** against authored S01–S10 beats, one by one in harness — ~2–3 days incl. tuning.
+4. **Re-target `_onBreathFrame`**; delete `_cache/_restoreParticleColors`.
+5. **Strip all `.particle`/`oceanBg` writes**; gap-freeze via `freezeAmbient` stub.
+6. Production: `#nveBgOverlay` check; port DepthEngine hooks + `freezeAmbient` into both HTMLs — ~1 day.
+7. Wire behind `?nve=1`; dual-file MD5; verify-ascen 11 criteria.
+8. **10 clean rehearsals** on real hardware (H10 + CRC tablet) — 1–2 days.
+
+**Total ≈ 6–9 working days** of focused build before rehearsal hardening — **not a demo-window item** if the demo is imminent.
+
+**Riskiest sub-steps, ranked:**
+1. **Aesthetic tuning bar (HIGH, unbounded)** — "renders" ≠ "demo-beautiful"; choreography tuning against authored beats is the historical schedule-killer.
+2. **Double-plankton confusion (MED)** — mitigated by the strict beat-scoped/empty-by-default rule.
+3. **Reduced-tier perf on real CRC hardware (MED)** — untestable until step 8.
+4. **Locked-file rewrite churn (MED)** — contained by harness-first + per-visual commits.
+
+**Strategic fork (stands from the content verification):** a **gap_reveal-centric demo (S03)** ships on the cheap C1 path now while C2 proceeds in the harness in parallel; a **somatic demo (S04/S05/S08/S09/S10)** requires this full C2 plan plus hardening.
