@@ -140,6 +140,59 @@ function fail(msg) { console.log('  FAIL ' + msg); failures++; }
     NVE.nveField.count() === 0 && !NVE.nveField.isRunning(),
     'count=' + NVE.nveField.count() + ' isRunning=' + NVE.nveField.isRunning());
 
+  // ── E series: environment_sync re-map (C2 step 3a go/no-go) ──
+  // Spy ambient particles: any style mutation during breath frames = violation.
+  let ambientMutations = 0;
+  function spyParticle() {
+    const style = { getPropertyValue: () => '0', left: '50%', top: '50%' };
+    style.setProperty = function() { ambientMutations++; };
+    let _op = '0.4';
+    Object.defineProperty(style, 'opacity', {
+      get() { return _op; }, set(v) { ambientMutations++; _op = v; },
+    });
+    Object.defineProperty(style, 'animationPlayState', {
+      get() { return 'running'; }, set() { ambientMutations++; },
+    });
+    return { style, dataset: {}, getBoundingClientRect: () => ({ left: 10, top: 10, width: 4, height: 4 }) };
+  }
+  const spies = [spyParticle(), spyParticle(), spyParticle()];
+  sandbox.document.querySelectorAll = sel => (sel === '.particle' ? spies : []);
+
+  NVE.trigger('environment_sync_begin', { duration_seconds: 0.5 });
+  const ec = NVE.nveField.count();
+  check('E1 environment_sync spawns NVE field + RAF', ec > 0 && NVE.nveField.isRunning(), 'count=' + ec);
+
+  // Bounded-displacement model: rendered positions (probe), not home positions.
+  // Baseline at neutral, contract at full inhale, expand past home at full exhale.
+  NVE.onBreathFrame({ phase: 'exhale', progress: 0, cycle_count: 1 });   // v=1? no: exhale p0 -> v=1
+  NVE.onBreathFrame({ phase: 'inhale', progress: 0, cycle_count: 1 });   // v=0 -> disp=-0.04 (near-home)
+  pumpFrames(3);
+  const dNeutral = NVE.nveField.lastRenderMeanDist();
+  NVE.onBreathFrame({ phase: 'inhale', progress: 1, cycle_count: 1 });   // v=1 -> disp=+0.12 inward
+  pumpFrames(3);
+  const dIn = NVE.nveField.lastRenderMeanDist();
+  check('E2 full inhale: field renders INWARD vs near-home (bounded disp +12%)', dIn < dNeutral,
+    dNeutral.toFixed(1) + ' -> ' + dIn.toFixed(1));
+  NVE.onBreathFrame({ phase: 'exhale', progress: 1, cycle_count: 1 });   // v=0 -> disp=-0.04 outward
+  pumpFrames(3);
+  const dOut = NVE.nveField.lastRenderMeanDist();
+  check('E3 full exhale: field renders OUTWARD past home (bounded disp -4%)', dOut > dIn && dOut >= dNeutral * 0.98,
+    dIn.toFixed(1) + ' -> ' + dOut.toFixed(1) + ' (neutral ' + dNeutral.toFixed(1) + ')');
+  // E3b — boundedness: 240 frames of held full-inhale must NOT collapse the field
+  NVE.onBreathFrame({ phase: 'inhale', progress: 1, cycle_count: 2 });
+  pumpFrames(240);
+  const dHeld = NVE.nveField.lastRenderMeanDist();
+  check('E3b bounded: 240 frames at full inhale stays ~12% (no collapse)', dHeld > dNeutral * 0.7,
+    'after 240f: ' + dHeld.toFixed(1) + ' vs neutral ' + dNeutral.toFixed(1));
+  check('E4 ambient plankton untouched during breath frames (spy mutations = 0)',
+    ambientMutations === 0, 'mutations=' + ambientMutations);
+  NVE.reset(100);
+  pumpFrames(80);
+  check('E5 reset clears breath-sync field back to empty',
+    NVE.nveField.count() === 0 && !NVE.nveField.isRunning(),
+    'count=' + NVE.nveField.count());
+  sandbox.document.querySelectorAll = () => [];
+
   // A4 — locked-separation greps on the NEW field code only
   const src = fs.readFileSync(MODULE, 'utf8');
   const fieldStart = src.indexOf('── NVE FIELD STATE');

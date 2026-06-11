@@ -137,6 +137,8 @@ var NarrativeVisualsEngine = (function() {
   var _nveRAF = null;
   var _nveFrameSkip = false;    // reduced tier draws every 2nd frame
   var _nveFieldFrozen = false;
+  var _nveBreathSyncField = false;  // environment_sync drives the NVE field only (C2 step 3a)
+  var _nveLastMeanDist = 0;         // render-position probe (harness/debug only)
 
   // ── PERFORMANCE TIER DETECTION ──
   function _detectPerformanceTier() {
@@ -254,6 +256,28 @@ var NarrativeVisualsEngine = (function() {
     var w = _nveCanvas.offsetWidth || window.innerWidth;
     var h = _nveCanvas.offsetHeight || window.innerHeight;
     _nveCtx.clearRect(0, 0, w, h);
+    // C2 step 3a — environment_sync breath coupling, NVE field only.
+    // lungVolume v: 0=fully exhaled, 1=fully inhaled. The whole-field
+    // luminance swell is the dominant "world breathes" cue; the radial
+    // drift (inward on inhale, outward on exhale) is kept gentle so the
+    // field reads as one breathing world, not darting points.
+    // Bounded home-anchored displacement: each particle renders at
+    // home + (center-home)*disp, disp in [-0.04, +0.12]. Periodic and
+    // accumulation-free, so a 4s inhale cannot collapse the field and a
+    // 6s exhale cannot push it through the edges (v2 tuning — the
+    // integrated-velocity model over-contracted at real breath lengths).
+    var disp = 0, alphaSwell = 1, sizeSwell = 1;
+    if (_nveBreathSyncField) {
+      var v = 0.5;
+      if (_breathPhase === 'inhale' || _breathPhase === 'in') v = _breathProgress;
+      else if (_breathPhase === 'exhale' || _breathPhase === 'out') v = 1 - _breathProgress;
+      else if (_breathPhase === 'hold' || _breathPhase === 'touch') v = 1;
+      disp = 0.12 * v - 0.04 * (1 - v);
+      alphaSwell = 0.72 + v * 0.55;   // whole-field brightens on inhale
+      sizeSwell = 1 + v * 0.22;       // particles swell with the lungs
+    }
+    var bcx = w / 2, bcy = h / 2;
+    var distSum = 0;
     var live = 0;
     for (var i = 0; i < _nveField.length; i++) {
       var p = _nveField[i];
@@ -264,23 +288,28 @@ var NarrativeVisualsEngine = (function() {
       if (p.x > w + 10) p.x = -10;
       if (p.y < -10) p.y = h + 10;
       if (p.y > h + 10) p.y = -10;
+      // render position = home displaced toward/away from center per breath
+      var rx = p.x + (bcx - p.x) * disp;
+      var ry = p.y + (bcy - p.y) * disp;
+      distSum += Math.sqrt((rx - bcx) * (rx - bcx) + (ry - bcy) * (ry - bcy));
       if (p.alpha < p.targetAlpha) p.alpha = Math.min(p.targetAlpha, p.alpha + 0.02);
       else if (p.alpha > p.targetAlpha) p.alpha = Math.max(p.targetAlpha, p.alpha - (p.fadeStep || 0.02));
       if (p.alpha > 0.01 || p.targetAlpha > 0.01) live++;
       if (p.alpha <= 0.01) continue;
       _nveCtx.save();
-      _nveCtx.globalAlpha = p.alpha * (0.85 + Math.sin(p.ph) * 0.15);
+      _nveCtx.globalAlpha = Math.min(1, p.alpha * (0.85 + Math.sin(p.ph) * 0.15) * alphaSwell);
       _nveCtx.fillStyle = 'rgb(' + p.col[0] + ',' + p.col[1] + ',' + p.col[2] + ')';
       if (!reduced) {
         // shadowBlur is the dominant canvas cost — full tier only (C2.4)
         _nveCtx.shadowColor = _nveCtx.fillStyle;
-        _nveCtx.shadowBlur = 6 + p.sz * 2;
+        _nveCtx.shadowBlur = (6 + p.sz * 2) * sizeSwell;
       }
       _nveCtx.beginPath();
-      _nveCtx.arc(p.x, p.y, p.sz, 0, Math.PI * 2);
+      _nveCtx.arc(rx, ry, p.sz * sizeSwell, 0, Math.PI * 2);
       _nveCtx.fill();
       _nveCtx.restore();
     }
+    if (_nveField.length) _nveLastMeanDist = distSum / _nveField.length;
     if (live === 0) {
       // Field fully dissolved — empty-by-default: clear canvas, stop RAF.
       _nveField = [];
@@ -765,7 +794,9 @@ var NarrativeVisualsEngine = (function() {
     _breathCycleCount = data.cycle_count || 0;
 
     var particles = document.querySelectorAll('.particle');
-    if (_fieldState.rhythm === 'breath_sync') {
+    if (_fieldState.rhythm === 'breath_sync' && !_nveBreathSyncField) {
+      // legacy ambient drift path — disabled whenever the C2 NVE field owns
+      // the environment_sync beat (locked separation)
       // environment_sync: particles drift inward on inhale, outward on exhale
       var cx = 50; // percent center
       var cy = 50;
@@ -1004,7 +1035,13 @@ var NarrativeVisualsEngine = (function() {
       case 'environment_sync_begin':
         _fieldState.rhythm = 'breath_sync';
         _fieldState.speedMul = 0.6;
-        _applyFieldState(_fieldState);
+        // C2 step 3a: the "world breathes" beat is carried by the NVE field
+        // ONLY. Ambient plankton and the water background stay sovereign
+        // (locked separation) — no DOM restyle here.
+        _nveBreathSyncField = true;
+        if (_nveField.length === 0) {
+          _nveFieldSpawn({ color: [150, 200, 235] });
+        }
         _breathSyncActive = true;
         // Start pacer fallback if no BLE
         if (_bioBridge && _bioBridge.getActiveSource() !== 'h10') {
@@ -1276,6 +1313,7 @@ var NarrativeVisualsEngine = (function() {
     _stopHrvPulse();
     _stopPacerFallback();
     _clearBlueprintLines();
+    _nveBreathSyncField = false;
     _nveFieldDissolve(fd);
     _breathSyncActive = false;
     _ladderZone = null;
@@ -1313,6 +1351,10 @@ var NarrativeVisualsEngine = (function() {
       case 'shift':
         trigger('text_fade_line', {});
         _breathSyncActive = false;
+        if (_nveBreathSyncField) {
+          _nveBreathSyncField = false;
+          _nveFieldDissolve(4000);
+        }
         _stopPacerFallback();
         // Apply accumulated warmth
         _bgState.warmth = Math.min(1, _bgState.warmth + _warmthAccumulated * 0.1);
@@ -1447,6 +1489,7 @@ var NarrativeVisualsEngine = (function() {
       spawn: _nveFieldSpawn,
       dissolve: _nveFieldDissolve,
       snapshot: _nveFieldSnapshot,
+      lastRenderMeanDist: function() { return _nveLastMeanDist; },
       setTierForTest: function(t) { _performanceTier = t; }
     }
   };
