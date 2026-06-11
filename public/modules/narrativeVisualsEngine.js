@@ -140,6 +140,63 @@ var NarrativeVisualsEngine = (function() {
   var _nveBreathSyncField = false;  // environment_sync drives the NVE field only (C2 step 3a)
   var _nveLastMeanDist = 0;         // render-position probe (harness/debug only)
 
+  // ── INTENSITY MODEL (C2 — phase-gated presence) ──
+  // A single 0..1 scalar that scales PRESENCE — particle/layer opacity, bloom/glow strength,
+  // and motion amplitude — but NEVER spawn count or tier budgets (full=44/reduced=18 stay
+  // fixed). Default is driven by the SSM phase through the orchestrated onPhaseChange path
+  // (see _applyPhaseDefaults) — not a hardcoded constant and not read around the orchestrator.
+  var DEFAULT_INTENSITY = 0.5;
+  var _intensity = DEFAULT_INTENSITY;
+  var _intensityTarget = DEFAULT_INTENSITY;
+  var _intensityTween = null;
+  // THE single phase→intensity map. Text-heavy phases recede (backdrop); gap/breath phases
+  // come forward (unmistakable). Starting placeholders — tuned on-device (PGC-CRC lighting).
+  var PHASE_INTENSITY = {
+    arrival: 0.25, opening: 0.25, resistance: 0.25, close: 0.30,   // text-heavy → LOW (recede)
+    before_the_breath: 0.85, breathing: 0.90, shift: 0.80,         // gap/breath → HIGH (forward)
+    gap_reveal: 1.0                                                 // signature moment → unmistakable
+  };
+  // BIOFEEDBACK LEGIBILITY FLOOR (C2 — BUILD 2): any layer DRIVEN by coherence/HR cannot drop
+  // below this while active, independent of ambient intensity. Ambient layers may sit below
+  // it; biofeedback layers clamp to it as a lower bound. Tunable on-device (placeholder).
+  var BIOFEEDBACK_MIN_OPACITY = 0.35;
+
+  // Ease intensity toward a target over ~600–800ms (default 700) — no hard cuts. Uses a
+  // setInterval tween (independent of the field RAF, so it still advances while the field is
+  // frozen for gap_reveal) and nudges the field RAF each step so presence repaints smoothly.
+  function _easeIntensityTo(target, ms) {
+    target = Math.max(0, Math.min(1, target));
+    ms = (ms == null) ? 700 : ms;
+    _intensityTarget = target;
+    if (_intensityTween) { clearInterval(_intensityTween); _intensityTween = null; }
+    var start = _intensity, delta = target - start;
+    if (ms <= 0 || Math.abs(delta) < 0.001) {
+      _intensity = target;
+      if (_nveField.length) _nveStartRAF();
+      return;
+    }
+    var t0 = Date.now();
+    _intensityTween = setInterval(function() {
+      var t = Math.min(1, (Date.now() - t0) / ms);
+      var eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
+      _intensity = start + delta * eased;
+      if (_nveField.length) _nveStartRAF();
+      if (t >= 1) { _intensity = target; clearInterval(_intensityTween); _intensityTween = null; }
+    }, 16);
+  }
+
+  // The NVE field is a BIOFEEDBACK layer when it is breath/coherence-coupled (environment_sync
+  // sets _nveBreathSyncField). Otherwise it is ambient narrative and free to recede.
+  function _fieldIsBiofeedback() { return _nveBreathSyncField; }
+
+  // Effective opacity factor applied to the NVE field this frame. Ambient presence tracks
+  // intensity; a biofeedback-active field clamps UP to the floor (even at ambient intensity 0).
+  function _fieldLayerOpacity() {
+    var f = _intensity;
+    if (_fieldIsBiofeedback()) f = Math.max(f, BIOFEEDBACK_MIN_OPACITY);
+    return f;
+  }
+
   // ── PERFORMANCE TIER DETECTION ──
   function _detectPerformanceTier() {
     try {
@@ -276,14 +333,19 @@ var NarrativeVisualsEngine = (function() {
       alphaSwell = 0.72 + v * 0.55;   // whole-field brightens on inhale
       sizeSwell = 1 + v * 0.22;       // particles swell with the lungs
     }
+    // Intensity scales PRESENCE only (opacity / glow / motion amplitude) — never count.
+    var opacityFactor = _fieldLayerOpacity();             // biofeedback-floored when active
+    var motionAmp = lerp(0.6, 1.0, _intensity);           // drift + breath-displacement amplitude
+    var glowScale = lerp(0.4, 1.0, _intensity);           // bloom/glow strength
+    disp *= motionAmp;                                     // breath displacement comes forward at HIGH
     var bcx = w / 2, bcy = h / 2;
     var distSum = 0;
     var live = 0;
     for (var i = 0; i < _nveField.length; i++) {
       var p = _nveField[i];
       p.ph += p.ps;
-      p.x += p.vx + Math.sin(p.ph * 0.5) * 0.05;
-      p.y += p.vy + Math.cos(p.ph * 0.3) * 0.03;
+      p.x += p.vx + Math.sin(p.ph * 0.5) * 0.05 * motionAmp;
+      p.y += p.vy + Math.cos(p.ph * 0.3) * 0.03 * motionAmp;
       if (p.x < -10) p.x = w + 10;
       if (p.x > w + 10) p.x = -10;
       if (p.y < -10) p.y = h + 10;
@@ -297,12 +359,12 @@ var NarrativeVisualsEngine = (function() {
       if (p.alpha > 0.01 || p.targetAlpha > 0.01) live++;
       if (p.alpha <= 0.01) continue;
       _nveCtx.save();
-      _nveCtx.globalAlpha = Math.min(1, p.alpha * (0.85 + Math.sin(p.ph) * 0.15) * alphaSwell);
+      _nveCtx.globalAlpha = Math.min(1, p.alpha * (0.85 + Math.sin(p.ph) * 0.15) * alphaSwell * opacityFactor);
       _nveCtx.fillStyle = 'rgb(' + p.col[0] + ',' + p.col[1] + ',' + p.col[2] + ')';
       if (!reduced) {
         // shadowBlur is the dominant canvas cost — full tier only (C2.4)
         _nveCtx.shadowColor = _nveCtx.fillStyle;
-        _nveCtx.shadowBlur = (6 + p.sz * 2) * sizeSwell;
+        _nveCtx.shadowBlur = (6 + p.sz * 2) * sizeSwell * glowScale;
       }
       _nveCtx.beginPath();
       _nveCtx.arc(rx, ry, p.sz * sizeSwell, 0, Math.PI * 2);
@@ -1026,6 +1088,8 @@ var NarrativeVisualsEngine = (function() {
         break;
 
       case 'gap_reveal':
+        // Signature moment — bring presence fully forward (eased) so the gap is unmistakable.
+        _easeIntensityTo(PHASE_INTENSITY.gap_reveal, 700);
         var gapDur = opts.duration_ms || (opts.duration_seconds ? opts.duration_seconds * 1000 : 6000);
         var resumeDur = opts.resume_duration_ms || 3000;
         _gapReveal(gapDur, resumeDur);
@@ -1315,6 +1379,7 @@ var NarrativeVisualsEngine = (function() {
     _clearBlueprintLines();
     _nveBreathSyncField = false;
     _nveFieldDissolve(fd);
+    _easeIntensityTo(DEFAULT_INTENSITY, fd); // ease presence back to neutral ambient
     _breathSyncActive = false;
     _ladderZone = null;
     if (_gapFreezeTimer) { clearTimeout(_gapFreezeTimer); _gapFreezeTimer = null; _unfreezeAll(); }
@@ -1329,6 +1394,10 @@ var NarrativeVisualsEngine = (function() {
 
   // ── PHASE-BASED DEFAULT VISUALS ──
   function _applyPhaseDefaults(phase) {
+    // Phase-gated intensity — THE orchestrated path. _applyPhaseDefaults is only ever called
+    // from the SSM onPhaseChange handler (connectToStateMachine), so this is the single place
+    // the phase→intensity map is consulted. Eased (no hard cut); unlisted phases → default.
+    _easeIntensityTo(PHASE_INTENSITY[phase] != null ? PHASE_INTENSITY[phase] : DEFAULT_INTENSITY, 700);
     switch(phase) {
       case 'arrival':
         trigger('text_visible', {});
@@ -1458,6 +1527,7 @@ var NarrativeVisualsEngine = (function() {
       bgState: _bgState,
       breathSyncActive: _breathSyncActive,
       performanceTier: _performanceTier,
+      intensity: _intensity,
       warmthAccumulated: _warmthAccumulated,
       currentPhase: _currentPhase,
       currentSession: _currentSession
@@ -1490,7 +1560,17 @@ var NarrativeVisualsEngine = (function() {
       dissolve: _nveFieldDissolve,
       snapshot: _nveFieldSnapshot,
       lastRenderMeanDist: function() { return _nveLastMeanDist; },
-      setTierForTest: function(t) { _performanceTier = t; }
+      setTierForTest: function(t) { _performanceTier = t; },
+      // Intensity / biofeedback-floor probes (C2 — harness only, not used by production wiring)
+      intensity: function() { return _intensity; },
+      intensityTarget: function() { return _intensityTarget; },
+      layerOpacity: _fieldLayerOpacity,                    // effective, post-floor opacity factor
+      biofeedbackMinOpacity: function() { return BIOFEEDBACK_MIN_OPACITY; },
+      setIntensityForTest: function(v) {
+        if (_intensityTween) { clearInterval(_intensityTween); _intensityTween = null; }
+        _intensity = _intensityTarget = Math.max(0, Math.min(1, v));
+        if (_nveField.length) _nveStartRAF();
+      }
     }
   };
 

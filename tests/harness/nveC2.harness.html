@@ -292,6 +292,8 @@ setInterval(function() {
       'field.isRunning : ' + NVE.nveField.isRunning() +
       '\nfield.count     : ' + NVE.nveField.count() +
       '\nfield.budget    : ' + NVE.nveField.budget() +
+      '\nintensity       : ' + NVE.nveField.intensity().toFixed(2) + ' → ' + NVE.nveField.intensityTarget().toFixed(2) +
+      '\nlayerOpacity    : ' + NVE.nveField.layerOpacity().toFixed(2) + ' (bio-floor ' + NVE.nveField.biofeedbackMinOpacity().toFixed(2) + ')' +
       '\ntier            : ' + s.performanceTier +
       '\nphase           : ' + s.currentPhase +
       '\nactiveVisuals   : ' + JSON.stringify(s.activeVisuals) +
@@ -350,8 +352,47 @@ function runAcceptance() {
         setTimeout(function() {
           check('A1b dissolve→empty+RAF-stop', NVE.nveField.count() === 0 && !NVE.nveField.isRunning(),
             'count=' + NVE.nveField.count() + ' isRunning=' + NVE.nveField.isRunning());
-          var passed = results.filter(function(r) { return r.ok; }).length;
-          log('ACCEPTANCE: ' + passed + '/' + results.length + ' passed', passed === results.length ? 'pass' : 'fail');
+
+          // ── B1 — intensity scales OPACITY, not COUNT (ambient field, no biofeedback) ──
+          NVE.reset(0);
+          NVE.trigger('field_test', { duration_seconds: 30 });
+          var b1c0 = NVE.nveField.count();
+          NVE.nveField.setIntensityForTest(0.2);
+          var op02 = NVE.nveField.layerOpacity(), b1c1 = NVE.nveField.count();
+          NVE.nveField.setIntensityForTest(1.0);
+          var op10 = NVE.nveField.layerOpacity(), b1c2 = NVE.nveField.count();
+          check('B1 intensity scales opacity, not count',
+            b1c0 > 0 && b1c0 === b1c1 && b1c1 === b1c2 && op10 > op02 + 0.5,
+            'count=' + b1c0 + ' (stable=' + (b1c0 === b1c1 && b1c1 === b1c2) + ') op@0.2=' +
+            op02.toFixed(2) + ' op@1.0=' + op10.toFixed(2));
+
+          // ── B2 — biofeedback floor holds (field made biofeedback via environment_sync) ──
+          NVE.reset(0);
+          NVE.trigger('environment_sync', { duration_seconds: 30 }); // sets _nveBreathSyncField=true
+          NVE.nveField.setIntensityForTest(0);                       // ambient intensity floored to 0
+          var floorOp = NVE.nveField.layerOpacity(), minOp = NVE.nveField.biofeedbackMinOpacity();
+          check('B2 biofeedback floor holds', minOp > 0 && floorOp >= minOp,
+            'layerOpacity@intensity0=' + floorOp.toFixed(2) + ' floor=' + minOp.toFixed(2));
+
+          // ── B3 — phase→intensity, eased not stepped (Mock SSM onPhaseChange = the ABI path) ──
+          NVE.reset(0);
+          SSM.emit('onPhaseChange', 'arrival');                      // text-heavy → LOW
+          setTimeout(function() {
+            var iLow = NVE.nveField.intensity();
+            SSM.emit('onPhaseChange', 'before_the_breath');          // gap/breath → HIGH
+            setTimeout(function() {
+              var iMid = NVE.nveField.intensity();                   // mid-ease
+              setTimeout(function() {
+                var iHigh = NVE.nveField.intensity();                // settled at/near target
+                check('B3 phase→intensity eased, not stepped',
+                  iHigh > iLow + 0.3 && iMid > iLow && iMid < iHigh,
+                  'arrival=' + iLow.toFixed(2) + ' mid=' + iMid.toFixed(2) +
+                  ' before_the_breath=' + iHigh.toFixed(2));
+                var passed = results.filter(function(r) { return r.ok; }).length;
+                log('ACCEPTANCE: ' + passed + '/' + results.length + ' passed', passed === results.length ? 'pass' : 'fail');
+              }, 700);
+            }, 200);
+          }, 800);
         }, 1400);
       }, 1600);
     }, 700);
