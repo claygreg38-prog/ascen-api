@@ -104,11 +104,17 @@ This reuses **two existing mechanisms** rather than inventing transport:
 - NVE's dormant `NARRATIVE_VISUAL` postMessage listener (built for exactly this).
 
 **ABI extension required (the directive's "extend ABI" clause):**
-1. **Input leg** — ensure ABI is told of *every* phase transition, not just
-   breathing. Today `sessionPhase` mirrors the browser only at specific lifecycle
-   points; add an explicit lightweight notification (new
-   `POST /api/abi/session/phase {session_key, phase}` **or** piggyback the phase
-   onto the existing lifecycle calls) so ABI has the authoritative phase as input.
+1. **Input leg** — ensure ABI is told of *every* phase transition. **Investigated
+   (§5 Q1): today ABI is NOT** — it only sees session start, arrival→breathing
+   (`onArrivalComplete`), the breathing tick stream, and session complete. The
+   text-heavy LOW phases (`arrival`/`opening`/`resistance`/`close`) and
+   `descent`/`before_the_breath`/`shift`/`mirror`/`vault` are browser-internal
+   with no backend notification, and **no `/api/abi/session/*` endpoint takes a
+   `phase` parameter**. So this is a **broad lifecycle change**, not a piggyback:
+   add `POST /api/abi/session/phase {session_key, phase}` fired on **every**
+   `advancePhase()` (~8–11 calls/session) plus ABI-side transition handling, so
+   ABI has the authoritative phase as input for **all** phases. Built as part of
+   the wiring task (Decisions → D4).
 2. **Decision** — ABI resolves the presence directive. **Decided split (see
    Decisions → D1/D2):** ABI emits the **phase label + a regulation flag** (it
    owns NS3 / `isInRegulationWindow`), and NVE keeps the `PHASE_INTENSITY` map +
@@ -157,6 +163,26 @@ folds into its directive. Not required for first wiring.
 ---
 
 ## 2. Exact wiring point in `index_v8` (+ dual-file rule)
+
+**Wiring task scope (D4 — built WHOLE, directive-complete).** This is **one**
+change, spanning backend + frontend, with **no interim stage**:
+1. **ABI phase-notification leg** — new `POST /api/abi/session/phase` in
+   `src/routes/abiRoutes.js`, fired on **every** `advancePhase()` in `index_v8`,
+   plus ABI-side transition handling in `src/abi/sessionOrchestrator.js` (§1.2.1 /
+   §5 Q1). This is what lets **all** phases — including the LOW text-heavy ones —
+   route through ABI from day one.
+2. **ABI emits `nve_directive`** on the `events[]` stream (§1.2.3).
+3. **Same-window `AbiService`→NVE bridge inside `index_v8`** — origin-checked
+   `postMessage`. Per the §5 Q5 finding, `AbiService` and NVE share the **iframe
+   document**, so the bridge is **same-window** (not cross-frame from the PWA
+   parent).
+4. **NVE acts on the directive** with the Q2 source-latch fallback (§5 Q2) — the
+   SSM-phase ease is fallback-only, never primary (D4).
+5. **Wire NVE into the dual-file pair**, byte-identical.
+
+Constants stay **NVE-local (D1)**; floor **client-side + `regulation_ok` flag
+(D2)**. The per-file `index_v8` steps below detail items 3–5 (frontend); items
+1–2 are the backend legs.
 
 All edits below land **identically in both** `public/index_v8.html` **and**
 `public/index_v8_production.html`; verify byte-identical after (`cmp -s` / equal
@@ -239,14 +265,35 @@ is client-side.
 **D3 — Engine on main (was §0 / Q9): RESOLVED.** C2 engine merged via PR #7
 (merge commit `2575138`). See §0.
 
+**D4 — Wiring is built WHOLE, not staged (Option A): DECIDED.** The Q1
+phase-notification leg (§1.2.1 / §5 Q1) ships **as part of** the wiring task, so
+**all** phases — including the text-heavy LOW phases (`arrival`/`opening`/
+`resistance`/`close`) — route through ABI **from day one**. There is **no interim
+stage** where LOW phases run on the browser SSM path. Rationale:
+directive-complete (no partial bypass, even temporarily), and on-device tuning
+happens against the **real ABI-driven path**, not a to-be-replaced fallback. The
+SSM-phase → `PHASE_INTENSITY` ease remains **only** as the offline/latency
+fallback (per the Q2 source-latch guard), never as the primary path for any
+phase.
+
 ---
 
 ## 5. Open questions / risks
 
-1. **Does ABI already receive every phase transition, or only breathing?**
-   Determines whether the input leg (§1.2.1) is a small notification add or a
-   broader lifecycle change. Confirm against `sessionOrchestrator.js` set-points
-   for `sessionPhase` and which `/api/abi/session/*` calls report phase.
+1. **Does ABI receive every phase transition? — INVESTIGATED: No.** ABI is told
+   about only a **subset**: session start, the arrival→breathing transition
+   (`onArrivalComplete`), the breathing **tick stream**, and session complete.
+   `sessionOrchestrator.js` sets `sessionPhase` only at those points
+   (`init`/`pre_session`/`arrival`/`breathing`/`somatic`/`close`/`done`) and
+   **no `/api/abi/session/*` endpoint accepts a `phase` parameter** — ABI infers
+   phase from which endpoint fired. The text-heavy **LOW-intensity phases
+   (`arrival`/`opening`/`resistance`/`close`)** — exactly the ones the intensity
+   feature must drive to LOW — are **browser-internal with no backend
+   notification**, as are `descent`/`before_the_breath`/`shift`/`mirror`/`vault`.
+   **Therefore the input leg (§1.2.1) is a broad lifecycle change**, not a small
+   add: a new `POST /api/abi/session/phase` fired on every `advancePhase()`
+   (~8–11 calls/session) plus ABI-side transition handling. This is built as part
+   of the wiring task (see Decisions → D4); not an open question.
 2. **Latency / offline fallback.** The ABI round-trip adds latency vs. the
    instant browser bus. Define a threshold: if no `nve_directive` arrives within
    ~N ms of a phase change (or the device is offline), NVE falls back to the
