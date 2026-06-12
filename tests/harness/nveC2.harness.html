@@ -374,11 +374,14 @@ function runAcceptance() {
           check('B2 biofeedback floor holds', minOp > 0 && floorOp >= minOp,
             'layerOpacity@intensity0=' + floorOp.toFixed(2) + ' floor=' + minOp.toFixed(2));
 
-          // ── B3 — phase→intensity, eased not stepped (Mock SSM onPhaseChange = the ABI path) ──
+          // ── B3 — phase→intensity, eased not stepped (SSM leg = D5 FALLBACK path; no ABI in
+          // the harness, so the 250ms source latch times out and the local map drives).
+          // Timing: fallback arms at 250ms + 700ms ease → settled ~950ms; mid-sample inside
+          // the 250–950ms ease window.
           NVE.reset(0);
           SSM.emit('onPhaseChange', 'arrival');                      // text-heavy → LOW
           setTimeout(function() {
-            var iLow = NVE.nveField.intensity();
+            var iLow = NVE.nveField.intensity();                     // settled at 0.25 (fallback)
             SSM.emit('onPhaseChange', 'before_the_breath');          // gap/breath → HIGH
             setTimeout(function() {
               var iMid = NVE.nveField.intensity();                   // mid-ease
@@ -388,11 +391,68 @@ function runAcceptance() {
                   iHigh > iLow + 0.3 && iMid > iLow && iMid < iHigh,
                   'arrival=' + iLow.toFixed(2) + ' mid=' + iMid.toFixed(2) +
                   ' before_the_breath=' + iHigh.toFixed(2));
-                var passed = results.filter(function(r) { return r.ok; }).length;
-                log('ACCEPTANCE: ' + passed + '/' + results.length + ' passed', passed === results.length ? 'pass' : 'fail');
+
+                // ── D5 — ABI directive + per-phase source latch (prod wiring) ──
+                // window.postMessage delivery is async in browsers — every post is
+                // followed by a short wait before asserting.
+                NVE.reset(0);
+                SSM.emit('onPhaseChange', 'arrival');
+                var d5aPending = NVE.getState().intensitySource === 'pending';
+                setTimeout(function() {
+                  check('D5a no directive → fallback at 250ms (pending→ssm-fallback)',
+                    d5aPending && NVE.getState().intensitySource === 'ssm-fallback',
+                    'pending=' + d5aPending + ' source=' + NVE.getState().intensitySource);
+
+                  SSM.emit('onPhaseChange', 'opening');
+                  window.postMessage({ type: 'NVE_DIRECTIVE',
+                    payload: { kind: 'phase_intensity', phase: 'opening', ease_ms: 700, regulation_ok: true } }, '*');
+                  setTimeout(function() {
+                    check('D5b directive before timer wins (source=abi)',
+                      NVE.getState().intensitySource === 'abi',
+                      'source=' + NVE.getState().intensitySource);
+                    setTimeout(function() {
+                      check('D5b fallback timer cancelled (source stays abi past 250ms)',
+                        NVE.getState().intensitySource === 'abi',
+                        'source=' + NVE.getState().intensitySource);
+
+                      SSM.emit('onPhaseChange', 'resistance');
+                      setTimeout(function() {
+                        var fellBack = NVE.getState().intensitySource === 'ssm-fallback';
+                        window.postMessage({ type: 'NVE_DIRECTIVE',
+                          payload: { kind: 'phase_intensity', phase: 'resistance', ease_ms: 700, regulation_ok: false } }, '*');
+                        setTimeout(function() {
+                          check('D5c late directive overrides fallback (abi authoritative)',
+                            fellBack && NVE.getState().intensitySource === 'abi' && NVE.getState().regulationOk === false,
+                            'fellBack=' + fellBack + ' source=' + NVE.getState().intensitySource +
+                            ' regOk=' + NVE.getState().regulationOk);
+
+                          SSM.emit('onPhaseChange', 'close');
+                          window.postMessage({ type: 'NVE_DIRECTIVE',
+                            payload: { kind: 'phase_intensity', phase: 'resistance', ease_ms: 700, regulation_ok: true } }, '*');
+                          setTimeout(function() {
+                            check('D5d stale-phase directive ignored (latch holds current phase)',
+                              NVE.getState().intensitySource === 'pending' && NVE.getState().latchPhase === 'close',
+                              'source=' + NVE.getState().intensitySource + ' latch=' + NVE.getState().latchPhase);
+
+                            SSM.emit('onPhaseChange', 'before_the_breath');
+                            window.postMessage({ type: 'NVE_DIRECTIVE',
+                              payload: { kind: 'phase_intensity', phase: 'before_the_breath', ease_ms: 700, regulation_ok: true } }, '*');
+                            setTimeout(function() {
+                              check('D1 directive maps phase→intensity from LOCAL map (target 0.85)',
+                                NVE.getState().intensitySource === 'abi' && NVE.nveField.intensityTarget() === 0.85,
+                                'target=' + NVE.nveField.intensityTarget());
+                              var passed = results.filter(function(r) { return r.ok; }).length;
+                              log('ACCEPTANCE: ' + passed + '/' + results.length + ' passed', passed === results.length ? 'pass' : 'fail');
+                            }, 100);
+                          }, 100);
+                        }, 100);
+                      }, 320);
+                    }, 320);
+                  }, 100);
+                }, 320);
               }, 700);
-            }, 200);
-          }, 800);
+            }, 600);
+          }, 1100);
         }, 1400);
       }, 1600);
     }, 700);

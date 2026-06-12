@@ -460,6 +460,11 @@
   </div>
 </div>
 
+<!-- Module 9 — Narrative Visuals Engine (NVE). External locked module, served via the
+     /modules static mount. Loaded BEFORE the main inline build so NarrativeVisualsEngine
+     exists when the init sequence wires it. -->
+<script src="modules/narrativeVisualsEngine.js"></script>
+
 <script>
 'use strict';
 
@@ -2746,6 +2751,11 @@ var Integration = (function() {
   AbiService.prototype.arrivalComplete=async function(bio){if(!this.sessionKey)throw new Error('No session');return this._req('POST','/api/abi/session/arrival-complete',{session_key:this.sessionKey,biometrics:bio});};
   AbiService.prototype.tick=async function(bio){if(!this.sessionKey)throw new Error('No session');return this._req('POST','/api/abi/session/tick',{session_key:this.sessionKey,biometrics:bio});};
   AbiService.prototype.pause=async function(){if(!this.sessionKey)throw new Error('No session');return this._req('POST','/api/abi/session/pause',{session_key:this.sessionKey});};
+  // NVE prod wiring — phase notification leg. keyOverride lets post-completion phases
+  // (close/mirror/vault/ascent/surface) keep posting after completeSession() nulls
+  // this.sessionKey; the server holds the orchestrator under a grace TTL for them.
+  // The response's events[] (incl. nve_directive) auto-dispatches via _req.
+  AbiService.prototype.phase=async function(phase,keyOverride){var key=keyOverride||this.sessionKey;if(!key)throw new Error('No session');return this._req('POST','/api/abi/session/phase',{session_key:key,phase:phase});};
   AbiService.prototype.resume=async function(){if(!this.sessionKey)throw new Error('No session');return this._req('POST','/api/abi/session/resume',{session_key:this.sessionKey});};
   AbiService.prototype.exit=async function(){if(!this.sessionKey)throw new Error('No session');var r=await this._req('POST','/api/abi/session/exit',{session_key:this.sessionKey});this.sessionKey=null;return r;};
   AbiService.prototype.completeSession=async function(metrics){if(!this.sessionKey)throw new Error('No session');var r=await this._req('POST','/api/abi/session/complete',{session_key:this.sessionKey,metrics:metrics||{}});this.sessionKey=null;return r;};
@@ -2769,6 +2779,10 @@ var Integration = (function() {
   var _activeSessionNumber=0,_activeSessionData=null,_abiSessionActive=false,_abiCoherencePeak=0;
   var _abiMirror=null,_abiAffirmation=null,_abiAdvancement=null,_abiBreathArt=null,_abiModeConfig=null,_tickInterval=null,_lastKnownCoherence=0.25;
   var _abiTickQueue=[],_abiTickQueueMaxSize=60;
+  // NVE prod wiring — phase-notification state. _phaseSessionKey survives completeSession()
+  // nulling _abi.sessionKey (post-shift phases still notify); _pendingPhaseNotifies buffers
+  // transitions that fire before /session/start resolves (the 'arrival' notification).
+  var _phaseSessionKey=null,_pendingPhaseNotifies=[];
 
   function initIntegrations(apiBase){
     _apiBase=(apiBase||window.location.origin||'https://hearty-optimism-production-2eb6.up.railway.app').replace(/\/$/,'');
@@ -2803,6 +2817,7 @@ var Integration = (function() {
     _abiSessionActive=true;_abiCoherencePeak=0;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;_abiBreathArt=null;_lastKnownCoherence=0.25;
     if(_stateMachine)_stateMachine.setAbiSessionActive(true,_abi.sessionKey);
     console.log('[ABI] Session registered:',sid,'| sessionKey:',_abi.sessionKey);
+    _phaseSessionKey=_abi.sessionKey;_abiFlushPhaseNotifies();
     return true;
   }
   async function _abiStartSessionWithRetry(sessionNumber,sessionData){
@@ -2814,6 +2829,18 @@ var Integration = (function() {
     }
     console.error('[ABI] All',MAX_ATTEMPTS,'attempts failed. Last error:',lastError?(lastError.message||lastError):'unknown');
     throw lastError||new Error('ABI session start failed after '+MAX_ATTEMPTS+' attempts');
+  }
+  // NVE prod wiring — fire-and-forget phase notification on EVERY SSM phase change
+  // (~11-12/session), so ABI holds the authoritative phase for ALL phases including the
+  // LOW text-heavy ones (arrival/opening/resistance/close). Never blocks the session
+  // clock; on failure the NVE D5 source latch falls back to its local map after 250ms.
+  function _abiNotifyPhase(phase){
+    if(!_abi||(!_phaseSessionKey&&!_abi.sessionKey)){_pendingPhaseNotifies.push(phase);return;}
+    _abi.phase(phase,_phaseSessionKey).catch(function(e){console.warn('[ABI] phase notify failed ('+phase+'):',e.message||e);});
+  }
+  function _abiFlushPhaseNotifies(){
+    var queued=_pendingPhaseNotifies;_pendingPhaseNotifies=[];
+    for(var i=0;i<queued.length;i++)_abiNotifyPhase(queued[i]);
   }
   async function _abiForwardArrivalSample(sample){
     if(!_abiSessionActive)return;
@@ -2840,7 +2867,7 @@ var Integration = (function() {
   function _abiStopTicks(){if(_tickInterval){clearInterval(_tickInterval);_tickInterval=null;}_abiTickQueue=[];}
   function _abiShowIntervention(coaching){_abiStopTicks();if(_stateMachine)_stateMachine.pauseSession();if(_sessionUI){_sessionUI.showCoachingIntervention(coaching,async function(choice){if(choice==='continue'){try{await _abi.resume();}catch(e){}if(_stateMachine)_stateMachine.resumeSession();_abiStartTicks();}else if(choice==='drill'){try{await _abi.selectDrill('five_senses');}catch(e){if(_stateMachine)_stateMachine.resumeSession();}}else if(choice==='exit'){try{await _abi.exit();}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);_notifyParentExit();}});}}
   async function _abiCompleteSession(){if(!_abiSessionActive)return;var userIdSnapshot=_userId;_abiStopTicks();if(_replay){console.log('[ASCEN] Replay mode — skipping /api/abi/session/complete (no persistence; avoids users.updated_at / Immune / AXIS writes). Mirror still renders via onMirrorReady.');_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);return;}var state=_stateMachine?_stateMachine.getSessionState():{};var metrics={coherence_peak:_abiCoherencePeak,coherence_end:_lastKnownCoherence,cycle_completion_rate:state.totalBreaths>0?Math.min(1,state.breathCount/state.totalBreaths):0.85,breath_count:state.breathCount||0,duration_seconds:state.durationSeconds||0};try{var r=await _abi.completeSession(metrics);_abiMirror=r.mirror||null;_abiAffirmation=r.affirmation||null;_abiAdvancement=r.advancement||null;_abiBreathArt=r.breath_art||null;_verifyOnChain(state.durationSeconds||0);if(_stateMachine&&_stateMachine.getCurrentPhase&&_stateMachine.getCurrentPhase()==='mirror'&&_sessionUI&&_sessionUI.renderMirror)_sessionUI.renderMirror();}catch(e){}_abiSessionActive=false;if(_stateMachine)_stateMachine.setAbiSessionActive(false);}
-  function _abiCleanup(){var userIdSnapshot=_userId;_abiStopTicks();_abiSessionActive=false;_abiCoherencePeak=0;_abiModeConfig=null;_lastKnownCoherence=0.25;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;_abiBreathArt=null;if(_abi)_abi.sessionKey=null;if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.teardown();if(_replay){if(typeof BioBridge!=='undefined')console.log('[ASCEN] Replay mode — H10/GATT preserved (destroyUser skipped)');}else if(userIdSnapshot&&typeof BioBridge!=='undefined')BioBridge.destroyUser(userIdSnapshot);}
+  function _abiCleanup(){var userIdSnapshot=_userId;_abiStopTicks();_abiSessionActive=false;_abiCoherencePeak=0;_abiModeConfig=null;_lastKnownCoherence=0.25;_abiMirror=null;_abiAffirmation=null;_abiAdvancement=null;_abiBreathArt=null;if(_abi)_abi.sessionKey=null;_phaseSessionKey=null;_pendingPhaseNotifies=[];if(typeof BiofeedbackSound!=='undefined')BiofeedbackSound.teardown();if(_replay){if(typeof BioBridge!=='undefined')console.log('[ASCEN] Replay mode — H10/GATT preserved (destroyUser skipped)');}else if(userIdSnapshot&&typeof BioBridge!=='undefined')BioBridge.destroyUser(userIdSnapshot);}
 
   async function postVaultEntry(data){var userIdSnapshot=_userId;try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/vault',{method:'POST',headers:headers,body:JSON.stringify({user_id:userIdSnapshot,session_number:data.session_number||_activeSessionNumber,vault_response:data.text||'',session_type:'individual'})});}catch(e){}}
   async function postProgress(metrics){if(_replay){console.log('[ASCEN] Replay mode — skipping /api/fr/progress write (pointer frozen, demo account untouched)');return;}var userIdSnapshot=_userId;try{var headers={'Content-Type':'application/json'};if(_abi&&_abi.token)headers['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)headers['x-api-key']=_abi.apiKey;await fetch(_apiBase+'/api/fr/progress',{method:'POST',headers:headers,body:JSON.stringify({user_id:userIdSnapshot,session_number:metrics.sessionNumber||_activeSessionNumber,completed:true,coherence_score:metrics.coherencePeak||(_abiCoherencePeak>0?_abiCoherencePeak:0.5),duration_seconds:metrics.durationSeconds||0,session_type:'individual'})});}catch(e){}}
@@ -2850,6 +2877,7 @@ var Integration = (function() {
   function connectToStateMachine(ssm){
     _stateMachine=ssm;
     ssm.on('onPhaseChange',function(phase){
+      _abiNotifyPhase(phase); // NVE prod wiring — EVERY phase routes through ABI (runs before the 'surface' cleanup below)
       if(phase==='arrival'){
         var state=ssm.getSessionState();_activeSessionNumber=state.sessionNumber;_activeSessionData=state.sessionData;
         _abiStartSessionWithRetry(state.sessionNumber,state.sessionData).then(function(success){if(success)console.log('[SSM] ABI registration confirmed — session proceeding');}).catch(function(err){
@@ -3222,6 +3250,15 @@ var BiofeedbackSound = (function() {
 
   // === WIRE MODULES TOGETHER ===
 
+  // ABI → NVE directive bridge (NVE prod wiring §2.3 — THE orchestrated leg).
+  // AbiService and NVE share this document (iframe-embedded per spec Q5), so the
+  // bridge is SAME-WINDOW: directives drained from any ABI response's events[]
+  // are forwarded to NVE's postMessage listener, origin-pinned. The SSM path in
+  // NVE is the 250ms-latch fallback only — never primary for any phase.
+  Integration.getAbi().on('nve_directive', function(data) {
+    window.postMessage({ type: 'NVE_DIRECTIVE', payload: data }, window.location.origin);
+  });
+
   // State Machine → Depth Engine
   SSM.on('onDescentProgress', function(p) {
     DepthEngine.setOceanBgDepthBlend(p);
@@ -3246,6 +3283,17 @@ var BiofeedbackSound = (function() {
 
   // State Machine → Integration Layer
   Integration.connectToStateMachine(SSM);
+
+  // Module 9 — Narrative Visuals Engine (NVE prod wiring §2.2). init() first
+  // (creates #nveCanvas z5 / #nveBgOverlay z2 inside #immersiveView — above
+  // depthCanvas z0 / ocean-bg z1, below Luno z10 / dialogue z20). The SSM
+  // connect is for onBreathPhase/onSessionStart/onSessionReset + the D5
+  // fallback latch only; phase intensity is ABI-driven via the bridge above.
+  // Two-layer lock: NVE never touches water clarity/light/turbulence.
+  NarrativeVisualsEngine.init();
+  NarrativeVisualsEngine.connectToDepthEngine(DepthEngine);
+  NarrativeVisualsEngine.connectToBiometricBridge(BioBridge);
+  NarrativeVisualsEngine.connectToStateMachine(SSM);
 
   // Biometric Bridge → Session UI
   SessionUI.connectToBiometricBridge(BioBridge);

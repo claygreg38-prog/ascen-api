@@ -31,6 +31,9 @@ app.use('/assets/crowns', express.static(path.join(__dirname, 'src/assets/crowns
 // ── TTS AUDIO — cached ElevenLabs audio files ───────────────
 app.use('/audio/tts', express.static(path.join(__dirname, 'public/audio/tts')));
 
+// ── FRONTEND MODULES — NVE et al., loaded by /breathe ───────
+app.use('/modules', express.static(path.join(__dirname, 'public/modules')));
+
 // ── V8 IMMERSIVE FRONTEND — canonical participant experience ─
 app.get('/breathe', (req, res) => {
   res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
