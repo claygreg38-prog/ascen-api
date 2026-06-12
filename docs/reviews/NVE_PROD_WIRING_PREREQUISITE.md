@@ -276,6 +276,23 @@ SSM-phase → `PHASE_INTENSITY` ease remains **only** as the offline/latency
 fallback (per the Q2 source-latch guard), never as the primary path for any
 phase.
 
+**D5 — Latency / offline fallback (was Q2): DECIDED.** Threshold **`N = 250 ms`**
+(well inside the 700 ms ease; the same-window bridge per Q5 means no extra network
+hop, so 250 ms is a safety margin against a stalled/absent ABI, not a tight race).
+Double-drive guard = **per-phase source latch:**
+1. On SSM `onPhaseChange(phase)`: record `phase`, set `source = 'pending'`, start
+   an `N`-ms fallback timer; do **not** ease from the local map yet.
+2. ABI `nve_directive` for that phase arrives **before** the timer → cancel the
+   timer, `source = 'abi'`, ease to ABI intent. **ABI wins.**
+3. Timer fires first (no directive / offline) → `source = 'ssm-fallback'`, ease via
+   local `PHASE_INTENSITY[phase]`.
+4. A directive arriving **after** a fallback already eased still **overrides**
+   (re-ease to ABI intent, `source = 'abi'`). ABI is always authoritative when
+   present.
+5. Mutual exclusion is structural: `_easeIntensityTo` cancels any in-flight tween
+   before starting a new one, and the fallback ease is gated behind the latch — at
+   most one path drives per phase change.
+
 ---
 
 ## 5. Open questions / risks
@@ -294,11 +311,8 @@ phase.
    add: a new `POST /api/abi/session/phase` fired on every `advancePhase()`
    (~8–11 calls/session) plus ABI-side transition handling. This is built as part
    of the wiring task (see Decisions → D4); not an open question.
-2. **Latency / offline fallback.** The ABI round-trip adds latency vs. the
-   instant browser bus. Define a threshold: if no `nve_directive` arrives within
-   ~N ms of a phase change (or the device is offline), NVE falls back to the
-   local SSM-phase → `PHASE_INTENSITY` ease. The 700 ms ease masks normal
-   latency; specify N and ensure the fallback can't double-drive intensity.
+2. **Latency / offline fallback — DECIDED (N = 250 ms; per-phase source latch).**
+   See Decisions → D5.
 3. **Constant ownership — DECIDED (NVE-local).** See Decisions → D1.
 4. **Biofeedback-floor authority — DECIDED (floor client-side; ABI passes
    `regulation_ok` only).** See Decisions → D2.
