@@ -17,13 +17,14 @@ session UI (`index_v8`). Wiring itself is a separate, reviewed change.
 
 ---
 
-## 0. Prerequisite-of-the-prerequisite (blocker)
+## 0. Prerequisite-of-the-prerequisite — RESOLVED
 
-This spec assumes the NVE C2 engine + intensity/floor layer has landed on
-`main`. **As of writing it has NOT** — `origin/main` is at `d998054` and none of
-the four C2 commits (`0642ba9` engine, `032a806` harness, `47d1adc` step-3a,
-`b216b1c` intensity/floor) are ancestors of `main`. The wiring follow-up cannot
-begin until that engine line is merged. Resolve the merge first.
+The NVE C2 engine + intensity/floor layer is **merged to `main`** — via PR #7,
+merge commit `2575138` (parents `[d998054, b216b1c]`); all four C2 commits
+(`0642ba9` engine, `032a806` harness, `47d1adc` step-3a, `b216b1c`
+intensity/floor) are now ancestors of `main` and deployed (dormant — not yet
+wired into `index_v8`) to production. The earlier "wiring blocked on merge"
+condition no longer applies.
 
 ---
 
@@ -108,12 +109,13 @@ This reuses **two existing mechanisms** rather than inventing transport:
    points; add an explicit lightweight notification (new
    `POST /api/abi/session/phase {session_key, phase}` **or** piggyback the phase
    onto the existing lifecycle calls) so ABI has the authoritative phase as input.
-2. **Decision** — ABI resolves the presence directive. Recommended split:
-   ABI emits the **phase label + a regulation flag** (it owns NS3 /
-   `isInRegulationWindow`), and NVE keeps the `PHASE_INTENSITY` map + the
-   `BIOFEEDBACK_MIN_OPACITY` floor **locally** as the single tunable translation
-   table. This keeps the presentation constants in one on-device-tunable place
-   (the module) while ABI remains the *authority that decides when/what fires*
+2. **Decision** — ABI resolves the presence directive. **Decided split (see
+   Decisions → D1/D2):** ABI emits the **phase label + a regulation flag** (it
+   owns NS3 / `isInRegulationWindow`), and NVE keeps the `PHASE_INTENSITY` map +
+   the `BIOFEEDBACK_MIN_OPACITY` floor **locally** as the single tunable
+   translation table. This keeps the presentation constants in one
+   on-device-tunable place (the module) while ABI remains the *authority that
+   decides when/what fires*
    and supplies the biometric gate. (Alternative: ABI emits the resolved numeric
    `intensity_target` and the map moves server-side — see §5 Q3.)
 3. **Output leg** — new event type, e.g.:
@@ -217,6 +219,28 @@ After wiring is merged and verified, tune on the **real** `index_v8` session —
 
 ---
 
+## Decisions (settled)
+
+These were open questions; they are now **decided** and are NOT pending.
+
+**D1 — Constant ownership (was Q3): DECIDED — NVE-local.** The `PHASE_INTENSITY`
+map and `BIOFEEDBACK_MIN_OPACITY` stay in `narrativeVisualsEngine.js`, on-device
+tunable with **no backend redeploy** to tune. ABI emits a phase/intensity
+*intent* (the `nve_directive`, §1.2.3); **NVE owns the constants** and performs
+the translation/ease locally. The map is the single source of truth.
+
+**D2 — Biofeedback-floor / NS3-gate authority (was Q4): DECIDED — floor stays
+client-side.** `BIOFEEDBACK_MIN_OPACITY` and the floor clamp remain entirely in
+NVE. ABI supplies a `regulation_ok` flag only (from NS3 / `isInRegulationWindow`);
+it does **not** drive, own, or raise the floor, and **no clinical gate logic
+relocates to ABI**. NVE may use `regulation_ok` as an input, but floor authority
+is client-side.
+
+**D3 — Engine on main (was §0 / Q9): RESOLVED.** C2 engine merged via PR #7
+(merge commit `2575138`). See §0.
+
+---
+
 ## 5. Open questions / risks
 
 1. **Does ABI already receive every phase transition, or only breathing?**
@@ -228,13 +252,9 @@ After wiring is merged and verified, tune on the **real** `index_v8` session —
    ~N ms of a phase change (or the device is offline), NVE falls back to the
    local SSM-phase → `PHASE_INTENSITY` ease. The 700 ms ease masks normal
    latency; specify N and ensure the fallback can't double-drive intensity.
-3. **Constant ownership.** Map + floor in NVE (on-device tunable, no backend
-   redeploy, single source — recommended) vs. resolved server-side in ABI (fully
-   orchestrated, but tuning needs a deploy). Decide before wiring.
-4. **Biofeedback-floor authority.** ABI owns NS3 / `isInRegulationWindow` (already
-   gates `trigger_flash`/`gap_reveal` in NVE). Decide whether ABI should also
-   drive/raise the floor and centralize the NS3 gate, or the floor stays purely
-   client-side.
+3. **Constant ownership — DECIDED (NVE-local).** See Decisions → D1.
+4. **Biofeedback-floor authority — DECIDED (floor client-side; ABI passes
+   `regulation_ok` only).** See Decisions → D2.
 5. **postMessage origin / embedding.** NVE currently listens with `'*'`. Specify
    an origin check (`window.location.origin`) and **confirm whether `index_v8`
    runs standalone or inside an iframe** — that determines whether directives
@@ -249,8 +269,8 @@ After wiring is merged and verified, tune on the **real** `index_v8` session —
    `index_v8` edits = dual-file rule + production review discipline
    (cf. `docs/reviews/` Manus Phase 1/2/3 precedent). Wiring ships as its own
    reviewed change, separate from this spec.
-9. **Engine not yet on main (§0).** Wiring cannot start until the C2 engine line
-   is merged.
+9. **Engine on main — RESOLVED.** C2 engine merged via PR #7 (merge commit
+   `2575138`); see §0 / Decisions → D3.
 
 ---
 
