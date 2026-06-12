@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  NVE C2 Isolation Harness — Step 1 of the C2 build (file:// pattern).
+  ─────────────────────────────────────────────────────────────────────
+  Loads the REAL NVE module with MOCKS for SSM / BioBridge / DepthEngine so
+  C2 steps 2-5 validate here before production is touched. Open directly via
+  file:// — no server, no flags.
+
+  Mock DepthEngine carries a COPY of the freeze/unfreeze/getParticleSnapshot/
+  restoreParticleSnapshot hooks (Manus integrated-HTML pattern, see
+  docs/reviews/NVE_STEP3_REFACTOR_PLAN.md item 1) so gap_reveal can be
+  exercised without touching the production inlined DepthEngine.
+
+  DUAL-FILE PARITY DOES NOT APPLY — dev-only third surface, never deployed.
+  Reuses the scene-DOM CSS subset from the May feat/nve-isolation-harness
+  branch (elements NVE queries) with a fresh file://-safe mock loader.
+-->
+<head>
+<meta charset="UTF-8">
+<title>NVE C2 Harness — own-particle-layer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%201%201%22%2F%3E" />
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#000; font-family:-apple-system,system-ui,sans-serif; color:#fff; overflow:hidden; }
+  .banner { position:fixed; top:0; left:0; right:0; z-index:9999; background:#2a0808; color:#ffb4b4;
+    border-bottom:3px solid #ff3030; padding:6px 16px; font:700 12px monospace; letter-spacing:1.5px;
+    text-align:center; pointer-events:none; }
+  /* ── Scene (elements NVE queries) — subset lifted from production ── */
+  #immersiveView { position:absolute; inset:0; overflow:hidden; }
+  #depthCanvas { position:absolute; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; }
+  .ocean-bg { position:absolute; inset:0; opacity:1; z-index:1; background:linear-gradient(180deg,#0a1828,#050a14); }
+  .aurora-container { position:absolute; top:0; left:0; width:100%; height:55%; z-index:2; overflow:hidden; opacity:0.4; }
+  .aurora-band { position:absolute; width:250%; height:40%; left:-75%; filter:blur(50px);
+    background:radial-gradient(ellipse 55% 100% at 25% 50%, rgba(100,160,220,0.25) 0%, transparent 70%);
+    animation:aDrift 20s ease-in-out infinite alternate; }
+  @keyframes aDrift { 0%{transform:translateX(-8%)} 100%{transform:translateX(8%)} }
+  .waves { position:absolute; inset:0; z-index:3; }
+  .wave { position:absolute; left:-40px; right:-40px; height:3px; border-radius:2px; opacity:0.08;
+    background:#6aa0c8; animation:waveDrift var(--speed) ease-in-out infinite alternate; }
+  @keyframes waveDrift { from{transform:translateX(-30px)} to{transform:translateX(30px)} }
+  .plankton-layer { position:absolute; inset:0; z-index:4; }
+  .particle { position:absolute; border-radius:50%;
+    animation:drift var(--speed) ease-in-out infinite alternate, pulse var(--pulse) ease-in-out infinite; transition:all 2s; }
+  @keyframes drift { 0%{transform:translate(0,0)} 33%{transform:translate(var(--dx),var(--dy))}
+    66%{transform:translate(calc(var(--dx)*-0.5),calc(var(--dy)*0.7))} 100%{transform:translate(calc(var(--dx)*-1),calc(var(--dy)*-0.3))} }
+  @keyframes pulse { 0%,100%{opacity:var(--min-op)} 50%{opacity:var(--max-op)} }
+  /* NVE-queried extras: luno, coherence rings, dialogue */
+  .luno-container { position:absolute; bottom:8%; left:50%; transform:translateX(-50%); z-index:10; width:160px; height:160px; opacity:1; }
+  .luno { position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+    animation:lunoDrift 8s ease-in-out infinite alternate; }
+  @keyframes lunoDrift { 0%{transform:translateX(-5px)} 100%{transform:translateX(5px)} }
+  .luno-core { position:absolute; inset:36%; border-radius:50%; background:radial-gradient(circle,rgba(225,235,250,0.55),transparent 72%); }
+  .luno-center { position:absolute; left:50%; top:50%; width:22px; height:22px; margin:-11px 0 0 -11px; border-radius:50%;
+    background:#fff; box-shadow:0 0 24px rgba(255,255,255,0.7); }
+  .coh-rings { position:absolute; top:42%; left:50%; transform:translate(-50%,-50%) scale(2.2); width:100px; height:100px; z-index:15; }
+  .coh-ring { position:absolute; inset:0; border-radius:50%; border:1.5px solid rgba(120,170,210,0.25);
+    animation:ringDrift 4s ease-in-out infinite alternate; }
+  @keyframes ringDrift { 0%{transform:translate(0,0)} 100%{transform:translate(3px,2px)} }
+  .dialogue { position:absolute; top:10%; left:50%; transform:translateX(-50%); max-width:560px; text-align:center; z-index:20; }
+  .dialogue-text { font-size:15px; font-weight:300; color:rgba(200,220,240,0.6); font-style:italic; }
+  /* ── Controls ── */
+  #panel { position:fixed; top:30px; right:0; bottom:0; width:420px; background:rgba(8,12,20,0.95);
+    border-left:1px solid rgba(140,200,240,0.25); z-index:9100; overflow-y:auto; padding:12px; font-size:12px; }
+  #panel h3 { color:#8fdfff; font:700 11px monospace; letter-spacing:1px; margin:12px 0 6px; }
+  #panel button { background:#15293d; color:#cfe7fa; border:1px solid #2c4a66; border-radius:4px;
+    padding:4px 7px; margin:2px; font-size:11px; cursor:pointer; }
+  #panel button:hover { background:#1e3a55; }
+  #panel button.acc { background:#143d2a; border-color:#2c6648; }
+  #statePanel { background:#0a1420; border:1px solid #20374d; border-radius:4px; padding:8px;
+    font:11px/1.5 Consolas,monospace; color:#9fd8a8; white-space:pre-wrap; }
+  #log { position:fixed; bottom:0; left:0; right:420px; max-height:26vh; overflow-y:auto; background:rgba(0,0,0,0.78);
+    color:#8fdfff; font:11px/1.45 Consolas,monospace; padding:8px 14px; z-index:9000; white-space:pre-wrap;
+    border-top:1px solid rgba(140,200,240,0.18); }
+  .pass { color:#7dff9a; } .fail { color:#ff7d7d; }
+</style>
+</head>
+<body>
+<div class="banner">NVE C2 HARNESS — MOCK SSM / BIOBRIDGE / DEPTHENGINE — DEV ONLY, NOT A SESSION</div>
+
+<div id="immersiveView">
+  <canvas id="depthCanvas"></canvas>
+  <div class="ocean-bg" id="oceanBg"></div>
+  <div class="aurora-container" id="auroraCon"><div class="aurora-band"></div></div>
+  <div class="waves" id="waves"></div>
+  <div class="plankton-layer" id="plkLayer"></div>
+  <div class="luno-container" id="lunoCon"><div class="luno" id="luno"><div class="luno-core"></div><div class="luno-center"></div></div></div>
+  <div class="coh-rings"><div class="coh-ring coh-ring-heart"></div><div class="coh-ring coh-ring-breath"></div><div class="coh-ring coh-ring-nervous"></div></div>
+  <div class="dialogue" id="dialogue"><div class="dialogue-text">harness dialogue line — NVE text_* visuals act on this</div></div>
+</div>
+
+<div id="panel">
+  <h3>ACCEPTANCE</h3>
+  <button class="acc" onclick="runAcceptance()">▶ Run acceptance suite</button>
+  <div id="accOut" style="margin-top:6px;"></div>
+
+  <h3>FIELD (C2 step 2)</h3>
+  <button onclick="NVE.trigger('field_test',{duration_seconds:30})">field_test spawn</button>
+  <button onclick="NVE.nveField.dissolve(2000)">dissolve(2s)</button>
+  <button onclick="NVE.reset(1500)">NVE.reset(1.5s)</button>
+  <button onclick="setTier('full')">tier: full</button>
+  <button onclick="setTier('reduced')">tier: reduced</button>
+
+  <h3>GAP_REVEAL</h3>
+  <button onclick="NVE.trigger('gap_reveal',{duration_ms:6000,resume_duration_ms:3000})">gap_reveal 6s/3s</button>
+  <button onclick="NVE.trigger('gap_reveal',{duration_ms:2000,resume_duration_ms:1000})">gap_reveal 2s/1s</button>
+
+  <h3>MOCK SSM — PHASES</h3>
+  <div id="phaseBtns"></div>
+  <button onclick="SSM.emit('onSessionStart',{sessionNumber:1})">onSessionStart</button>
+  <button onclick="SSM.emit('onSessionReset')">onSessionReset</button>
+  <button onclick="toggleBreath()" id="breathBtn">▶ auto breath cycle</button>
+
+  <h3>MOCK BIOBRIDGE</h3>
+  HR <input type="range" min="45" max="120" value="68" id="hrSlider" style="width:90px"> <span id="hrVal">68</span>
+  &nbsp; Coh <input type="range" min="0" max="100" value="55" id="cohSlider" style="width:90px"> <span id="cohVal">0.55</span>
+  <br><label><input type="checkbox" id="regWin" checked> in regulation window (NS3 gate)</label>
+
+  <h3>ALL VISUAL TRIGGERS (S01–S10 vocabulary)</h3>
+  <div id="triggerGrid"></div>
+
+  <h3>LIVE STATE</h3>
+  <div id="statePanel">…</div>
+</div>
+<div id="log"></div>
+
+<script src="../../public/modules/narrativeVisualsEngine.js"></script>
+<script>
+'use strict';
+var NVE = window.NarrativeVisualsEngine;
+var logEl = document.getElementById('log');
+function log(m, cls) {
+  var d = document.createElement('div'); if (cls) d.className = cls;
+  d.textContent = '[' + new Date().toISOString().substr(11, 8) + '] ' + m;
+  logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+}
+
+/* ── Mock ambient plankton (VisualDNA stand-in) — NVE must never restyle these under C2 ── */
+(function genMockAmbient() {
+  var c = document.getElementById('plkLayer');
+  for (var i = 0; i < 20; i++) {
+    var p = document.createElement('div');
+    p.className = 'particle';
+    var sz = 2 + Math.random() * 5;
+    p.dataset.b = sz; p.dataset.side = Math.random() < 0.5 ? 'luno' : 'luna';
+    p.style.cssText = 'left:' + Math.random() * 100 + '%;top:' + (20 + Math.random() * 65) +
+      '%;width:' + sz + 'px;height:' + sz + 'px;background:rgba(120,180,220,0.5);' +
+      'box-shadow:0 0 8px rgba(120,180,220,0.4);--speed:' + (3 + Math.random() * 5) + 's;--pulse:' +
+      (1.5 + Math.random() * 3) + 's;--dx:' + (Math.random() - 0.5) * 60 + 'px;--dy:' +
+      (Math.random() - 0.5) * 30 + 'px;--min-op:0.1;--max-op:0.4;';
+    c.appendChild(p);
+  }
+})();
+(function genMockWaves() {
+  var c = document.getElementById('waves');
+  for (var i = 0; i < 8; i++) {
+    var w = document.createElement('div'); w.className = 'wave';
+    w.style.top = (20 + (i / 8) * 60) + '%'; w.style.setProperty('--speed', (3 + Math.random() * 3) + 's');
+    c.appendChild(w);
+  }
+})();
+
+/* ── Mock SSM ── */
+var SSM = {
+  _h: {},
+  on: function(ev, cb) { (this._h[ev] = this._h[ev] || []).push(cb); },
+  emit: function(ev, data) { (this._h[ev] || []).forEach(function(cb) { try { cb(data); } catch (e) { log('SSM cb err: ' + e.message, 'fail'); } }); log('SSM → ' + ev + (data && data.phase ? '(' + data.phase + ')' : '')); },
+  getSessionState: function() { return { sessionNumber: 1, ratio: { inhale: 4, hold: 0, exhale: 6 } }; }
+};
+window.SSM = SSM;
+
+/* ── Mock BioBridge ── */
+var Bio = {
+  _h: {},
+  on: function(ev, cb) { (this._h[ev] = this._h[ev] || []).push(cb); },
+  getActiveSource: function() { return 'mock'; },   // not 'h10' → NVE uses pacer fallback path
+  getCurrentBiometrics: function() {
+    return { heart_rate: +document.getElementById('hrSlider').value,
+             coherence: +document.getElementById('cohSlider').value / 100 };
+  },
+  isInRegulationWindow: function() { return document.getElementById('regWin').checked; }
+};
+window.BioBridge = Bio;
+
+/* ── Mock DepthEngine — own canvas plankton + COPY of the four NVE hooks ── */
+var MockDepth = (function() {
+  var cv = document.getElementById('depthCanvas'), ctx = cv.getContext('2d');
+  var _depthParticles = [], _depthRAF = null, _frozen = false, calls = { freeze: 0, unfreeze: 0, snap: 0, restore: 0 };
+  function resize() { cv.width = cv.offsetWidth; cv.height = cv.offsetHeight; }
+  window.addEventListener('resize', resize); resize();
+  for (var i = 0; i < 40; i++) {
+    _depthParticles.push({ id: i, x: Math.random() * cv.width, y: cv.height * 0.3 + Math.random() * cv.height * 0.65,
+      vx: (Math.random() - 0.5) * 0.4, vy: (Math.random() - 0.5) * 0.2, ph: Math.random() * 6.28, ps: 0.01 + Math.random() * 0.02,
+      sz: 1.5 + Math.random() * 3, isLuno: Math.random() < 0.5, dp: 0.5 + Math.random() * 0.5 });
+  }
+  function _drawLoop() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    for (var i = 0; i < _depthParticles.length; i++) {
+      var p = _depthParticles[i];
+      p.ph += p.ps; p.x += p.vx + Math.sin(p.ph * 0.5) * 0.06; p.y += p.vy + Math.cos(p.ph * 0.3) * 0.03;
+      if (p.x < -15) p.x = cv.width + 15; if (p.x > cv.width + 15) p.x = -15;
+      if (p.y < 5) p.y = cv.height - 5; if (p.y > cv.height + 10) p.y = 10;
+      ctx.globalAlpha = 0.25 + Math.sin(p.ph) * 0.1;
+      ctx.fillStyle = p.isLuno ? 'rgb(110,180,225)' : 'rgb(225,170,140)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.sz, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    _depthRAF = requestAnimationFrame(_drawLoop);
+  }
+  _drawLoop();
+  /* COPY of the four hooks — Manus integrated-HTML:1513-1559 pattern (plan item 1) */
+  function freeze() { if (_frozen) return; _frozen = true; calls.freeze++;
+    if (_depthRAF) { cancelAnimationFrame(_depthRAF); _depthRAF = null; } log('MockDepth FROZEN'); }
+  function unfreeze() { if (!_frozen) return; _frozen = false; calls.unfreeze++;
+    if (!_depthRAF) _drawLoop(); log('MockDepth UNFROZEN'); }
+  function getParticleSnapshot() { calls.snap++;
+    return _depthParticles.map(function(p) { return { x: p.x, y: p.y, vx: p.vx, vy: p.vy, ph: p.ph, sz: p.sz, isLuno: p.isLuno, dp: p.dp, id: p.id }; }); }
+  function restoreParticleSnapshot(snapshot, easeDurationMs) {
+    if (!snapshot || !_depthParticles) return; calls.restore++;
+    var ease = easeDurationMs || 3000, steps = Math.round(ease / 16), step = 0;
+    (function easeStep() {
+      if (step >= steps) return;
+      step++; var t = step / steps, eased = t * t * t;
+      for (var i = 0; i < Math.min(snapshot.length, _depthParticles.length); i++) {
+        _depthParticles[i].x = snapshot[i].x + (_depthParticles[i].x - snapshot[i].x) * eased;
+        _depthParticles[i].y = snapshot[i].y + (_depthParticles[i].y - snapshot[i].y) * eased;
+        _depthParticles[i].vx = snapshot[i].vx * (1 - eased) + _depthParticles[i].vx * eased;
+        _depthParticles[i].vy = snapshot[i].vy * (1 - eased) + _depthParticles[i].vy * eased;
+      }
+      requestAnimationFrame(easeStep);
+    })();
+    log('MockDepth restore started, ease ' + ease + 'ms');
+  }
+  return { freeze: freeze, unfreeze: unfreeze, getParticleSnapshot: getParticleSnapshot,
+           restoreParticleSnapshot: restoreParticleSnapshot, isFrozen: function() { return _frozen; }, calls: calls };
+})();
+window.MockDepth = MockDepth;
+
+/* ── Wire NVE ── */
+NVE.init();
+NVE.connectToStateMachine(SSM);
+NVE.connectToBiometricBridge(Bio);
+NVE.connectToDepthEngine(MockDepth);
+log('NVE wired: init + SSM + BioBridge + MockDepth(hooks). Tier: ' + (NVE.getState().performanceTier));
+
+/* ── Phase + trigger UI ── */
+var PHASES = ['arrival','opening','resistance','before_the_breath','breathing','shift','close','vault'];
+var pb = document.getElementById('phaseBtns');
+PHASES.forEach(function(ph) {
+  var b = document.createElement('button'); b.textContent = ph;
+  b.onclick = function() { SSM.emit('onPhaseChange', ph); };
+  pb.appendChild(b);
+});
+var VISUALS = ['field_test','depth_pulse','breath_thread','environment_sync','environment_sync_begin','environment_settled',
+  'body_memory_glow','warmth_layer','gap_reveal','gap_persist','anchor_descend','storm_surface','anchor_deepen','anchor_set',
+  'weight_of_everything','five_signals','not_broken_reveal','foundation_build','arc_complete_horizon','blueprint_lines',
+  'blueprint_illuminate','blueprint_breathe','authorship_glow','ladder_emerge','ladder_climb','position_marker',
+  'body_memory_map','hrv_rhythm','hrv_expand','score_rewritten','tax_weight','tax_erosion','refund_begins',
+  'refund_accumulate','surplus_visible','trigger_flash','six_seconds_weight','gap_practice','gap_installed',
+  'anchor_set_bg','text_hidden','text_visible','text_fade_line'];
+var tg = document.getElementById('triggerGrid');
+VISUALS.forEach(function(v) {
+  var b = document.createElement('button'); b.textContent = v;
+  b.onclick = function() { NVE.trigger(v, { duration_seconds: 20 }); };
+  tg.appendChild(b);
+});
+
+/* ── Breath auto-driver ── */
+var breathTimer = null, breathCount = 0;
+function toggleBreath() {
+  var btn = document.getElementById('breathBtn');
+  if (breathTimer) { clearInterval(breathTimer); breathTimer = null; btn.textContent = '▶ auto breath cycle'; return; }
+  var phase = 'in';
+  breathTimer = setInterval(function() {
+    phase = phase === 'in' ? 'out' : 'in';
+    if (phase === 'in') breathCount++;
+    SSM.emit('onBreathPhase', { phase: phase === 'in' ? 'inhale' : 'exhale', breathCount: breathCount, totalBreaths: 60 });
+  }, 2500);
+  btn.textContent = '⏸ stop breath cycle';
+}
+function setTier(t) { NVE.nveField.setTierForTest(t); log('tier forced → ' + t + ' (budget ' + NVE.nveField.budget() + ')'); }
+
+/* ── Sliders ── */
+document.getElementById('hrSlider').oninput = function() { document.getElementById('hrVal').textContent = this.value; };
+document.getElementById('cohSlider').oninput = function() { document.getElementById('cohVal').textContent = (this.value / 100).toFixed(2); };
+
+/* ── Live state panel ── */
+setInterval(function() {
+  try {
+    var s = NVE.getState();
+    document.getElementById('statePanel').textContent =
+      'field.isRunning : ' + NVE.nveField.isRunning() +
+      '\nfield.count     : ' + NVE.nveField.count() +
+      '\nfield.budget    : ' + NVE.nveField.budget() +
+      '\nintensity       : ' + NVE.nveField.intensity().toFixed(2) + ' → ' + NVE.nveField.intensityTarget().toFixed(2) +
+      '\nlayerOpacity    : ' + NVE.nveField.layerOpacity().toFixed(2) + ' (bio-floor ' + NVE.nveField.biofeedbackMinOpacity().toFixed(2) + ')' +
+      '\ntier            : ' + s.performanceTier +
+      '\nphase           : ' + s.currentPhase +
+      '\nactiveVisuals   : ' + JSON.stringify(s.activeVisuals) +
+      '\nqueue           : ' + JSON.stringify(s.queue) +
+      '\nmockDepth.frozen: ' + MockDepth.isFrozen() +
+      '\nmockDepth.calls : ' + JSON.stringify(MockDepth.calls);
+  } catch (e) { /* panel must never break the harness */ }
+}, 250);
+
+/* ── Scripted acceptance suite ── */
+function runAcceptance() {
+  var out = document.getElementById('accOut'); out.innerHTML = '';
+  var results = [];
+  function check(name, ok, detail) {
+    results.push({ name: name, ok: ok });
+    var d = document.createElement('div');
+    d.className = ok ? 'pass' : 'fail';
+    d.textContent = (ok ? 'PASS ' : 'FAIL ') + name + (detail ? ' — ' + detail : '');
+    out.appendChild(d); log((ok ? 'PASS ' : 'FAIL ') + name + (detail ? ' — ' + detail : ''), ok ? 'pass' : 'fail');
+  }
+  NVE.reset(0);
+  setTimeout(function() {
+    // A2 — idle: RAF stopped, field empty
+    check('A2 idle-zero-cost', !NVE.nveField.isRunning() && NVE.nveField.count() === 0,
+      'isRunning=' + NVE.nveField.isRunning() + ' count=' + NVE.nveField.count());
+    // A1 — spawn/draw
+    NVE.trigger('field_test', { duration_seconds: 30 });
+    var c = NVE.nveField.count();
+    check('A1 spawn+RAF', NVE.nveField.isRunning() && c > 0 && c <= NVE.nveField.budget(),
+      'count=' + c + ' budget=' + NVE.nveField.budget());
+    // A5 — tier budgets
+    var fullBudget = (function() { NVE.nveField.setTierForTest('full'); return NVE.nveField.budget(); })();
+    NVE.nveField.setTierForTest('reduced');
+    NVE.trigger('field_test', { duration_seconds: 30 });
+    var rc = NVE.nveField.count();
+    check('A5 tier budgets', fullBudget >= 40 && fullBudget <= 48 && rc >= 16 && rc <= 20,
+      'full=' + fullBudget + ' reducedSpawn=' + rc);
+    NVE.nveField.setTierForTest('full');
+    NVE.trigger('field_test', { duration_seconds: 30 });
+    // A3 — gap_reveal against mock DepthEngine
+    var f0 = MockDepth.calls.freeze, u0 = MockDepth.calls.unfreeze, s0 = MockDepth.calls.snap, r0 = MockDepth.calls.restore;
+    NVE.trigger('gap_reveal', { duration_ms: 1500, resume_duration_ms: 800 });
+    setTimeout(function() {
+      var frozeOK = MockDepth.calls.freeze === f0 + 1 && MockDepth.calls.snap === s0 + 1 &&
+                    MockDepth.isFrozen() && !NVE.nveField.isRunning();
+      check('A3a gap_reveal freeze', frozeOK,
+        'depthFrozen=' + MockDepth.isFrozen() + ' fieldRAF=' + NVE.nveField.isRunning());
+      setTimeout(function() {
+        var resumeOK = MockDepth.calls.unfreeze === u0 + 1 && MockDepth.calls.restore === r0 + 1 &&
+                       !MockDepth.isFrozen() && NVE.nveField.isRunning();
+        check('A3b gap_reveal restore', resumeOK,
+          'unfreeze=' + (MockDepth.calls.unfreeze - u0) + ' restore=' + (MockDepth.calls.restore - r0) +
+          ' fieldRAF=' + NVE.nveField.isRunning());
+        // A1b — dissolve back to empty
+        NVE.nveField.dissolve(600);
+        setTimeout(function() {
+          check('A1b dissolve→empty+RAF-stop', NVE.nveField.count() === 0 && !NVE.nveField.isRunning(),
+            'count=' + NVE.nveField.count() + ' isRunning=' + NVE.nveField.isRunning());
+
+          // ── B1 — intensity scales OPACITY, not COUNT (ambient field, no biofeedback) ──
+          NVE.reset(0);
+          NVE.trigger('field_test', { duration_seconds: 30 });
+          var b1c0 = NVE.nveField.count();
+          NVE.nveField.setIntensityForTest(0.2);
+          var op02 = NVE.nveField.layerOpacity(), b1c1 = NVE.nveField.count();
+          NVE.nveField.setIntensityForTest(1.0);
+          var op10 = NVE.nveField.layerOpacity(), b1c2 = NVE.nveField.count();
+          check('B1 intensity scales opacity, not count',
+            b1c0 > 0 && b1c0 === b1c1 && b1c1 === b1c2 && op10 > op02 + 0.5,
+            'count=' + b1c0 + ' (stable=' + (b1c0 === b1c1 && b1c1 === b1c2) + ') op@0.2=' +
+            op02.toFixed(2) + ' op@1.0=' + op10.toFixed(2));
+
+          // ── B2 — biofeedback floor holds (field made biofeedback via environment_sync) ──
+          NVE.reset(0);
+          NVE.trigger('environment_sync', { duration_seconds: 30 }); // sets _nveBreathSyncField=true
+          NVE.nveField.setIntensityForTest(0);                       // ambient intensity floored to 0
+          var floorOp = NVE.nveField.layerOpacity(), minOp = NVE.nveField.biofeedbackMinOpacity();
+          check('B2 biofeedback floor holds', minOp > 0 && floorOp >= minOp,
+            'layerOpacity@intensity0=' + floorOp.toFixed(2) + ' floor=' + minOp.toFixed(2));
+
+          // ── B3 — phase→intensity, eased not stepped (Mock SSM onPhaseChange = the ABI path) ──
+          NVE.reset(0);
+          SSM.emit('onPhaseChange', 'arrival');                      // text-heavy → LOW
+          setTimeout(function() {
+            var iLow = NVE.nveField.intensity();
+            SSM.emit('onPhaseChange', 'before_the_breath');          // gap/breath → HIGH
+            setTimeout(function() {
+              var iMid = NVE.nveField.intensity();                   // mid-ease
+              setTimeout(function() {
+                var iHigh = NVE.nveField.intensity();                // settled at/near target
+                check('B3 phase→intensity eased, not stepped',
+                  iHigh > iLow + 0.3 && iMid > iLow && iMid < iHigh,
+                  'arrival=' + iLow.toFixed(2) + ' mid=' + iMid.toFixed(2) +
+                  ' before_the_breath=' + iHigh.toFixed(2));
+                var passed = results.filter(function(r) { return r.ok; }).length;
+                log('ACCEPTANCE: ' + passed + '/' + results.length + ' passed', passed === results.length ? 'pass' : 'fail');
+              }, 700);
+            }, 200);
+          }, 800);
+        }, 1400);
+      }, 1600);
+    }, 700);
+  }, 120);
+}
+log('Harness ready. file:// OK. Click "Run acceptance suite".');
+</script>
+</body>
+</html>

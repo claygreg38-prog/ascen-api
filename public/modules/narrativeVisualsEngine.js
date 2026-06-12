@@ -125,6 +125,78 @@ var NarrativeVisualsEngine = (function() {
   var _pacerPhase = 'exhale';
   var _pacerProgress = 0;
 
+  // ── NVE FIELD STATE (C2 step 2 — own narrative-particle canvas) ──
+  // Beat-scoped, empty by default. Never touches VisualDNA's DOM plankton
+  // layer or the water background; renders only on NVE's own #nveCanvas (z5).
+  // #nveBgOverlay (z2) is created here for item-4 use.
+  var NVE_FIELD_BUDGET = { full: 44, reduced: 18 };
+  var _nveCanvas = null;
+  var _nveCtx = null;
+  var _nveBgOverlay = null;
+  var _nveField = [];           // {x,y,vx,vy,sz,col,alpha,targetAlpha,ph,ps}
+  var _nveRAF = null;
+  var _nveFrameSkip = false;    // reduced tier draws every 2nd frame
+  var _nveFieldFrozen = false;
+  var _nveBreathSyncField = false;  // environment_sync drives the NVE field only (C2 step 3a)
+  var _nveLastMeanDist = 0;         // render-position probe (harness/debug only)
+
+  // ── INTENSITY MODEL (C2 — phase-gated presence) ──
+  // A single 0..1 scalar that scales PRESENCE — particle/layer opacity, bloom/glow strength,
+  // and motion amplitude — but NEVER spawn count or tier budgets (full=44/reduced=18 stay
+  // fixed). Default is driven by the SSM phase through the orchestrated onPhaseChange path
+  // (see _applyPhaseDefaults) — not a hardcoded constant and not read around the orchestrator.
+  var DEFAULT_INTENSITY = 0.5;
+  var _intensity = DEFAULT_INTENSITY;
+  var _intensityTarget = DEFAULT_INTENSITY;
+  var _intensityTween = null;
+  // THE single phase→intensity map. Text-heavy phases recede (backdrop); gap/breath phases
+  // come forward (unmistakable). Starting placeholders — tuned on-device (PGC-CRC lighting).
+  var PHASE_INTENSITY = {
+    arrival: 0.25, opening: 0.25, resistance: 0.25, close: 0.30,   // text-heavy → LOW (recede)
+    before_the_breath: 0.85, breathing: 0.90, shift: 0.80,         // gap/breath → HIGH (forward)
+    gap_reveal: 1.0                                                 // signature moment → unmistakable
+  };
+  // BIOFEEDBACK LEGIBILITY FLOOR (C2 — BUILD 2): any layer DRIVEN by coherence/HR cannot drop
+  // below this while active, independent of ambient intensity. Ambient layers may sit below
+  // it; biofeedback layers clamp to it as a lower bound. Tunable on-device (placeholder).
+  var BIOFEEDBACK_MIN_OPACITY = 0.35;
+
+  // Ease intensity toward a target over ~600–800ms (default 700) — no hard cuts. Uses a
+  // setInterval tween (independent of the field RAF, so it still advances while the field is
+  // frozen for gap_reveal) and nudges the field RAF each step so presence repaints smoothly.
+  function _easeIntensityTo(target, ms) {
+    target = Math.max(0, Math.min(1, target));
+    ms = (ms == null) ? 700 : ms;
+    _intensityTarget = target;
+    if (_intensityTween) { clearInterval(_intensityTween); _intensityTween = null; }
+    var start = _intensity, delta = target - start;
+    if (ms <= 0 || Math.abs(delta) < 0.001) {
+      _intensity = target;
+      if (_nveField.length) _nveStartRAF();
+      return;
+    }
+    var t0 = Date.now();
+    _intensityTween = setInterval(function() {
+      var t = Math.min(1, (Date.now() - t0) / ms);
+      var eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
+      _intensity = start + delta * eased;
+      if (_nveField.length) _nveStartRAF();
+      if (t >= 1) { _intensity = target; clearInterval(_intensityTween); _intensityTween = null; }
+    }, 16);
+  }
+
+  // The NVE field is a BIOFEEDBACK layer when it is breath/coherence-coupled (environment_sync
+  // sets _nveBreathSyncField). Otherwise it is ambient narrative and free to recede.
+  function _fieldIsBiofeedback() { return _nveBreathSyncField; }
+
+  // Effective opacity factor applied to the NVE field this frame. Ambient presence tracks
+  // intensity; a biofeedback-active field clamps UP to the floor (even at ambient intensity 0).
+  function _fieldLayerOpacity() {
+    var f = _intensity;
+    if (_fieldIsBiofeedback()) f = Math.max(f, BIOFEEDBACK_MIN_OPACITY);
+    return f;
+  }
+
   // ── PERFORMANCE TIER DETECTION ──
   function _detectPerformanceTier() {
     try {
@@ -140,6 +212,201 @@ var NarrativeVisualsEngine = (function() {
       _performanceTier = 'full';
     }
     console.log('[NVE] Performance tier:', _performanceTier);
+  }
+
+  // ── NVE FIELD — surfaces, spawn/draw/dissolve, RAF lifecycle (C2.1) ──
+  function _nveCreateSurfaces() {
+    if (_nveCanvas) return;
+    var host = document.getElementById('immersiveView') || document.body;
+    if (!host) return;
+    _nveBgOverlay = document.createElement('div');
+    _nveBgOverlay.id = 'nveBgOverlay';
+    _nveBgOverlay.style.cssText = 'position:absolute;inset:0;z-index:2;pointer-events:none;opacity:0;transition:opacity 3000ms ease;';
+    host.appendChild(_nveBgOverlay);
+    _nveCanvas = document.createElement('canvas');
+    _nveCanvas.id = 'nveCanvas';
+    _nveCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none;';
+    host.appendChild(_nveCanvas);
+    _nveCtx = _nveCanvas.getContext('2d');
+    _nveResize();
+    window.addEventListener('resize', _nveResize);
+  }
+
+  function _nveResize() {
+    if (!_nveCanvas || !_nveCtx) return;
+    var dpr = _performanceTier === 'reduced' ? 1 : (window.devicePixelRatio || 1);
+    var w = _nveCanvas.offsetWidth || window.innerWidth;
+    var h = _nveCanvas.offsetHeight || window.innerHeight;
+    _nveCanvas.width = w * dpr;
+    _nveCanvas.height = h * dpr;
+    _nveCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function _nveFieldBudget() {
+    return NVE_FIELD_BUDGET[_performanceTier] || NVE_FIELD_BUDGET.full;
+  }
+
+  function _nveFieldSpawn(opts) {
+    opts = opts || {};
+    _nveCreateSurfaces();
+    if (!_nveCtx) return 0;
+    var budget = _nveFieldBudget();
+    var count = Math.min(opts.count || budget, budget);
+    var w = _nveCanvas.offsetWidth || window.innerWidth;
+    var h = _nveCanvas.offsetHeight || window.innerHeight;
+    var col = opts.color || [150, 190, 230];
+    _nveField = [];
+    for (var i = 0; i < count; i++) {
+      _nveField.push({
+        x: Math.random() * w,
+        y: h * 0.2 + Math.random() * h * 0.7,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.15,
+        sz: 1.5 + Math.random() * 3.5,
+        col: col,
+        alpha: 0,
+        targetAlpha: 0.25 + Math.random() * 0.45,
+        ph: Math.random() * Math.PI * 2,
+        ps: 0.01 + Math.random() * 0.02
+      });
+    }
+    _nveFieldFrozen = false;
+    _nveStartRAF();
+    return _nveField.length;
+  }
+
+  function _nveFieldDissolve(fadeMs) {
+    // targetAlpha -> 0; the draw loop clears the field and stops the RAF
+    // once fully transparent (beat-scoped / empty-by-default rule).
+    var ms = fadeMs || 2000;
+    var step = ms > 0 ? (16 / ms) : 1;
+    for (var i = 0; i < _nveField.length; i++) {
+      _nveField[i].targetAlpha = 0;
+      _nveField[i].fadeStep = step;
+    }
+    _nveFieldFrozen = false;
+    if (_nveField.length) _nveStartRAF();
+  }
+
+  function _nveStartRAF() {
+    if (_nveRAF || _nveFieldFrozen) return;
+    _nveRAF = requestAnimationFrame(_nveDraw);
+  }
+
+  function _nveStopRAF() {
+    if (_nveRAF) { cancelAnimationFrame(_nveRAF); _nveRAF = null; }
+  }
+
+  function _nveClearCanvas() {
+    if (_nveCtx && _nveCanvas) _nveCtx.clearRect(0, 0, _nveCanvas.width, _nveCanvas.height);
+  }
+
+  function _nveDraw() {
+    _nveRAF = null;
+    if (!_nveCtx || _nveFieldFrozen) return;
+    var reduced = _performanceTier === 'reduced';
+    if (reduced) {
+      // Reduced tier: draw every 2nd frame (~30fps)
+      _nveFrameSkip = !_nveFrameSkip;
+      if (_nveFrameSkip) { _nveRAF = requestAnimationFrame(_nveDraw); return; }
+    }
+    var w = _nveCanvas.offsetWidth || window.innerWidth;
+    var h = _nveCanvas.offsetHeight || window.innerHeight;
+    _nveCtx.clearRect(0, 0, w, h);
+    // C2 step 3a — environment_sync breath coupling, NVE field only.
+    // lungVolume v: 0=fully exhaled, 1=fully inhaled. The whole-field
+    // luminance swell is the dominant "world breathes" cue; the radial
+    // drift (inward on inhale, outward on exhale) is kept gentle so the
+    // field reads as one breathing world, not darting points.
+    // Bounded home-anchored displacement: each particle renders at
+    // home + (center-home)*disp, disp in [-0.04, +0.12]. Periodic and
+    // accumulation-free, so a 4s inhale cannot collapse the field and a
+    // 6s exhale cannot push it through the edges (v2 tuning — the
+    // integrated-velocity model over-contracted at real breath lengths).
+    var disp = 0, alphaSwell = 1, sizeSwell = 1;
+    if (_nveBreathSyncField) {
+      var v = 0.5;
+      if (_breathPhase === 'inhale' || _breathPhase === 'in') v = _breathProgress;
+      else if (_breathPhase === 'exhale' || _breathPhase === 'out') v = 1 - _breathProgress;
+      else if (_breathPhase === 'hold' || _breathPhase === 'touch') v = 1;
+      disp = 0.12 * v - 0.04 * (1 - v);
+      alphaSwell = 0.72 + v * 0.55;   // whole-field brightens on inhale
+      sizeSwell = 1 + v * 0.22;       // particles swell with the lungs
+    }
+    // Intensity scales PRESENCE only (opacity / glow / motion amplitude) — never count.
+    var opacityFactor = _fieldLayerOpacity();             // biofeedback-floored when active
+    var motionAmp = lerp(0.6, 1.0, _intensity);           // drift + breath-displacement amplitude
+    var glowScale = lerp(0.4, 1.0, _intensity);           // bloom/glow strength
+    disp *= motionAmp;                                     // breath displacement comes forward at HIGH
+    var bcx = w / 2, bcy = h / 2;
+    var distSum = 0;
+    var live = 0;
+    for (var i = 0; i < _nveField.length; i++) {
+      var p = _nveField[i];
+      p.ph += p.ps;
+      p.x += p.vx + Math.sin(p.ph * 0.5) * 0.05 * motionAmp;
+      p.y += p.vy + Math.cos(p.ph * 0.3) * 0.03 * motionAmp;
+      if (p.x < -10) p.x = w + 10;
+      if (p.x > w + 10) p.x = -10;
+      if (p.y < -10) p.y = h + 10;
+      if (p.y > h + 10) p.y = -10;
+      // render position = home displaced toward/away from center per breath
+      var rx = p.x + (bcx - p.x) * disp;
+      var ry = p.y + (bcy - p.y) * disp;
+      distSum += Math.sqrt((rx - bcx) * (rx - bcx) + (ry - bcy) * (ry - bcy));
+      if (p.alpha < p.targetAlpha) p.alpha = Math.min(p.targetAlpha, p.alpha + 0.02);
+      else if (p.alpha > p.targetAlpha) p.alpha = Math.max(p.targetAlpha, p.alpha - (p.fadeStep || 0.02));
+      if (p.alpha > 0.01 || p.targetAlpha > 0.01) live++;
+      if (p.alpha <= 0.01) continue;
+      _nveCtx.save();
+      _nveCtx.globalAlpha = Math.min(1, p.alpha * (0.85 + Math.sin(p.ph) * 0.15) * alphaSwell * opacityFactor);
+      _nveCtx.fillStyle = 'rgb(' + p.col[0] + ',' + p.col[1] + ',' + p.col[2] + ')';
+      if (!reduced) {
+        // shadowBlur is the dominant canvas cost — full tier only (C2.4)
+        _nveCtx.shadowColor = _nveCtx.fillStyle;
+        _nveCtx.shadowBlur = (6 + p.sz * 2) * sizeSwell * glowScale;
+      }
+      _nveCtx.beginPath();
+      _nveCtx.arc(rx, ry, p.sz * sizeSwell, 0, Math.PI * 2);
+      _nveCtx.fill();
+      _nveCtx.restore();
+    }
+    if (_nveField.length) _nveLastMeanDist = distSum / _nveField.length;
+    if (live === 0) {
+      // Field fully dissolved — empty-by-default: clear canvas, stop RAF.
+      _nveField = [];
+      _nveClearCanvas();
+      return;
+    }
+    _nveRAF = requestAnimationFrame(_nveDraw);
+  }
+
+  function _nveFieldCopy(arr) {
+    return arr.map(function(p) {
+      return { x: p.x, y: p.y, vx: p.vx, vy: p.vy, sz: p.sz,
+               col: [p.col[0], p.col[1], p.col[2]],
+               alpha: p.alpha, targetAlpha: p.targetAlpha, ph: p.ph, ps: p.ps };
+    });
+  }
+
+  function _nveFieldSnapshot() { return _nveFieldCopy(_nveField); }
+
+  function _nveFieldRestore(snapshot) {
+    if (!snapshot) return;
+    _nveField = _nveFieldCopy(snapshot);
+    _nveFieldFrozen = false;
+    if (_nveField.length) _nveStartRAF();
+  }
+
+  function _nveFieldFreeze() {
+    // Stop the field RAF — canvas keeps its last painted frame, positions held.
+    _nveFieldFrozen = true;
+    _nveStopRAF();
+  }
+
+  function _nveFieldUnfreeze() {
+    _nveFieldFrozen = false;
+    if (_nveField.length) _nveStartRAF();
   }
 
   // ── SNAPSHOT / RESTORE FOR gap_reveal ──
@@ -167,6 +434,8 @@ var NarrativeVisualsEngine = (function() {
     if (_depthEngine && typeof _depthEngine.getParticleSnapshot === 'function') {
       snapshot.depthParticles = _depthEngine.getParticleSnapshot();
     }
+    // Snapshot NVE narrative field (own canvas — C2)
+    snapshot.nveField = _nveFieldSnapshot();
     return snapshot;
   }
 
@@ -179,6 +448,8 @@ var NarrativeVisualsEngine = (function() {
     if (_depthEngine && typeof _depthEngine.restoreParticleSnapshot === 'function' && snapshot.depthParticles) {
       _depthEngine.restoreParticleSnapshot(snapshot.depthParticles, easeDuration);
     }
+    // Restore NVE narrative field from snapshot (own canvas — C2)
+    if (snapshot.nveField) _nveFieldRestore(snapshot.nveField);
     // Resume CSS animations on DOM particles
     var particles = document.querySelectorAll('.particle');
     particles.forEach(function(p) {
@@ -215,6 +486,8 @@ var NarrativeVisualsEngine = (function() {
     // Freeze waves
     var waves = document.querySelectorAll('.wave');
     waves.forEach(function(w) { w.style.animationPlayState = 'paused'; });
+    // Freeze NVE narrative field (own canvas RAF — C2)
+    _nveFieldFreeze();
     // Signal depth engine to freeze its rAF loop
     if (_depthEngine && typeof _depthEngine.freeze === 'function') {
       _depthEngine.freeze();
@@ -236,6 +509,7 @@ var NarrativeVisualsEngine = (function() {
     auroraBands.forEach(function(b) { b.style.animationPlayState = 'running'; });
     var waves = document.querySelectorAll('.wave');
     waves.forEach(function(w) { w.style.animationPlayState = 'running'; });
+    _nveFieldUnfreeze();
     if (_depthEngine && typeof _depthEngine.unfreeze === 'function') {
       _depthEngine.unfreeze();
     }
@@ -582,7 +856,9 @@ var NarrativeVisualsEngine = (function() {
     _breathCycleCount = data.cycle_count || 0;
 
     var particles = document.querySelectorAll('.particle');
-    if (_fieldState.rhythm === 'breath_sync') {
+    if (_fieldState.rhythm === 'breath_sync' && !_nveBreathSyncField) {
+      // legacy ambient drift path — disabled whenever the C2 NVE field owns
+      // the environment_sync beat (locked separation)
       // environment_sync: particles drift inward on inhale, outward on exhale
       var cx = 50; // percent center
       var cy = 50;
@@ -794,6 +1070,12 @@ var NarrativeVisualsEngine = (function() {
     // Dispatch to specific handler
     switch(name) {
       // ── PARTICLE FIELD ──
+      case 'field_test':
+        // C2 step-2 harness trigger — exercises the NVE field in isolation.
+        // Not part of any authored visual_narrative vocabulary.
+        _nveFieldSpawn({ color: opts.color, count: opts.count });
+        break;
+
       case 'depth_pulse':
         _fieldState.speedMul = 2.5;
         _fieldState.rhythm = 'erratic';
@@ -806,6 +1088,8 @@ var NarrativeVisualsEngine = (function() {
         break;
 
       case 'gap_reveal':
+        // Signature moment — bring presence fully forward (eased) so the gap is unmistakable.
+        _easeIntensityTo(PHASE_INTENSITY.gap_reveal, 700);
         var gapDur = opts.duration_ms || (opts.duration_seconds ? opts.duration_seconds * 1000 : 6000);
         var resumeDur = opts.resume_duration_ms || 3000;
         _gapReveal(gapDur, resumeDur);
@@ -815,7 +1099,13 @@ var NarrativeVisualsEngine = (function() {
       case 'environment_sync_begin':
         _fieldState.rhythm = 'breath_sync';
         _fieldState.speedMul = 0.6;
-        _applyFieldState(_fieldState);
+        // C2 step 3a: the "world breathes" beat is carried by the NVE field
+        // ONLY. Ambient plankton and the water background stay sovereign
+        // (locked separation) — no DOM restyle here.
+        _nveBreathSyncField = true;
+        if (_nveField.length === 0) {
+          _nveFieldSpawn({ color: [150, 200, 235] });
+        }
         _breathSyncActive = true;
         // Start pacer fallback if no BLE
         if (_bioBridge && _bioBridge.getActiveSource() !== 'h10') {
@@ -1087,6 +1377,9 @@ var NarrativeVisualsEngine = (function() {
     _stopHrvPulse();
     _stopPacerFallback();
     _clearBlueprintLines();
+    _nveBreathSyncField = false;
+    _nveFieldDissolve(fd);
+    _easeIntensityTo(DEFAULT_INTENSITY, fd); // ease presence back to neutral ambient
     _breathSyncActive = false;
     _ladderZone = null;
     if (_gapFreezeTimer) { clearTimeout(_gapFreezeTimer); _gapFreezeTimer = null; _unfreezeAll(); }
@@ -1101,6 +1394,10 @@ var NarrativeVisualsEngine = (function() {
 
   // ── PHASE-BASED DEFAULT VISUALS ──
   function _applyPhaseDefaults(phase) {
+    // Phase-gated intensity — THE orchestrated path. _applyPhaseDefaults is only ever called
+    // from the SSM onPhaseChange handler (connectToStateMachine), so this is the single place
+    // the phase→intensity map is consulted. Eased (no hard cut); unlisted phases → default.
+    _easeIntensityTo(PHASE_INTENSITY[phase] != null ? PHASE_INTENSITY[phase] : DEFAULT_INTENSITY, 700);
     switch(phase) {
       case 'arrival':
         trigger('text_visible', {});
@@ -1123,6 +1420,10 @@ var NarrativeVisualsEngine = (function() {
       case 'shift':
         trigger('text_fade_line', {});
         _breathSyncActive = false;
+        if (_nveBreathSyncField) {
+          _nveBreathSyncField = false;
+          _nveFieldDissolve(4000);
+        }
         _stopPacerFallback();
         // Apply accumulated warmth
         _bgState.warmth = Math.min(1, _bgState.warmth + _warmthAccumulated * 0.1);
@@ -1226,6 +1527,7 @@ var NarrativeVisualsEngine = (function() {
       bgState: _bgState,
       breathSyncActive: _breathSyncActive,
       performanceTier: _performanceTier,
+      intensity: _intensity,
       warmthAccumulated: _warmthAccumulated,
       currentPhase: _currentPhase,
       currentSession: _currentSession
@@ -1235,6 +1537,7 @@ var NarrativeVisualsEngine = (function() {
   // ── INIT ──
   function init() {
     _detectPerformanceTier();
+    _nveCreateSurfaces();
     _cacheParticleColors();
     console.log('[NVE] Narrative Visuals Engine initialized | tier:', _performanceTier);
   }
@@ -1247,7 +1550,28 @@ var NarrativeVisualsEngine = (function() {
     connectToStateMachine: connectToStateMachine,
     connectToBiometricBridge: connectToBiometricBridge,
     connectToDepthEngine: connectToDepthEngine,
-    getState: getState
+    getState: getState,
+    // Debug/harness surface for the C2 field engine (not used by production wiring)
+    nveField: {
+      isRunning: function() { return !!_nveRAF; },
+      count: function() { return _nveField.length; },
+      budget: _nveFieldBudget,
+      spawn: _nveFieldSpawn,
+      dissolve: _nveFieldDissolve,
+      snapshot: _nveFieldSnapshot,
+      lastRenderMeanDist: function() { return _nveLastMeanDist; },
+      setTierForTest: function(t) { _performanceTier = t; },
+      // Intensity / biofeedback-floor probes (C2 — harness only, not used by production wiring)
+      intensity: function() { return _intensity; },
+      intensityTarget: function() { return _intensityTarget; },
+      layerOpacity: _fieldLayerOpacity,                    // effective, post-floor opacity factor
+      biofeedbackMinOpacity: function() { return BIOFEEDBACK_MIN_OPACITY; },
+      setIntensityForTest: function(v) {
+        if (_intensityTween) { clearInterval(_intensityTween); _intensityTween = null; }
+        _intensity = _intensityTarget = Math.max(0, Math.min(1, v));
+        if (_nveField.length) _nveStartRAF();
+      }
+    }
   };
 
 })();
