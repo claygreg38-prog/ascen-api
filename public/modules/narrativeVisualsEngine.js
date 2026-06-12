@@ -161,6 +161,22 @@ var NarrativeVisualsEngine = (function() {
   // it; biofeedback layers clamp to it as a lower bound. Tunable on-device (placeholder).
   var BIOFEEDBACK_MIN_OPACITY = 0.35;
 
+  // ── D5 PER-PHASE SOURCE LATCH (prod wiring) ──
+  // ABI is the primary driver of the phase→intensity ease (nve_directive via the
+  // same-window NVE_DIRECTIVE postMessage). The SSM onPhaseChange path is the
+  // offline/latency FALLBACK only: on each phase change we latch 'pending' and arm
+  // a 250ms timer; a directive arriving first wins (timer cancelled), the timer
+  // firing first eases from the local map, and a LATE directive still overrides.
+  // The local PHASE_INTENSITY map is consulted in BOTH cases (D1 — NVE owns the
+  // constants; the directive carries phase intent, never a numeric target).
+  var NVE_DIRECTIVE_FALLBACK_MS = 250;
+  var _intensitySource = null;        // null | 'pending' | 'abi' | 'ssm-fallback'
+  var _latchPhase = null;             // phase of the most recent SSM onPhaseChange
+  var _directiveFallbackTimer = null;
+  var _regulationOk = true;           // D2: ABI-supplied flag, recorded as input only —
+                                      // no behavioral clamp yet (on-device tuning decision);
+                                      // floor authority stays client-side regardless.
+
   // Ease intensity toward a target over ~600–800ms (default 700) — no hard cuts. Uses a
   // setInterval tween (independent of the field RAF, so it still advances while the field is
   // frozen for gap_reveal) and nudges the field RAF each step so presence repaints smoothly.
@@ -183,6 +199,43 @@ var NarrativeVisualsEngine = (function() {
       if (_nveField.length) _nveStartRAF();
       if (t >= 1) { _intensity = target; clearInterval(_intensityTween); _intensityTween = null; }
     }, 16);
+  }
+
+  // D5.1 — SSM onPhaseChange leg: latch 'pending', arm the fallback timer, do NOT ease yet.
+  // Double-drive is structurally impossible: (a) the fallback ease is gated behind this latch
+  // and never fires once the source for the current phase is 'abi'; (b) _easeIntensityTo
+  // clears any in-flight tween before starting, so at most one tween exists; (c) the timer is
+  // cancelled on directive arrival and re-armed only by the next phase change.
+  function _latchPhaseIntensity(phase) {
+    _latchPhase = phase;
+    _intensitySource = 'pending';
+    if (_directiveFallbackTimer) { clearTimeout(_directiveFallbackTimer); }
+    _directiveFallbackTimer = setTimeout(function() {
+      _directiveFallbackTimer = null;
+      if (_intensitySource !== 'abi' && _latchPhase === phase) {   // D5.3 — no directive arrived
+        _intensitySource = 'ssm-fallback';
+        console.log('[NVE] intensity | phase=' + phase + ' source=ssm-fallback');
+        _easeIntensityTo(PHASE_INTENSITY[phase] != null ? PHASE_INTENSITY[phase] : DEFAULT_INTENSITY, 700);
+      }
+    }, NVE_DIRECTIVE_FALLBACK_MS);
+  }
+
+  // D5.2/D5.4 — ABI directive leg (from the NVE_DIRECTIVE postMessage bridge). ABI is
+  // authoritative whenever present: before the timer it cancels the fallback; after a
+  // fallback already eased it re-eases (override). A directive for a phase the SSM has
+  // already moved past is STALE and ignored — it must not fight the newer phase's latch.
+  function _onAbiPhaseDirective(payload) {
+    var phase = payload.phase;
+    if (phase !== _latchPhase) {
+      console.log('[NVE] stale directive ignored | directive=' + phase + ' current=' + _latchPhase);
+      return;
+    }
+    if (_directiveFallbackTimer) { clearTimeout(_directiveFallbackTimer); _directiveFallbackTimer = null; }
+    _intensitySource = 'abi';
+    _regulationOk = (payload.regulation_ok !== false);
+    console.log('[NVE] intensity | phase=' + phase + ' source=abi regulation_ok=' + _regulationOk);
+    _easeIntensityTo(PHASE_INTENSITY[phase] != null ? PHASE_INTENSITY[phase] : DEFAULT_INTENSITY,
+                     payload.ease_ms != null ? payload.ease_ms : 700);
   }
 
   // The NVE field is a BIOFEEDBACK layer when it is breath/coherence-coupled (environment_sync
@@ -1379,6 +1432,11 @@ var NarrativeVisualsEngine = (function() {
     _clearBlueprintLines();
     _nveBreathSyncField = false;
     _nveFieldDissolve(fd);
+    // Clear the D5 latch so a stale fallback timer can't fire after reset.
+    if (_directiveFallbackTimer) { clearTimeout(_directiveFallbackTimer); _directiveFallbackTimer = null; }
+    _intensitySource = null;
+    _latchPhase = null;
+    _regulationOk = true;
     _easeIntensityTo(DEFAULT_INTENSITY, fd); // ease presence back to neutral ambient
     _breathSyncActive = false;
     _ladderZone = null;
@@ -1394,10 +1452,10 @@ var NarrativeVisualsEngine = (function() {
 
   // ── PHASE-BASED DEFAULT VISUALS ──
   function _applyPhaseDefaults(phase) {
-    // Phase-gated intensity — THE orchestrated path. _applyPhaseDefaults is only ever called
-    // from the SSM onPhaseChange handler (connectToStateMachine), so this is the single place
-    // the phase→intensity map is consulted. Eased (no hard cut); unlisted phases → default.
-    _easeIntensityTo(PHASE_INTENSITY[phase] != null ? PHASE_INTENSITY[phase] : DEFAULT_INTENSITY, 700);
+    // Phase-gated intensity — routed through the D5 source latch (prod wiring). The ABI
+    // nve_directive is PRIMARY for every phase; this SSM leg only arms the 250ms fallback.
+    // The per-phase trigger() defaults below are presentation mechanics and run unchanged.
+    _latchPhaseIntensity(phase);
     switch(phase) {
       case 'arrival':
         trigger('text_visible', {});
@@ -1501,10 +1559,17 @@ var NarrativeVisualsEngine = (function() {
     console.log('[NVE] Connected to Depth Engine');
   }
 
-  // ── postMessage INTERFACE (for iframe embedding) ──
+  // ── postMessage INTERFACE (same-window bridge + iframe embedding) ──
   window.addEventListener('message', function(event) {
+    // Origin guard (Q5): accept same-window posts (the AbiService→NVE bridge and the
+    // file:// harness both post from this window) or same-origin posts. Cross-origin /
+    // cross-frame messages are rejected.
+    if (event.source !== window && event.origin !== window.location.origin) return;
     if (!event.data) return;
-    if (event.data.type === 'NARRATIVE_VISUAL') {
+    if (event.data.type === 'NVE_DIRECTIVE') {
+      var dp = event.data.payload || {};
+      if (dp.kind === 'phase_intensity') _onAbiPhaseDirective(dp);
+    } else if (event.data.type === 'NARRATIVE_VISUAL') {
       var payload = event.data.payload || {};
       trigger(payload.visual, {
         duration_seconds: payload.duration_seconds,
@@ -1528,6 +1593,9 @@ var NarrativeVisualsEngine = (function() {
       breathSyncActive: _breathSyncActive,
       performanceTier: _performanceTier,
       intensity: _intensity,
+      intensitySource: _intensitySource,
+      latchPhase: _latchPhase,
+      regulationOk: _regulationOk,
       warmthAccumulated: _warmthAccumulated,
       currentPhase: _currentPhase,
       currentSession: _currentSession

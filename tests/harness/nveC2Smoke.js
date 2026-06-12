@@ -44,9 +44,17 @@ function fakeEl(tag) {
   };
 }
 const body = fakeEl('body');
+/* Message shim (prod wiring): captures the module's 'message' listener so the
+ * NVE_DIRECTIVE postMessage path is testable headless. Dispatch is synchronous;
+ * event.source is the sandbox window itself (same-window bridge semantics). */
+const messageListeners = [];
 const sandbox = {
   window: {
-    addEventListener() {}, devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800,
+    addEventListener(type, fn) { if (type === 'message') messageListeners.push(fn); },
+    postMessage(data) {
+      messageListeners.forEach(fn => fn({ data, origin: 'http://localhost', source: sandbox.window }));
+    },
+    devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800,
     getComputedStyle() { return { opacity: '1', animationPlayState: 'running' }; },
   },
   document: {
@@ -203,6 +211,56 @@ function fail(msg) { console.log('  FAIL ' + msg); failures++; }
   const newCode = stateBlock + engineBlock;
   check('A4 new field code: zero .particle refs', !/\.particle/.test(newCode.replace(/narrative-particle/g, '')));
   check('A4 new field code: zero oceanBg refs', !/oceanBg/.test(newCode));
+
+  // ── D5 series: ABI directive + per-phase source latch (prod wiring) ──
+  // Mock SSM bus — same shape the browser harness uses.
+  const SSMmock = {
+    handlers: {},
+    on(ev, fn) { (this.handlers[ev] = this.handlers[ev] || []).push(fn); },
+    emit(ev, d) { (this.handlers[ev] || []).forEach(fn => fn(d)); },
+  };
+  NVE.connectToStateMachine(SSMmock);
+
+  // D5a — SSM phase change latches 'pending' (no immediate ease); fallback engages after 250ms
+  SSMmock.emit('onPhaseChange', 'arrival');
+  check('D5a phase change latches pending (no immediate ease)',
+    NVE.getState().intensitySource === 'pending', 'source=' + NVE.getState().intensitySource);
+  await new Promise(r => setTimeout(r, 320));
+  check('D5a fallback engages after 250ms (source=ssm-fallback, local map target)',
+    NVE.getState().intensitySource === 'ssm-fallback' && NVE.nveField.intensityTarget() === 0.25,
+    'source=' + NVE.getState().intensitySource + ' target=' + NVE.nveField.intensityTarget());
+
+  // D5b — directive arriving BEFORE the timer wins; fallback never fires
+  SSMmock.emit('onPhaseChange', 'opening');
+  sandbox.window.postMessage({ type: 'NVE_DIRECTIVE', payload: { kind: 'phase_intensity', phase: 'opening', ease_ms: 50, regulation_ok: true } });
+  check('D5b directive before timer wins (source=abi)',
+    NVE.getState().intensitySource === 'abi', 'source=' + NVE.getState().intensitySource);
+  await new Promise(r => setTimeout(r, 320));
+  check('D5b fallback timer cancelled (source stays abi past 250ms)',
+    NVE.getState().intensitySource === 'abi', 'source=' + NVE.getState().intensitySource);
+
+  // D5c — LATE directive still overrides an already-eased fallback (ABI authoritative)
+  SSMmock.emit('onPhaseChange', 'resistance');
+  await new Promise(r => setTimeout(r, 320));
+  check('D5c no directive -> fallback eased', NVE.getState().intensitySource === 'ssm-fallback');
+  sandbox.window.postMessage({ type: 'NVE_DIRECTIVE', payload: { kind: 'phase_intensity', phase: 'resistance', ease_ms: 50, regulation_ok: false } });
+  check('D5c late directive overrides fallback (source=abi, regulation_ok recorded)',
+    NVE.getState().intensitySource === 'abi' && NVE.getState().regulationOk === false,
+    'source=' + NVE.getState().intensitySource + ' regOk=' + NVE.getState().regulationOk);
+
+  // D5d — stale directive (phase the SSM already moved past) is ignored
+  SSMmock.emit('onPhaseChange', 'close');
+  sandbox.window.postMessage({ type: 'NVE_DIRECTIVE', payload: { kind: 'phase_intensity', phase: 'resistance', ease_ms: 50, regulation_ok: true } });
+  check('D5d stale directive ignored (latch stays pending for current phase)',
+    NVE.getState().intensitySource === 'pending' && NVE.getState().latchPhase === 'close',
+    'source=' + NVE.getState().intensitySource + ' latch=' + NVE.getState().latchPhase);
+
+  // D1 — directive carries phase INTENT; NVE translates via its LOCAL map
+  SSMmock.emit('onPhaseChange', 'before_the_breath');
+  sandbox.window.postMessage({ type: 'NVE_DIRECTIVE', payload: { kind: 'phase_intensity', phase: 'before_the_breath', ease_ms: 50, regulation_ok: true } });
+  check('D1 directive maps phase->intensity from the local PHASE_INTENSITY map (0.85)',
+    NVE.getState().intensitySource === 'abi' && NVE.nveField.intensityTarget() === 0.85,
+    'target=' + NVE.nveField.intensityTarget());
 
   console.log(failures === 0 ? '\nALL CHECKS PASSED' : '\n' + failures + ' CHECK(S) FAILED');
   process.exit(failures === 0 ? 0 : 1);

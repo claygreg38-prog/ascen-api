@@ -71,6 +71,17 @@ function _zoneFromScore(score) {
   if (score >= NS3_ZONES.APPROACHING.min) return NS3_ZONES.APPROACHING.label;
   return NS3_ZONES.BELOW_WINDOW.label;
 }
+
+// ── BROWSER PHASE WHITELIST (NVE prod wiring) ───────────────
+// The 13 browser SSM phases (index_v8 PHASE_ORDER). The browser
+// notifies ABI of every transition via POST /api/abi/session/phase;
+// onPhaseTransition() validates against this list. Held separate
+// from the endpoint-inferred sessionPhase — see uiPhase below.
+const BROWSER_PHASES = [
+  'surface', 'arrival', 'descent', 'opening', 'resistance',
+  'before_the_breath', 'breathing', 'shift', 'close', 'mirror',
+  'vault', 'ascent', 'surface_return'
+];
 const breathArtEngine = require('./breathArtEngine');
 const ipfsService = require('../services/ipfsService');
 const artAggregationEngine = require('./artAggregationEngine');
@@ -102,6 +113,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
  *   onOfferDrill(drillOptions)— show drill selection (NEW)
  *   onIdentityChallenge(cfg)  — show identity gate UI (NEW)
  *   onStateChange(state)      — state engine update for frontend (NEW)
+ *   onNveDirective(data)      — NVE presence directive for the visual layer (NVE wiring)
  * @returns {Object} - Orchestrator with lifecycle methods
  */
 function createOrchestrator(callbacks = {}) {
@@ -115,7 +127,8 @@ function createOrchestrator(callbacks = {}) {
     onOfferExit = () => {},
     onOfferDrill = () => {},
     onIdentityChallenge = () => {},
-    onStateChange = () => {}
+    onStateChange = () => {},
+    onNveDirective = () => {}
   } = callbacks;
 
   // ── INTERNAL STATE ──────────────────────────────────────
@@ -133,6 +146,11 @@ function createOrchestrator(callbacks = {}) {
   let biometricsAvailable = false;
   let arrivalBaseline = null;
   let sessionPhase = 'init';
+  // Authoritative browser UI phase (NVE wiring). Set by onPhaseTransition()
+  // on every browser _setPhase(). Held SEPARATE from sessionPhase: that
+  // field is endpoint-inferred and has behavioral guards (e.g. tick requires
+  // 'breathing'); overwriting it with UI phases would regress those guards.
+  let uiPhase = null;
 
   // ── NEW SYSTEM INSTANCES ────────────────────────────────
   let stateEngine = null;
@@ -164,6 +182,7 @@ function createOrchestrator(callbacks = {}) {
   let ns3WindowStart = null;   // ISO timestamp of current window's first tick
   let ns3UserIdInt = null;     // integer users.id resolved once at session start (ns3_snapshots.user_id is INTEGER)
   let ns3Summary = null;       // populated on session complete
+  let lastNs3Zone = null;      // most recent per-tick NS3 zone — regulation_ok input for onPhaseTransition (NVE wiring)
 
   // ── SOMATIC RESET STATE ───────────────────────────────────
   let somaticActive = false;
@@ -1054,6 +1073,7 @@ function createOrchestrator(callbacks = {}) {
             zone: ns3Result.zone,
             coherence: ns3Result.components?.coherence?.raw ?? null,
           };
+          lastNs3Zone = ns3Result.zone;
 
           // Accumulate into 5-tick persistence window
           if (!ns3WindowStart) ns3WindowStart = new Date().toISOString();
@@ -2375,6 +2395,40 @@ function createOrchestrator(callbacks = {}) {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // BROWSER PHASE TRANSITION (NVE prod wiring — input leg)
+  // ═══════════════════════════════════════════════════════════
+  // Fired by POST /api/abi/session/phase on EVERY browser _setPhase()
+  // (~11-12/session), including the LOW text-heavy phases that have no
+  // other backend notification (arrival/opening/resistance/close).
+  // ABI holds the authoritative phase in uiPhase and emits the presence
+  // directive. Per D1 the directive carries phase INTENT only — NVE owns
+  // PHASE_INTENSITY and the translation. Per D2 ABI supplies regulation_ok
+  // only; the biofeedback floor stays client-side.
+
+  function onPhaseTransition(phase) {
+    if (!BROWSER_PHASES.includes(phase)) {
+      return { accepted: false, phase };
+    }
+    uiPhase = phase;
+
+    // regulation_ok: in-window = approaching/optimal. below_window and
+    // overdrive are outside the regulation window. No NS3 data yet
+    // (pre-breathing phases have no tick stream) defaults to true.
+    const regulation_ok = lastNs3Zone === null
+      ? true
+      : !(lastNs3Zone === NS3_ZONES.BELOW_WINDOW.label || lastNs3Zone === NS3_ZONES.OVERDRIVE.label);
+
+    onNveDirective({
+      kind: 'phase_intensity',
+      phase,
+      ease_ms: 700,
+      regulation_ok
+    });
+
+    return { accepted: true, phase, regulation_ok };
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // PUBLIC API
   // ═══════════════════════════════════════════════════════════
 
@@ -2394,12 +2448,14 @@ function createOrchestrator(callbacks = {}) {
     onBLEDisconnect,      // Polar H10 drops
     onBLEReconnect,       // Polar H10 returns
     onSomaticComplete,    // somatic exercise finished — pivot or proceed
+    onPhaseTransition,    // browser SSM phase notification — NVE directive emitter (NVE wiring)
 
     // Getters for session engine
     getAdaptedSession: () => adaptedSession,
     getPauseHandler: () => pauseHandler,
     getActiveSeconds: () => pauseHandler ? pauseHandler.getActiveSeconds() : 0,
     getSessionPhase: () => sessionPhase,
+    getUiPhase: () => uiPhase,
     ispaused: () => pauseHandler ? pauseHandler.state !== PAUSE_STATE.ACTIVE : false,
 
     // New getters

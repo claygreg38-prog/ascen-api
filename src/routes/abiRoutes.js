@@ -34,6 +34,13 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 // One orchestrator per active session.
 const activeSessions = new Map();
 
+// Grace TTL for completed sessions (NVE prod wiring): /session/complete
+// fires at the browser's 'shift' phase, but close/mirror/vault/ascent/
+// surface still POST /session/phase afterward — the orchestrator must
+// stay resolvable for them. Entries are marked completedAt and deleted
+// after this TTL instead of immediately.
+const COMPLETED_SESSION_GRACE_MS = 10 * 60 * 1000;
+
 function makeSessionKey(userId, sessionId) {
   return `${userId}:${sessionId}`;
 }
@@ -160,6 +167,11 @@ router.post('/session/start', async (req, res) => {
         const evt = { type: 'state_change', stateData, ts: Date.now() };
         pendingEvents.push(evt);
         sessionStateManager.pushEvent(dbSessionKey, evt).catch(() => {});
+      },
+      onNveDirective: (data) => {
+        // Transient visual-layer signal — no DB persistence (no replay value,
+        // ~11-12/session would only add write volume).
+        pendingEvents.push({ type: 'nve_directive', data, ts: Date.now() });
       }
     });
 
@@ -741,6 +753,46 @@ router.post('/session/exit', async (req, res) => {
 });
 
 
+// ── PHASE NOTIFICATION (NVE prod wiring — input leg) ────────
+// POST /api/abi/session/phase
+// Body: { session_key, phase }  — phase ∈ browser PHASE_ORDER (13 values)
+// Fired by the browser on EVERY SSM _setPhase() (~11-12/session), so ABI
+// holds the authoritative phase for ALL phases — including the LOW
+// text-heavy ones (arrival/opening/resistance/close) that have no other
+// backend notification. The orchestrator emits the nve_directive into
+// pendingEvents, which rides back in THIS response's events[] — the
+// browser bridge forwards it to NVE (same-window postMessage).
+
+router.post('/session/phase', async (req, res) => {
+  try {
+    const phase = req.body?.phase;
+    if (!phase) return res.status(400).json({ error: 'phase required' });
+
+    const { session } = resolveSession(req);
+    if (!session) {
+      // No orchestrator (redeploy / expired grace TTL). The browser-side
+      // NVE D5 source latch falls back to its local map after 250ms.
+      return res.status(404).json({ error: 'Session not found', events: [] });
+    }
+
+    const result = session.abi.onPhaseTransition(phase);
+    if (!result.accepted) {
+      return res.status(400).json({ error: `Unknown phase: ${phase}` });
+    }
+
+    res.json({
+      success: true,
+      phase: result.phase,
+      regulation_ok: result.regulation_ok,
+      events: drainEvents(session)
+    });
+  } catch (error) {
+    Sentry.captureException(error);
+    res.status(500).json({ error: 'phase notification failed' });
+  }
+});
+
+
 // ── DRILL SELECTION ─────────────────────────────────────────
 // POST /api/abi/session/drill-select  (legacy)
 // POST /api/abi/drill/select          (v8 pattern)
@@ -874,9 +926,19 @@ router.post('/session/complete', async (req, res) => {
     await sessionStateManager.updateSessionState(sk, { phase: 'completed' });
     await sessionStateManager.deactivateSession(sk);
 
-    // Clean up in-memory
-    if (key) activeSessions.delete(key);
-    if (sk && sk !== key) activeSessions.delete(sk);
+    // Clean up in-memory — DEFERRED by a grace TTL (NVE prod wiring).
+    // The browser completes the ABI session at 'shift', but the phases
+    // AFTER it (close/mirror/vault/ascent/surface) still notify
+    // /session/phase and need the orchestrator resolvable so the
+    // nve_directive path stays primary for them (D4: no LOW phase runs
+    // on the SSM fallback). Real post-shift arc is ~1-3 min; 10 min is
+    // a safe ceiling. DB deactivation above is immediate and unchanged.
+    session.completedAt = Date.now();
+    const graceTimer = setTimeout(() => {
+      if (key) activeSessions.delete(key);
+      if (sk && sk !== key) activeSessions.delete(sk);
+    }, COMPLETED_SESSION_GRACE_MS);
+    if (graceTimer.unref) graceTimer.unref();
 
     res.json({ success: true, result, events });
   } catch (error) {
