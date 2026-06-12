@@ -302,11 +302,17 @@ phase.
 3. **Constant ownership — DECIDED (NVE-local).** See Decisions → D1.
 4. **Biofeedback-floor authority — DECIDED (floor client-side; ABI passes
    `regulation_ok` only).** See Decisions → D2.
-5. **postMessage origin / embedding.** NVE currently listens with `'*'`. Specify
-   an origin check (`window.location.origin`) and **confirm whether `index_v8`
-   runs standalone or inside an iframe** — that determines whether directives
-   arrive same-window (via `AbiService`) or cross-frame (parent → child), which
-   changes where the bridge in §2.3 lives.
+5. **postMessage origin / embedding — INVESTIGATED: iframe-embedded, but the
+   bridge is SAME-WINDOW.** `index_v8` runs inside an `<iframe>` in the React PWA
+   (`frontend/src/screens/SessionScreen.jsx`, `src=/breathe?embedded=true`).
+   **However, `AbiService` lives inside `index_v8` alongside NVE** — both
+   co-located in the iframe document — so the ABI→NVE bridge is **same-window**
+   (`AbiService` → `window.postMessage(..., window.location.origin)` → NVE in the
+   same document), **not** cross-frame from the parent PWA. The parent frame is
+   **not** in the directive path (it carries only auth handshake + completion
+   nav). The `'*'` → `window.location.origin` origin hardening is correct and
+   trivial. This **simplifies** the bridge (§2 scope item 3) — no cross-frame
+   plumbing. Not an open question.
 6. **Z-order & dual-file parity.** Verify the z5/z2 placement against live
    `index_v8` stacking, and re-confirm byte-identical dual files after edits.
 7. **Performance on device.** NVE field RAF + DepthEngine RAF co-running behind
