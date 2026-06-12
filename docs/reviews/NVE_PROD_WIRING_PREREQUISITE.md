@@ -54,11 +54,17 @@ Investigated in code (citations are current as of the C2 branch):
   `pacer_update`, `pacer_pause/resume`, `session_end`, `mirror_data`,
   `offer_exit`, `offer_drill`, `identity_challenge`, `state_change` — none carry
   phase/visual/intensity.
-- **AXIS (`src/axis/axisEngine.js`) is a post-session, offline aggregator**
-  (ingest → nightly refine → next-session recommendation). It has no real-time
-  phase state and no per-tick control. "Through ABI/AXIS" in real time therefore
-  means **through ABI**; AXIS participates only as an offline baseline source
-  (see §1.4).
+- **AXIS (`src/axis/axisEngine.js`) is NOT in the real-time tick/phase path.**
+  Its only runtime touchpoints are a non-blocking `ingestSessionData` at **session
+  close** (`sessionOrchestrator.js` ~1936), the nightly refinement cron
+  (`server.js` ~893, gated by `ENABLE_AXIS_CRON`), and clinician/admin analytics
+  routes (`axisRoutes.js`). The `'AXIS: active'` boot line (`server.js` ~881) is a
+  **static banner string** = mounted/available, **not** a runtime path indicator
+  and **not** computed (the same banner reads `21/21` while `/health` reads
+  `14/14`). AXIS has no per-tick or per-phase control and never carries
+  phase/visual/intensity to the browser. "Through ABI/AXIS" in real time therefore
+  means **through ABI**; AXIS participates only as an optional offline baseline
+  source (see §1.4).
 - **A dormant browser channel already exists:** NVE listens for
   `window.postMessage({type:'NARRATIVE_VISUAL', payload})` and
   `NARRATIVE_VISUAL_CLEAR` (`narrativeVisualsEngine.js` ~1436/1505). **Nothing
@@ -140,9 +146,10 @@ dependency to the core session clock. The directive is satisfied by routing the
 
 ### 1.4 AXIS hook (note only)
 
-AXIS is offline, so it does not carry per-phase intensity. Future, optional: AXIS
-trajectory (e.g. high panic-rate history) could set a per-session **intensity
-ceiling / floor baseline** delivered to ABI at session start, which ABI then
+AXIS is not in the real-time path (§1.1), so it does not carry per-phase
+intensity. Future, optional: AXIS trajectory (e.g. high panic-rate history) could
+set a per-session **intensity ceiling / floor baseline** delivered to ABI at
+session start, which ABI then
 folds into its directive. Not required for first wiring.
 
 ---
@@ -257,7 +264,7 @@ After wiring is merged and verified, tune on the **real** `index_v8` session —
 | ABI tick response shape | `src/routes/abiRoutes.js` | ~428, ~624–640 |
 | ABI event types (no phase/visual) | `src/routes/abiRoutes.js` | ~118–163 |
 | Orchestrator phase mirrors browser | `src/abi/sessionOrchestrator.js` | ~135, 495, 558 |
-| AXIS offline aggregator | `src/axis/axisEngine.js` | ~1–173 |
+| AXIS not in real-time path (session-end ingest + cron + clinician routes) | `src/abi/sessionOrchestrator.js` ~1936, `server.js` ~881/~893, `src/axis/axisEngine.js`, `src/routes/axisRoutes.js` | — |
 | NVE SSM connection + phase→intensity | `public/modules/narrativeVisualsEngine.js` | `connectToStateMachine`, `_applyPhaseDefaults`, `PHASE_INTENSITY` |
 | NVE dormant postMessage channel | `public/modules/narrativeVisualsEngine.js` | ~1436 (`NARRATIVE_VISUAL` listener) |
 
