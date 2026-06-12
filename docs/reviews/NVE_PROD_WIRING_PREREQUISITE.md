@@ -1,0 +1,359 @@
+# NVE Production-Wiring Prerequisite
+
+**Status:** SPEC — design only. No wiring code in this document.
+**Date:** 2026-06-11
+**Scope:** Establish the *routing decision* and the wiring design that must be
+agreed **before** the Narrative Visuals Engine (NVE) is connected into the live
+session UI (`index_v8`). Wiring itself is a separate, reviewed change.
+
+**Hard constraints carried from the C2 work:**
+- `public/modules/narrativeVisualsEngine.js` is a **locked file** (modification
+  requires Plan Mode + verify-ascen).
+- `public/index_v8.html` and `public/index_v8_production.html` are under the
+  **dual-file rule** — every edit must land in both, byte-identical.
+- **Two-layer separation (locked):** biofeedback controls water state; NVE
+  controls objects/events *within* the water. NVE never sets water clarity,
+  light, or turbulence.
+
+---
+
+## 0. Prerequisite-of-the-prerequisite — RESOLVED
+
+The NVE C2 engine + intensity/floor layer is **merged to `main`** — via PR #7,
+merge commit `2575138` (parents `[d998054, b216b1c]`); all four C2 commits
+(`0642ba9` engine, `032a806` harness, `47d1adc` step-3a, `b216b1c`
+intensity/floor) are now ancestors of `main` and deployed (dormant — not yet
+wired into `index_v8`) to production. The earlier "wiring blocked on merge"
+condition no longer applies.
+
+---
+
+## 1. THE ROUTING QUESTION (resolve before any wiring design)
+
+> **Does NVE attach to the session through the ABI orchestrator / AXIS, or via
+> the same `connectToStateMachine(SSM)` browser-event-bus path DepthEngine and
+> Dialogue use?**
+
+### 1.1 Established answer: the SSM path bypasses ABI/AXIS today
+
+Investigated in code (citations are current as of the C2 branch):
+
+- **Phase is decided in the browser SSM**, autonomously, by timers and session
+  milestones — `public/index_v8.html` `PHASE_ORDER` (~753), `_setPhase()` (~811)
+  which fires `_ssmEmit('onPhaseChange', phase)` (~816), advanced by
+  `advancePhase()` (~839–853).
+- **DepthEngine, SessionUI, Dialogue, Integration** all bind directly to that
+  browser bus via `*.connectToStateMachine(SSM)` (`index_v8.html` ~3239–3248).
+  This is a **browser-only event bus** — it does **not** traverse the backend.
+- **The backend ABI orchestrator is NOT in that phase-signal path.**
+  `src/abi/sessionOrchestrator.js` keeps a `sessionPhase` that **mirrors** the
+  browser (set when the browser reports lifecycle); it never *originates* or
+  *pushes* phase to the client. The ABI tick response
+  (`src/routes/abiRoutes.js` ~624–640) returns `coherence`, `ns3`, `events[]`,
+  `drifting_word`, ratio fields — **no `phase`, no `intensity`, no visual
+  directive**. ABI event types today (`abiRoutes.js` ~118–163): `luno_speak`,
+  `pacer_update`, `pacer_pause/resume`, `session_end`, `mirror_data`,
+  `offer_exit`, `offer_drill`, `identity_challenge`, `state_change` — none carry
+  phase/visual/intensity.
+- **AXIS (`src/axis/axisEngine.js`) is NOT in the real-time tick/phase path.**
+  Its only runtime touchpoints are a non-blocking `ingestSessionData` at **session
+  close** (`sessionOrchestrator.js` ~1936), the nightly refinement cron
+  (`server.js` ~893, gated by `ENABLE_AXIS_CRON`), and clinician/admin analytics
+  routes (`axisRoutes.js`). The `'AXIS: active'` boot line (`server.js` ~881) is a
+  **static banner string** = mounted/available, **not** a runtime path indicator
+  and **not** computed (the same banner reads `21/21` while `/health` reads
+  `14/14`). AXIS has no per-tick or per-phase control and never carries
+  phase/visual/intensity to the browser. "Through ABI/AXIS" in real time therefore
+  means **through ABI**; AXIS participates only as an optional offline baseline
+  source (see §1.4).
+- **A dormant browser channel already exists:** NVE listens for
+  `window.postMessage({type:'NARRATIVE_VISUAL', payload})` and
+  `NARRATIVE_VISUAL_CLEAR` (`narrativeVisualsEngine.js` ~1436/1505). **Nothing
+  posts these today** — it is unused plumbing, browser-only.
+
+**Conclusion:** `connectToStateMachine(SSM)` is **not** the ABI-sanctioned entry.
+It binds the browser event bus and goes **around** ABI/AXIS. Per the PRIMARY
+DIRECTIVE ("all flows through ABI/AXIS, no bypasses"), **NVE must not replicate
+this bypass.**
+
+### 1.2 The orchestrated path (REQUIRED design)
+
+The directive's own phrasing is the target: *the SSM phase reaches the visual
+layer **via** the ABI orchestrator — not read around it.* Design:
+
+```
+ browser SSM _setPhase(phase)
+      │  (1) phase-change notification → ABI   [extend ABI: new input]
+      ▼
+ ABI orchestrator (src/abi)  ── owns phase context + NS3/coherence + regulation-window
+      │  (2) decides the presence directive (phase→intensity, floor, NS3 gate)
+      │      emits a NEW event in the existing events[] stream
+      ▼
+ ABI tick/lifecycle response → events[]  (abiRoutes drainEvents)
+      │  (3) AbiService._processEvents() routes by event.type   (index_v8 ~2741–2743)
+      ▼
+ bridge callback posts window.postMessage({type:'NARRATIVE_VISUAL'|'NVE_INTENSITY', payload})
+      │  (4) same-window post (origin-checked)
+      ▼
+ NVE postMessage listener → eases intensity / triggers visual   (narrativeVisualsEngine.js ~1436)
+```
+
+This reuses **two existing mechanisms** rather than inventing transport:
+- ABI's `events[]` → `AbiService._processEvents` callback dispatch (already the
+  way `luno_speak`, `pacer_*`, etc. reach the browser).
+- NVE's dormant `NARRATIVE_VISUAL` postMessage listener (built for exactly this).
+
+**ABI extension required (the directive's "extend ABI" clause):**
+1. **Input leg** — ensure ABI is told of *every* phase transition. **Investigated
+   (§5 Q1): today ABI is NOT** — it only sees session start, arrival→breathing
+   (`onArrivalComplete`), the breathing tick stream, and session complete. The
+   text-heavy LOW phases (`arrival`/`opening`/`resistance`/`close`) and
+   `descent`/`before_the_breath`/`shift`/`mirror`/`vault` are browser-internal
+   with no backend notification, and **no `/api/abi/session/*` endpoint takes a
+   `phase` parameter**. So this is a **broad lifecycle change**, not a piggyback:
+   add `POST /api/abi/session/phase {session_key, phase}` fired on **every**
+   `advancePhase()` (~8–11 calls/session) plus ABI-side transition handling, so
+   ABI has the authoritative phase as input for **all** phases. Built as part of
+   the wiring task (Decisions → D4).
+2. **Decision** — ABI resolves the presence directive. **Decided split (see
+   Decisions → D1/D2):** ABI emits the **phase label + a regulation flag** (it
+   owns NS3 / `isInRegulationWindow`), and NVE keeps the `PHASE_INTENSITY` map +
+   the `BIOFEEDBACK_MIN_OPACITY` floor **locally** as the single tunable
+   translation table. This keeps the presentation constants in one
+   on-device-tunable place (the module) while ABI remains the *authority that
+   decides when/what fires*
+   and supplies the biometric gate. (Alternative: ABI emits the resolved numeric
+   `intensity_target` and the map moves server-side — see §5 Q3.)
+3. **Output leg** — new event type, e.g.:
+   ```json
+   { "type": "nve_directive",
+     "data": { "kind": "phase_intensity",
+               "phase": "before_the_breath",
+               "intensity_target": 0.85,        // optional if NVE maps locally
+               "ease_ms": 700,
+               "regulation_ok": true } }
+   ```
+   Registered in the orchestrator callback set (`abiRoutes.js` ~118–163) and
+   drained into `events[]`.
+
+**NVE keeps SSM only for the non-phase mechanics it legitimately needs:**
+`onBreathPhase` (breath-frame coupling for `environment_sync`), `onSessionStart`,
+`onSessionReset`. These are biometric/lifecycle signals, **not** the presence
+decision. The intensity ease currently triggered inside `_applyPhaseDefaults`
+(on SSM `onPhaseChange`) becomes the **offline fallback only** — gated so that
+when an ABI directive is the source of truth, ABI drives intensity and the
+SSM-phase ease does not double-drive it (see §5 Q2 for the fallback threshold).
+
+### 1.3 Why not just make ABI the phase authority outright?
+
+Rejected as out of scope and high-risk: moving phase *origination* from the
+browser SSM to ABI would break deterministic phase timing and add a network
+dependency to the core session clock. The directive is satisfied by routing the
+**presence decision** through ABI (SSM phase as *input* to ABI, ABI as the
+*emitter* to NVE) — not by relocating the session clock.
+
+### 1.4 AXIS hook (note only)
+
+AXIS is not in the real-time path (§1.1), so it does not carry per-phase
+intensity. Future, optional: AXIS trajectory (e.g. high panic-rate history) could
+set a per-session **intensity ceiling / floor baseline** delivered to ABI at
+session start, which ABI then
+folds into its directive. Not required for first wiring.
+
+---
+
+## 2. Exact wiring point in `index_v8` (+ dual-file rule)
+
+**Wiring task scope (D4 — built WHOLE, directive-complete).** This is **one**
+change, spanning backend + frontend, with **no interim stage**:
+1. **ABI phase-notification leg** — new `POST /api/abi/session/phase` in
+   `src/routes/abiRoutes.js`, fired on **every** `advancePhase()` in `index_v8`,
+   plus ABI-side transition handling in `src/abi/sessionOrchestrator.js` (§1.2.1 /
+   §5 Q1). This is what lets **all** phases — including the LOW text-heavy ones —
+   route through ABI from day one.
+2. **ABI emits `nve_directive`** on the `events[]` stream (§1.2.3).
+3. **Same-window `AbiService`→NVE bridge inside `index_v8`** — origin-checked
+   `postMessage`. Per the §5 Q5 finding, `AbiService` and NVE share the **iframe
+   document**, so the bridge is **same-window** (not cross-frame from the PWA
+   parent).
+4. **NVE acts on the directive** with the Q2 source-latch fallback (§5 Q2) — the
+   SSM-phase ease is fallback-only, never primary (D4).
+5. **Wire NVE into the dual-file pair**, byte-identical.
+
+Constants stay **NVE-local (D1)**; floor **client-side + `regulation_ok` flag
+(D2)**. The per-file `index_v8` steps below detail items 3–5 (frontend); items
+1–2 are the backend legs.
+
+All edits below land **identically in both** `public/index_v8.html` **and**
+`public/index_v8_production.html`; verify byte-identical after (`cmp -s` / equal
+`git hash-object`).
+
+1. **Load the module.** Add `<script src="modules/narrativeVisualsEngine.js"></script>`
+   alongside the other module includes. (Today `index_v8.html` has **zero**
+   references to NVE.)
+2. **Init + non-phase connects**, in the init sequence next to the existing
+   `*.connectToStateMachine(SSM)` block (~3239–3257):
+   - `NarrativeVisualsEngine.init();`
+   - `NarrativeVisualsEngine.connectToDepthEngine(DepthEngine);` — required so
+     `gap_reveal` freeze/restore stays coordinated with DepthEngine's RAF.
+   - `NarrativeVisualsEngine.connectToBiometricBridge(BioBridge);`
+   - `NarrativeVisualsEngine.connectToStateMachine(SSM);` — **for `onBreathPhase`
+     / `onSessionStart` / `onSessionReset` only**; its phase→intensity ease runs
+     as the offline fallback (see §1.2 / §5 Q2).
+3. **The orchestrated bridge (the point of this spec).** Register an ABI event
+   handler that forwards directives to NVE via the existing postMessage channel:
+   `AbiService.on('nve_directive', fn)` where `fn` posts
+   `window.postMessage({type:'NARRATIVE_VISUAL'|'NVE_INTENSITY', payload}, window.location.origin)`.
+   This is the leg that makes the signal flow **through ABI**.
+4. **Z-order / layer check.** NVE creates `#nveCanvas` (z5) and `#nveBgOverlay`
+   (z2) inside `#immersiveView`. Confirm z5 sits **above** `depthCanvas` (z0) and
+   `ocean-bg` (z1) but **below** Luno (`#lunoCon` z10) and dialogue (z20), so the
+   field reads as objects within the water, behind primary content. Re-assert the
+   two-layer lock: NVE must not touch water clarity/light/turbulence.
+
+---
+
+## 3. Pattern this establishes for DepthEngine / Dialogue (note — do NOT migrate now)
+
+Once the ABI→`events[]`→`_processEvents`→postMessage directive channel exists,
+it is the **general orchestrated path** for any browser visual/narrative module.
+DepthEngine (coherence/depth) and Dialogue (phase-driven text) currently bypass
+ABI via `connectToStateMachine(SSM)` and could **later** migrate onto ABI
+directives — removing the remaining bypasses and centralizing
+phase/visual authority in ABI. **This is explicitly out of scope here.** Each
+migration is its own reviewed change with its own regression surface; NVE goes
+first precisely because it is not yet wired and carries no production runtime
+today. Recorded as the intended direction, not an action item.
+
+---
+
+## 4. On-device tuning step (follows wiring)
+
+After wiring is merged and verified, tune on the **real** `index_v8` session —
+**not** the harness (the harness field is a flat mock background):
+
+- Run at real session brightness in **PGC-CRC room lighting**, behind **real
+  dialogue text + the real DepthEngine gradient** (surface-sunny → deep-dark).
+- Tune `PHASE_INTENSITY` (per-phase presence) and `BIOFEEDBACK_MIN_OPACITY`
+  (the legibility floor). Starting placeholders from C2:
+  `arrival/opening/resistance 0.25, close 0.30, before_the_breath 0.85,
+  breathing 0.90, shift 0.80, gap_reveal 1.0`; `BIOFEEDBACK_MIN_OPACITY = 0.35`.
+- If the map stays in NVE (recommended, §1.2), tuning edits module constants
+  (locked-file path: Plan Mode + verify-ascen); if moved server-side, tune ABI.
+- **Report back:** which layers actually needed the floor, and the final tuned
+  constant values.
+
+---
+
+## Decisions (settled)
+
+These were open questions; they are now **decided** and are NOT pending.
+
+**D1 — Constant ownership (was Q3): DECIDED — NVE-local.** The `PHASE_INTENSITY`
+map and `BIOFEEDBACK_MIN_OPACITY` stay in `narrativeVisualsEngine.js`, on-device
+tunable with **no backend redeploy** to tune. ABI emits a phase/intensity
+*intent* (the `nve_directive`, §1.2.3); **NVE owns the constants** and performs
+the translation/ease locally. The map is the single source of truth.
+
+**D2 — Biofeedback-floor / NS3-gate authority (was Q4): DECIDED — floor stays
+client-side.** `BIOFEEDBACK_MIN_OPACITY` and the floor clamp remain entirely in
+NVE. ABI supplies a `regulation_ok` flag only (from NS3 / `isInRegulationWindow`);
+it does **not** drive, own, or raise the floor, and **no clinical gate logic
+relocates to ABI**. NVE may use `regulation_ok` as an input, but floor authority
+is client-side.
+
+**D3 — Engine on main (was §0 / Q9): RESOLVED.** C2 engine merged via PR #7
+(merge commit `2575138`). See §0.
+
+**D4 — Wiring is built WHOLE, not staged (Option A): DECIDED.** The Q1
+phase-notification leg (§1.2.1 / §5 Q1) ships **as part of** the wiring task, so
+**all** phases — including the text-heavy LOW phases (`arrival`/`opening`/
+`resistance`/`close`) — route through ABI **from day one**. There is **no interim
+stage** where LOW phases run on the browser SSM path. Rationale:
+directive-complete (no partial bypass, even temporarily), and on-device tuning
+happens against the **real ABI-driven path**, not a to-be-replaced fallback. The
+SSM-phase → `PHASE_INTENSITY` ease remains **only** as the offline/latency
+fallback (per the Q2 source-latch guard), never as the primary path for any
+phase.
+
+**D5 — Latency / offline fallback (was Q2): DECIDED.** Threshold **`N = 250 ms`**
+(well inside the 700 ms ease; the same-window bridge per Q5 means no extra network
+hop, so 250 ms is a safety margin against a stalled/absent ABI, not a tight race).
+Double-drive guard = **per-phase source latch:**
+1. On SSM `onPhaseChange(phase)`: record `phase`, set `source = 'pending'`, start
+   an `N`-ms fallback timer; do **not** ease from the local map yet.
+2. ABI `nve_directive` for that phase arrives **before** the timer → cancel the
+   timer, `source = 'abi'`, ease to ABI intent. **ABI wins.**
+3. Timer fires first (no directive / offline) → `source = 'ssm-fallback'`, ease via
+   local `PHASE_INTENSITY[phase]`.
+4. A directive arriving **after** a fallback already eased still **overrides**
+   (re-ease to ABI intent, `source = 'abi'`). ABI is always authoritative when
+   present.
+5. Mutual exclusion is structural: `_easeIntensityTo` cancels any in-flight tween
+   before starting a new one, and the fallback ease is gated behind the latch — at
+   most one path drives per phase change.
+
+---
+
+## 5. Open questions / risks
+
+1. **Does ABI receive every phase transition? — INVESTIGATED: No.** ABI is told
+   about only a **subset**: session start, the arrival→breathing transition
+   (`onArrivalComplete`), the breathing **tick stream**, and session complete.
+   `sessionOrchestrator.js` sets `sessionPhase` only at those points
+   (`init`/`pre_session`/`arrival`/`breathing`/`somatic`/`close`/`done`) and
+   **no `/api/abi/session/*` endpoint accepts a `phase` parameter** — ABI infers
+   phase from which endpoint fired. The text-heavy **LOW-intensity phases
+   (`arrival`/`opening`/`resistance`/`close`)** — exactly the ones the intensity
+   feature must drive to LOW — are **browser-internal with no backend
+   notification**, as are `descent`/`before_the_breath`/`shift`/`mirror`/`vault`.
+   **Therefore the input leg (§1.2.1) is a broad lifecycle change**, not a small
+   add: a new `POST /api/abi/session/phase` fired on every `advancePhase()`
+   (~8–11 calls/session) plus ABI-side transition handling. This is built as part
+   of the wiring task (see Decisions → D4); not an open question.
+2. **Latency / offline fallback — DECIDED (N = 250 ms; per-phase source latch).**
+   See Decisions → D5.
+3. **Constant ownership — DECIDED (NVE-local).** See Decisions → D1.
+4. **Biofeedback-floor authority — DECIDED (floor client-side; ABI passes
+   `regulation_ok` only).** See Decisions → D2.
+5. **postMessage origin / embedding — INVESTIGATED: iframe-embedded, but the
+   bridge is SAME-WINDOW.** `index_v8` runs inside an `<iframe>` in the React PWA
+   (`frontend/src/screens/SessionScreen.jsx`, `src=/breathe?embedded=true`).
+   **However, `AbiService` lives inside `index_v8` alongside NVE** — both
+   co-located in the iframe document — so the ABI→NVE bridge is **same-window**
+   (`AbiService` → `window.postMessage(..., window.location.origin)` → NVE in the
+   same document), **not** cross-frame from the parent PWA. The parent frame is
+   **not** in the directive path (it carries only auth handshake + completion
+   nav). The `'*'` → `window.location.origin` origin hardening is correct and
+   trivial. This **simplifies** the bridge (§2 scope item 3) — no cross-frame
+   plumbing. Not an open question.
+6. **Z-order & dual-file parity.** Verify the z5/z2 placement against live
+   `index_v8` stacking, and re-confirm byte-identical dual files after edits.
+7. **Performance on device.** NVE field RAF + DepthEngine RAF co-running behind
+   real content — validate the frame budget on the actual PGC-CRC hardware
+   (harness validated logic, not real-device cost).
+8. **Review gates.** NVE module edits = Plan Mode + verify-ascen (locked file);
+   `index_v8` edits = dual-file rule + production review discipline
+   (cf. `docs/reviews/` Manus Phase 1/2/3 precedent). Wiring ships as its own
+   reviewed change, separate from this spec.
+9. **Engine on main — RESOLVED.** C2 engine merged via PR #7 (merge commit
+   `2575138`); see §0 / Decisions → D3.
+
+---
+
+## Appendix — key citations
+
+| Concern | File | Lines |
+|---|---|---|
+| Browser SSM phase authority | `public/index_v8.html` | ~753 (PHASE_ORDER), ~811 (`_setPhase`), ~839–853 (`advancePhase`) |
+| Direct-bus consumers (the bypass) | `public/index_v8.html` | ~3239–3248 (`*.connectToStateMachine(SSM)`) |
+| AbiService transport + event dispatch | `public/index_v8.html` | ~2740–2757 (`_req`, `_processEvents`), ~2839 (tick apply) |
+| ABI tick response shape | `src/routes/abiRoutes.js` | ~428, ~624–640 |
+| ABI event types (no phase/visual) | `src/routes/abiRoutes.js` | ~118–163 |
+| Orchestrator phase mirrors browser | `src/abi/sessionOrchestrator.js` | ~135, 495, 558 |
+| AXIS not in real-time path (session-end ingest + cron + clinician routes) | `src/abi/sessionOrchestrator.js` ~1936, `server.js` ~881/~893, `src/axis/axisEngine.js`, `src/routes/axisRoutes.js` | — |
+| NVE SSM connection + phase→intensity | `public/modules/narrativeVisualsEngine.js` | `connectToStateMachine`, `_applyPhaseDefaults`, `PHASE_INTENSITY` |
+| NVE dormant postMessage channel | `public/modules/narrativeVisualsEngine.js` | ~1436 (`NARRATIVE_VISUAL` listener) |
+
+*Line numbers reference the C2 engine branch; confirm offsets after the engine
+merges to main.*
