@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Scenario A Harness — Partner content in ASCEN's OWN player (hls.js, Rev 3.1).
+  ─────────────────────────────────────────────────────────────────────────────
+  Loads the REAL PartnerPlayer adapter + FeedbackFilterEngine + MediaFeedbackLayer
+  with a MOCK BioBridge emitting the NS3 biometricTick contract (coherence 0-1).
+  Content = PUBLIC TEST STREAM (PartnerPlayer.CONFIG.STREAM_URL). Go-live is a
+  URL/credential swap in playerAdapter.js CONFIG — no build changes.
+
+  The ENABLE_PARTNER_FEEDBACK flag defaults FALSE in the module; this harness
+  flips it explicitly (dev-only). Production keeps it off.
+
+  INVARIANTS exercised here: volume duck via native video.volume only, no
+  MediaElementAudioSourceNode, no CSS filters on the video element.
+
+  DUAL-FILE PARITY DOES NOT APPLY — dev-only third surface, never deployed.
+  Open via file:// (needs network for the test stream).
+-->
+<head>
+<meta charset="UTF-8">
+<title>Scenario A Harness — hls.js + coherence feedback</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%201%201%22%2F%3E" />
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0f16; font-family:-apple-system,system-ui,sans-serif; color:#cfe0f0; }
+  .banner { position:fixed; top:0; left:0; right:0; z-index:9999; background:#082a14; color:#b4ffd0;
+    border-bottom:3px solid #30ff7a; padding:6px 16px; font:700 12px monospace; letter-spacing:1.5px;
+    text-align:center; pointer-events:none; }
+  .wrap { max-width:1100px; margin:48px auto 24px; padding:0 16px; display:flex; gap:16px; flex-wrap:wrap; }
+  #playerBox { flex:1 1 620px; background:#000; border-radius:8px; overflow:hidden; aspect-ratio:16/9; }
+  .panel { flex:1 1 320px; background:#101826; border:1px solid #1e2c40; border-radius:8px; padding:14px;
+    font-size:13px; }
+  .panel h3 { font-size:12px; letter-spacing:1.2px; color:#7fa8d0; margin:14px 0 6px; text-transform:uppercase; }
+  .panel h3:first-child { margin-top:0; }
+  button { background:#1b4f7a; border:none; color:#e6f0fa; padding:7px 12px; border-radius:5px;
+    cursor:pointer; font-size:12px; margin:2px 4px 2px 0; }
+  button:hover { background:#266a9e; }
+  button.active { background:#2e9e6b; }
+  input[type=range] { width:100%; }
+  input[type=text] { width:100%; background:#0c1420; border:1px solid #1e2c40; color:#cfe0f0;
+    padding:5px 7px; border-radius:4px; font:11px monospace; }
+  label { font-size:12px; }
+  .row { display:flex; justify-content:space-between; padding:2px 0; font:12px monospace; }
+  .bar { height:8px; background:#0c1420; border-radius:4px; overflow:hidden; margin:2px 0 8px; }
+  .bar > div { height:100%; width:0%; transition:width 0.3s linear; }
+  #bCoh > div { background:#4da3ff; } #bEma > div { background:#7fc7ff; }
+  #bClar > div { background:#2e9e6b; } #bDim > div { background:#8a8a8a; }
+  #bVol > div { background:#c9a23f; } #bAmb > div { background:#9a6fd0; }
+  #log { font:11px monospace; color:#6f87a0; max-height:120px; overflow-y:auto; margin-top:8px;
+    border-top:1px solid #1e2c40; padding-top:6px; }
+</style>
+</head>
+<body>
+<div class="banner">SCENARIO A HARNESS — PUBLIC TEST STREAM (HLS.JS) — FLAG FORCED ON (DEV) — NOT PRODUCTION</div>
+
+<div class="wrap">
+  <div id="playerBox"><!-- PartnerPlayer mounts its wrapper+video here; MFL overlays mount inside getOverlayTarget() --></div>
+
+  <div class="panel">
+    <h3>Stream (Scenario A — our player)</h3>
+    <input type="text" id="streamUrl" placeholder="m3u8 URL (defaults to PartnerPlayer CONFIG)">
+    <div class="row"><span>player mode / levels</span><span id="vMode">—</span></div>
+    <div class="row"><span>currentTime</span><span id="vTime">—</span></div>
+
+    <h3>Session</h3>
+    <button id="btnStart">▶ Start (mount stream + baseline)</button>
+    <button id="btnStop">■ Stop</button>
+    <div style="margin-top:6px">
+      <label><input type="checkbox" id="chkGate"> Enable pause gate (clarity &lt; 0.15 for 12s)</label>
+    </div>
+
+    <h3>Coherence source (synthetic, contract-shaped, 1 Hz)</h3>
+    <button class="mode" data-mode="manual">Manual</button>
+    <button class="mode" data-mode="climb">Coherent climb</button>
+    <button class="mode" data-mode="drop">Drift drop</button>
+    <button class="mode" data-mode="sine">Sine wave</button>
+    <button class="mode" data-mode="walk">Random walk</button>
+    <input type="range" id="cohSlider" min="0" max="100" value="25">
+
+    <h3>Live state</h3>
+    <div class="row"><span>coherence (NS3 0–1)</span><span id="vCoh">—</span></div><div class="bar" id="bCoh"><div></div></div>
+    <div class="row"><span>EMA (N=5)</span><span id="vEma">—</span></div><div class="bar" id="bEma"><div></div></div>
+    <div class="row"><span>clarity →</span><span id="vClar">—</span></div><div class="bar" id="bClar"><div></div></div>
+    <div class="row"><span>dim overlay opacity</span><span id="vDim">—</span></div><div class="bar" id="bDim"><div></div></div>
+    <div class="row"><span>player volume (native)</span><span id="vVol">—</span></div><div class="bar" id="bVol"><div></div></div>
+    <div class="row"><span>ambient bed gain</span><span id="vAmb">—</span></div><div class="bar" id="bAmb"><div></div></div>
+    <div class="row"><span>baseline / gate</span><span id="vMeta">—</span></div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<!-- Vendored hls.js + REAL modules under test -->
+<script src="../../public/vendor/hls.min.js"></script>
+<script src="../../public/modules/playerAdapter.js"></script>
+<script src="../../public/modules/feedbackFilterEngine.js"></script>
+<script src="../../public/modules/mediaFeedbackLayer.js"></script>
+
+<script>
+(function () {
+  'use strict';
+  var USER = 'user_harness';
+
+  // ── MOCK BioBridge (Port 2 contract surface only: on/emit) ────────────────
+  var MockBio = (function () {
+    var bus = {};
+    return {
+      on: function (userId, ev, cb) {
+        var k = userId + ':' + ev;
+        (bus[k] = bus[k] || []).push(cb);
+        return function off() { var a = bus[k]; var i = a.indexOf(cb); if (i >= 0) a.splice(i, 1); };
+      },
+      emit: function (userId, ev, data) {
+        var a = bus[userId + ':' + ev] || [];
+        for (var i = 0; i < a.length; i++) { try { a[i](data); } catch (e) { console.error(e); } }
+      }
+    };
+  })();
+
+  var adapter = null;
+  var running = false, tickTimer = null, timeTimer = null, tickCount = 0, t = 0;
+  var mode = 'manual';
+  var coh = 0.25, cohPeak = 0;
+  var BASELINE = 0.25;
+
+  function logLine(s) {
+    var el = document.getElementById('log');
+    el.innerHTML = new Date().toLocaleTimeString() + ' ' + s + '<br>' + el.innerHTML;
+  }
+
+  FeedbackFilterEngine.connectToBiometricBridge(MockBio);
+  FeedbackFilterEngine.bindUser(USER);
+
+  FeedbackFilterEngine.on('clarity', function (d) {
+    var st = MediaFeedbackLayer.getState();
+    var vol = adapter && adapter._getVideoEl() ? adapter._getVideoEl().volume : 0;
+    function set(id, bar, val, fmt) {
+      document.getElementById(id).textContent = fmt;
+      document.querySelector('#' + bar + ' > div').style.width = (val * 100) + '%';
+    }
+    set('vCoh', 'bCoh', d.coherence, d.coherence.toFixed(3));
+    set('vEma', 'bEma', d.ema, d.ema.toFixed(3));
+    set('vClar', 'bClar', d.clarity, d.clarity.toFixed(3) + (d.moved ? '' : ' (held)'));
+    set('vDim', 'bDim', st.dimOpacity, st.dimOpacity.toFixed(3));
+    set('vVol', 'bVol', vol, vol.toFixed(2));
+    set('vAmb', 'bAmb', st.ambientGainTarget, st.ambientGainTarget.toFixed(3));
+    document.getElementById('vMeta').textContent =
+      d.baseline.toFixed(2) + ' / ' + (st.gatePaused ? 'PAUSED' : 'open');
+  });
+
+  function nextCoherence() {
+    t++;
+    var slider = document.getElementById('cohSlider').value / 100;
+    if (mode === 'manual') coh = slider;
+    else if (mode === 'climb') coh = Math.min(0.9, coh + 0.02 + Math.random() * 0.01);
+    else if (mode === 'drop') coh = Math.max(0.03, coh - 0.03 - Math.random() * 0.02);
+    else if (mode === 'sine') coh = 0.4 + 0.35 * Math.sin(t / 8);
+    else if (mode === 'walk') coh = Math.max(0, Math.min(1, coh + (Math.random() - 0.5) * 0.08));
+    document.getElementById('cohSlider').value = Math.round(coh * 100);
+    return Math.max(0, Math.min(1, coh));
+  }
+
+  function tick() {
+    tickCount++;
+    var c = nextCoherence();
+    if (c > cohPeak) cohPeak = c;
+    MockBio.emit(USER, 'biometricTick', {
+      sample: { heart_rate: 72, hrv_rmssd: 45, respiratory_rate: 14, coherence: c, source: 'synthetic' },
+      ns3: Math.round(c * 100),
+      coherence: c,
+      coherencePeak: cohPeak,
+      tickCount: tickCount
+    });
+  }
+
+  document.getElementById('btnStart').addEventListener('click', function () {
+    if (running) return;
+    running = true; tickCount = 0; cohPeak = 0; t = 0;
+
+    // DEV-ONLY: module default is false; production keeps it off until go-live.
+    PartnerPlayer.configure({ ENABLE_PARTNER_FEEDBACK: true });
+    var urlOverride = document.getElementById('streamUrl').value.trim();
+    adapter = PartnerPlayer.create(urlOverride ? { streamUrl: urlOverride } : {});
+    window.__adapter = adapter; // exposed for the browser check
+
+    adapter.mount(document.getElementById('playerBox')).then(function (info) {
+      document.getElementById('vMode').textContent = info.mode + ' / ' + info.levels;
+      logLine('stream mounted (' + info.mode + ', ' + info.levels + ' level(s))');
+
+      MediaFeedbackLayer.init(adapter);            // adapter-first: overlays via getOverlayTarget()
+      MediaFeedbackLayer.attachEngine(FeedbackFilterEngine);
+      MediaFeedbackLayer.initAudio();              // user gesture chain → audio unlock
+      adapter.setVolume(1);
+      adapter.play().catch(function (e) { logLine('play blocked: ' + e.message); });
+
+      FeedbackFilterEngine.reset();
+      MockBio.emit(USER, 'arrivalComplete', {
+        mean_hr: 72, mean_hrv: 45, initial_coherence: BASELINE,
+        sample_count: 30, source: 'synthetic'
+      });
+      coh = BASELINE;
+      tickTimer = setInterval(tick, 1000);         // TICK_INTERVAL_MS = 1000
+      timeTimer = setInterval(function () {
+        var v = adapter && adapter._getVideoEl();
+        if (v) document.getElementById('vTime').textContent = v.currentTime.toFixed(1) + 's';
+      }, 500);
+      logLine('session started — baseline ' + BASELINE + ', 1 Hz contract ticks');
+    }).catch(function (e) {
+      running = false;
+      logLine('MOUNT FAILED: ' + e.message);
+    });
+  });
+
+  document.getElementById('btnStop').addEventListener('click', function () {
+    running = false;
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+    if (timeTimer) { clearInterval(timeTimer); timeTimer = null; }
+    MediaFeedbackLayer.teardown();
+    if (adapter) { adapter.destroy(); adapter = null; }
+    logLine('session stopped, adapter destroyed');
+  });
+
+  document.getElementById('chkGate').addEventListener('change', function (e) {
+    MediaFeedbackLayer.configure({ gateEnabled: e.target.checked });
+    logLine('gate ' + (e.target.checked ? 'ENABLED' : 'disabled'));
+  });
+
+  var modeBtns = document.querySelectorAll('button.mode');
+  modeBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      mode = b.getAttribute('data-mode');
+      modeBtns.forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+      logLine('source mode: ' + mode);
+    });
+  });
+  document.querySelector('button.mode[data-mode=manual]').classList.add('active');
+})();
+</script>
+</body>
+</html>

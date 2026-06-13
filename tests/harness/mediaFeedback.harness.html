@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Media Feedback Harness — Coherence-Driven Media Feedback Layer (Rev 2, DRM-safe).
+  ─────────────────────────────────────────────────────────────────────────────
+  Loads the REAL FeedbackFilterEngine + MediaFeedbackLayer modules with a MOCK
+  BioBridge that emits the exact NS3 output contract carried on 'biometricTick':
+      { sample, ns3: 0-100, coherence: 0-1, coherencePeak, tickCount }
+  plus 'arrivalComplete' { initial_coherence } for the per-session baseline.
+  Open directly via file:// — no server, no flags.
+
+  TEST VIDEO ONLY (our content / Big Buck Bunny). The HTML5 adapter here stands
+  in for the partner player API (OPEN ITEM 2). Hard constraints still honored:
+  no CSS filters on the video element, no MediaElementAudioSourceNode anywhere.
+
+  DUAL-FILE PARITY DOES NOT APPLY — dev-only third surface, never deployed.
+-->
+<head>
+<meta charset="UTF-8">
+<title>Media Feedback Harness — overlay dim + ambient bed</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%201%201%22%2F%3E" />
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0f16; font-family:-apple-system,system-ui,sans-serif; color:#cfe0f0; }
+  .banner { position:fixed; top:0; left:0; right:0; z-index:9999; background:#2a0808; color:#ffb4b4;
+    border-bottom:3px solid #ff3030; padding:6px 16px; font:700 12px monospace; letter-spacing:1.5px;
+    text-align:center; pointer-events:none; }
+  .wrap { max-width:1100px; margin:48px auto 24px; padding:0 16px; display:flex; gap:16px; flex-wrap:wrap; }
+  #playerBox { position:relative; flex:1 1 620px; background:#000; border-radius:8px; overflow:hidden;
+    aspect-ratio:16/9; }
+  #testVideo { width:100%; height:100%; display:block; object-fit:cover; }
+  .panel { flex:1 1 320px; background:#101826; border:1px solid #1e2c40; border-radius:8px; padding:14px;
+    font-size:13px; }
+  .panel h3 { font-size:12px; letter-spacing:1.2px; color:#7fa8d0; margin:14px 0 6px; text-transform:uppercase; }
+  .panel h3:first-child { margin-top:0; }
+  button { background:#1b4f7a; border:none; color:#e6f0fa; padding:7px 12px; border-radius:5px;
+    cursor:pointer; font-size:12px; margin:2px 4px 2px 0; }
+  button:hover { background:#266a9e; }
+  button.active { background:#2e9e6b; }
+  input[type=range] { width:100%; }
+  label { font-size:12px; }
+  .row { display:flex; justify-content:space-between; padding:2px 0; font:12px monospace; }
+  .bar { height:8px; background:#0c1420; border-radius:4px; overflow:hidden; margin:2px 0 8px; }
+  .bar > div { height:100%; width:0%; transition:width 0.3s linear; }
+  #bCoh > div { background:#4da3ff; } #bEma > div { background:#7fc7ff; }
+  #bClar > div { background:#2e9e6b; } #bDim > div { background:#8a8a8a; }
+  #bVol > div { background:#c9a23f; } #bAmb > div { background:#9a6fd0; }
+  #log { font:11px monospace; color:#6f87a0; max-height:120px; overflow-y:auto; margin-top:8px;
+    border-top:1px solid #1e2c40; padding-top:6px; }
+</style>
+</head>
+<body>
+<div class="banner">MEDIA FEEDBACK HARNESS — TEST VIDEO ONLY — NOT PRODUCTION — DUAL-FILE RULE N/A</div>
+
+<div class="wrap">
+  <div id="playerBox">
+    <video id="testVideo" loop playsinline
+      src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"></video>
+    <!-- MediaFeedbackLayer appends .mfl-dim + .mfl-grain overlays here, z-index 50/51 -->
+  </div>
+
+  <div class="panel">
+    <h3>Session</h3>
+    <button id="btnStart">▶ Start session (audio unlock + baseline)</button>
+    <button id="btnStop">■ Stop</button>
+    <div style="margin-top:6px">
+      <label><input type="checkbox" id="chkGate"> Enable pause gate (clarity &lt; 0.15 for 12s)</label>
+      <br><label style="font-size:11px;color:#6f87a0">local video file:
+        <input type="file" id="fileVideo" accept="video/*"></label>
+    </div>
+
+    <h3>Coherence source (synthetic, contract-shaped, 1 Hz)</h3>
+    <button class="mode" data-mode="manual">Manual</button>
+    <button class="mode" data-mode="climb">Coherent climb</button>
+    <button class="mode" data-mode="drop">Drift drop</button>
+    <button class="mode" data-mode="sine">Sine wave</button>
+    <button class="mode" data-mode="walk">Random walk</button>
+    <input type="range" id="cohSlider" min="0" max="100" value="25">
+
+    <h3>Live state</h3>
+    <div class="row"><span>coherence (NS3 0–1)</span><span id="vCoh">—</span></div><div class="bar" id="bCoh"><div></div></div>
+    <div class="row"><span>EMA (N=5)</span><span id="vEma">—</span></div><div class="bar" id="bEma"><div></div></div>
+    <div class="row"><span>clarity →</span><span id="vClar">—</span></div><div class="bar" id="bClar"><div></div></div>
+    <div class="row"><span>dim overlay opacity</span><span id="vDim">—</span></div><div class="bar" id="bDim"><div></div></div>
+    <div class="row"><span>player volume (adapter)</span><span id="vVol">—</span></div><div class="bar" id="bVol"><div></div></div>
+    <div class="row"><span>ambient bed gain</span><span id="vAmb">—</span></div><div class="bar" id="bAmb"><div></div></div>
+    <div class="row"><span>baseline / gate</span><span id="vMeta">—</span></div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<!-- REAL modules under test -->
+<script src="../../public/modules/feedbackFilterEngine.js"></script>
+<script src="../../public/modules/mediaFeedbackLayer.js"></script>
+
+<script>
+(function () {
+  'use strict';
+  var USER = 'user_harness';
+
+  // ── MOCK BioBridge (Port 2 contract surface only: on/emit) ────────────────
+  var MockBio = (function () {
+    var bus = {};
+    return {
+      on: function (userId, ev, cb) {
+        var k = userId + ':' + ev;
+        (bus[k] = bus[k] || []).push(cb);
+        return function off() { var a = bus[k]; var i = a.indexOf(cb); if (i >= 0) a.splice(i, 1); };
+      },
+      emit: function (userId, ev, data) {
+        var a = bus[userId + ':' + ev] || [];
+        for (var i = 0; i < a.length; i++) { try { a[i](data); } catch (e) { console.error(e); } }
+      }
+    };
+  })();
+
+  // ── Harness state ──────────────────────────────────────────────────────────
+  var video = document.getElementById('testVideo');
+  var running = false, tickTimer = null, tickCount = 0, t = 0;
+  var mode = 'manual';
+  var coh = 0.25, cohPeak = 0;
+  var BASELINE = 0.25;
+
+  function logLine(s) {
+    var el = document.getElementById('log');
+    el.innerHTML = new Date().toLocaleTimeString() + ' ' + s + '<br>' + el.innerHTML;
+  }
+
+  // ── Wire the REAL modules exactly like production will ───────────────────
+  FeedbackFilterEngine.connectToBiometricBridge(MockBio);
+  FeedbackFilterEngine.bindUser(USER);
+  MediaFeedbackLayer.init(
+    document.getElementById('playerBox'),
+    MediaFeedbackLayer.createHtml5Adapter(video) // stands in for partner player API
+  );
+  MediaFeedbackLayer.attachEngine(FeedbackFilterEngine);
+
+  FeedbackFilterEngine.on('clarity', function (d) {
+    var st = MediaFeedbackLayer.getState();
+    function set(id, bar, val, fmt) {
+      document.getElementById(id).textContent = fmt;
+      document.querySelector('#' + bar + ' > div').style.width = (val * 100) + '%';
+    }
+    set('vCoh', 'bCoh', d.coherence, d.coherence.toFixed(3));
+    set('vEma', 'bEma', d.ema, d.ema.toFixed(3));
+    set('vClar', 'bClar', d.clarity, d.clarity.toFixed(3) + (d.moved ? '' : ' (held)'));
+    set('vDim', 'bDim', st.dimOpacity, st.dimOpacity.toFixed(3));
+    set('vVol', 'bVol', video.volume, video.volume.toFixed(2));
+    set('vAmb', 'bAmb', st.ambientGainTarget, st.ambientGainTarget.toFixed(3));
+    document.getElementById('vMeta').textContent =
+      d.baseline.toFixed(2) + ' / ' + (st.gatePaused ? 'PAUSED' : 'open');
+  });
+
+  // ── Synthetic coherence drivers ────────────────────────────────────────────
+  function nextCoherence() {
+    t++;
+    var slider = document.getElementById('cohSlider').value / 100;
+    if (mode === 'manual') coh = slider;
+    else if (mode === 'climb') coh = Math.min(0.9, coh + 0.02 + Math.random() * 0.01);
+    else if (mode === 'drop') coh = Math.max(0.03, coh - 0.03 - Math.random() * 0.02);
+    else if (mode === 'sine') coh = 0.4 + 0.35 * Math.sin(t / 8);
+    else if (mode === 'walk') coh = Math.max(0, Math.min(1, coh + (Math.random() - 0.5) * 0.08));
+    document.getElementById('cohSlider').value = Math.round(coh * 100);
+    return Math.max(0, Math.min(1, coh));
+  }
+
+  function tick() {
+    tickCount++;
+    var c = nextCoherence();
+    if (c > cohPeak) cohPeak = c;
+    // EXACT contract shape (see index_v8.html _abiStartTicks emitTick + startTicks)
+    MockBio.emit(USER, 'biometricTick', {
+      sample: { heart_rate: 72, hrv_rmssd: 45, respiratory_rate: 14, coherence: c, source: 'synthetic' },
+      ns3: Math.round(c * 100),
+      coherence: c,
+      coherencePeak: cohPeak,
+      tickCount: tickCount
+    });
+  }
+
+  // ── Controls ───────────────────────────────────────────────────────────────
+  document.getElementById('btnStart').addEventListener('click', function () {
+    if (running) return;
+    running = true; tickCount = 0; cohPeak = 0; t = 0;
+    MediaFeedbackLayer.initAudio();                 // user gesture → audio unlock
+    video.volume = 1; video.play().catch(function (e) { logLine('video play blocked: ' + e.message); });
+    FeedbackFilterEngine.reset();
+    MockBio.emit(USER, 'arrivalComplete', {         // per-session baseline
+      mean_hr: 72, mean_hrv: 45, initial_coherence: BASELINE,
+      sample_count: 30, source: 'synthetic'
+    });
+    coh = BASELINE;
+    tickTimer = setInterval(tick, 1000);            // TICK_INTERVAL_MS = 1000
+    logLine('session started — baseline ' + BASELINE + ', 1 Hz contract ticks');
+  });
+
+  document.getElementById('btnStop').addEventListener('click', function () {
+    running = false;
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+    video.pause();
+    logLine('session stopped');
+  });
+
+  document.getElementById('chkGate').addEventListener('change', function (e) {
+    MediaFeedbackLayer.configure({ gateEnabled: e.target.checked });
+    logLine('gate ' + (e.target.checked ? 'ENABLED' : 'disabled'));
+  });
+
+  document.getElementById('fileVideo').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0];
+    if (f) { video.src = URL.createObjectURL(f); video.play(); logLine('local video loaded: ' + f.name); }
+  });
+
+  var modeBtns = document.querySelectorAll('button.mode');
+  modeBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      mode = b.getAttribute('data-mode');
+      modeBtns.forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+      logLine('source mode: ' + mode);
+    });
+  });
+  document.querySelector('button.mode[data-mode=manual]').classList.add('active');
+})();
+</script>
+</body>
+</html>
