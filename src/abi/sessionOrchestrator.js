@@ -184,6 +184,13 @@ function createOrchestrator(callbacks = {}) {
   let ns3Summary = null;       // populated on session complete
   let lastNs3Zone = null;      // most recent per-tick NS3 zone — regulation_ok input for onPhaseTransition (NVE wiring)
 
+  // ── [BREATH ECHO] FULL-RESOLUTION 1 Hz TRACE CAPTURE ────────
+  // Accumulates the real per-tick breath/coherence series during a normal
+  // session — the source of every Echo. Separate from the 5-tick ns3WindowBuffer
+  // (which stores means); this keeps the unaveraged wobble. Persisted to
+  // session_completions on complete. Non-blocking, no-op when empty.
+  let breathTrace = [];        // [{ t_ms, phase, rate, coherence, ns3 }]
+
   // ── SOMATIC RESET STATE ───────────────────────────────────
   let somaticActive = false;
   let somaticExerciseCount = 0;
@@ -487,6 +494,7 @@ function createOrchestrator(callbacks = {}) {
     ns3PersistCounter = 0;
     ns3WindowBuffer = [];
     ns3WindowStart = null;
+    breathTrace = [];           // [BREATH ECHO] fresh 1 Hz trace per session
 
     // Resolve integer users.id once for ns3_snapshots INSERTs (column is INTEGER).
     // userId here is the TEXT users.user_id (e.g. 'user_dev_harness').
@@ -1088,6 +1096,34 @@ function createOrchestrator(callbacks = {}) {
           });
           ns3PersistCounter++;
 
+          // ── [BREATH ECHO] Capture the unaveraged 1 Hz sample ──
+          // The real wobble — the held pause, the catch, the uneven taper — kept
+          // at full resolution (the 5-tick buffer above only keeps means). phase is
+          // the pacer-GUIDANCE phase derived from the cadence (the server has no
+          // measured breath phase on the solo tick path); it is honest pacing
+          // metadata, never fabricated biometrics. Non-blocking, no-op on error.
+          try {
+            let _phase = null, _in = null, _ex = null;
+            const _rk = adaptedSession && (adaptedSession.ratio || adaptedSession._ratio);
+            if (_rk && typeof _rk === 'string' && _rk.includes(':')) {
+              const _p = _rk.split(':').map(Number); _in = _p[0]; _ex = _p[1];
+            } else if (adaptedSession && adaptedSession.breath_in && adaptedSession.breath_out) {
+              _in = adaptedSession.breath_in; _ex = adaptedSession.breath_out;
+            }
+            if (_in > 0 && _ex > 0) {
+              _phase = ((elapsed % (_in + _ex)) < _in) ? 'inhale' : 'exhale';
+            }
+            breathTrace.push({
+              t_ms:      breathingStartTime ? (Date.now() - breathingStartTime) : (elapsed * 1000),
+              phase:     _phase,
+              rate:      ns3Result.components?.respRate?.raw ?? null,
+              coherence: ns3Result.components?.coherence?.raw ?? null,
+              ns3:       ns3Result.ns3Score ?? null,
+            });
+          } catch (err) {
+            // Capture must never affect the session — swallow.
+          }
+
           // Flush window mean to ns3_snapshots every 5 ticks
           if (ns3PersistCounter >= 5) {
             const _wStart = ns3WindowStart;
@@ -1562,6 +1598,35 @@ function createOrchestrator(callbacks = {}) {
       );
     } catch (err) {
       console.error('Session completion save failed:', err.message);
+      Sentry.captureException(err);
+    }
+
+    // ── [BREATH ECHO] PERSIST 1 Hz TRACE TO DURABLE ROW ──
+    // The captured series is the source of every Echo. It lives on
+    // session_completions so createCapsule() (often a later request, after this
+    // orchestrator's memory is gone) can attach it to a capsule. HARD RULE: only a
+    // REAL biometric source yields a full_trace; synthetic / no-device / unknown
+    // sessions stay cadence_only and store NO fabricated breath. sample_source is
+    // carried through. Isolated + non-blocking — can never affect session completion.
+    try {
+      const _realSource = biometricSource && !['synthetic', 'none', 'unknown'].includes(biometricSource);
+      const _resolution = (_realSource && breathTrace.length > 0) ? 'full_trace' : 'cadence_only';
+      const _traceJson = (_resolution === 'full_trace') ? JSON.stringify(breathTrace) : null;
+      // Row-targeting: key on the per-run session_id (same key the art update at
+      // ~1731 uses), NOT (user_id, session_number). session_id is the precise
+      // identity of THIS run; the completion INSERT above set it on the row.
+      pool.query(
+        `UPDATE session_completions
+         SET breath_trace_json = $1, trace_resolution = $2, sample_source = $3
+         WHERE user_id = $4 AND session_id = $5`,
+        [_traceJson, _resolution, biometricSource || 'none', userId, sessionId]
+      ).catch(err => {
+        console.error('[BreathEcho] Trace persist failed (non-blocking):', err.message);
+        Sentry.captureException(err);
+      });
+      console.log(`[BreathEcho] trace capture: ${breathTrace.length} samples, resolution=${_resolution}, source=${biometricSource || 'none'}`);
+    } catch (err) {
+      console.error('[BreathEcho] Trace persist setup failed (non-blocking):', err.message);
       Sentry.captureException(err);
     }
 

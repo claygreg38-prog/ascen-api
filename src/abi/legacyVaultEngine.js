@@ -85,7 +85,9 @@ async function createCapsule(params) {
     `SELECT id, user_id, session_number, art_token_id,
             ns3_peak, ns3_floor, ns3_mean, coherence_peak,
             optimal_zone_pct, approaching_zone_pct, below_window_zone_pct,
-            breath_ratio, breath_duration_seconds
+            breath_ratio, breath_duration_seconds,
+            session_id, completed_at,
+            breath_trace_json, trace_resolution, sample_source
      FROM session_completions
      WHERE id = $1 AND user_id = $2`,
     [sessionCompletionId, creatorParticipantId]
@@ -159,20 +161,52 @@ async function createCapsule(params) {
     recoveryBackupEncrypted = encryptWithKey(mnemonic, recoveryKeyBuffer);
   }
 
+  // 10b. [BREATH ECHO] Attach the captured 1 Hz trace + provenance.
+  // Capture-rich / share-conservative: the full physiological trace only lands in
+  // the shareable capsule on EXPLICIT full_trace opt-in. Otherwise the capsule
+  // stays cadence_only with breath_trace_json NULL (it still plays from the
+  // existing breath_cadence). HARD RULE: never fabricate — if no real full_trace
+  // was captured, no full_trace is shared. sample_source is carried through always.
+  const consentDefaults = { cadence: true, full_trace: false, breath_audio: false, voice_audio: false, coherence: true };
+  const consentLayers = Object.assign({}, consentDefaults, params.consentLayers || {});
+
+  const fullTraceCaptured = session.trace_resolution === 'full_trace' && session.breath_trace_json != null;
+  const shareFullTrace = fullTraceCaptured && consentLayers.full_trace === true;
+  const capsuleTraceResolution = shareFullTrace ? 'full_trace' : 'cadence_only';
+  const capsuleTraceJson = shareFullTrace ? JSON.stringify(session.breath_trace_json) : null;
+  const sampleSource = session.sample_source || null;
+  const coherenceVisible = consentLayers.coherence !== false; // coherence-ON default
+
+  // recorded_context_json: dated + identified, but NOT located. location_label is
+  // intentionally null — it must be user-chosen/opt-in (auto-disclosing a facility
+  // location is a dignity/consent harm for vulnerable creators). Revisit-before-
+  // playback gate; never auto-populate from tenant/facility.
+  const recordedContext = JSON.stringify({
+    timestamp: session.completed_at || null,
+    session_id: session.session_id || null,
+    location_label: null
+  });
+  const echoType = 'echo'; // standard "breath left for someone"; first_breath/lineage/live set by their own flows
+
   // 11-12. Insert capsule
   const capsuleResult = await pool.query(
     `INSERT INTO legacy_capsules (
       creator_participant_id, session_completion_id, art_token_id, personalized_art_id,
       affirmation_encrypted, breath_cadence, ns3_snapshot_encrypted,
       seed_phrase_hash, recovery_backup_encrypted, recovery_opted_in,
-      release_type, release_schedule
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      release_type, release_schedule,
+      breath_trace_json, trace_resolution, sample_source,
+      recorded_context_json, echo_type, consent_layers_json, coherence_visible
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+              $13, $14, $15, $16, $17, $18, $19)
     RETURNING id`,
     [
       creatorParticipantId, sessionCompletionId, session.art_token_id, personalizedArtId || null,
       affirmationEncrypted, JSON.stringify(breathCadence), ns3SnapshotEncrypted,
       seedPhraseHash, recoveryBackupEncrypted, recoveryOptIn || false,
-      releaseType, releaseSchedule ? JSON.stringify(releaseSchedule) : null
+      releaseType, releaseSchedule ? JSON.stringify(releaseSchedule) : null,
+      capsuleTraceJson, capsuleTraceResolution, sampleSource,
+      recordedContext, echoType, JSON.stringify(consentLayers), coherenceVisible
     ]
   );
 
