@@ -35,26 +35,27 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── Helper: resolve user's active partnership ────────────────
 
-async function resolvePartnership(req) {
-  const userId = req.user?.participant_id || req.user?.userId || req.user?.sub;
-  if (!userId) return null;
-
+// Resolve a user_id / code / numeric id -> internal users.id. THE single resolver
+// (the same lookup /session/start uses via resolvePartnership); reused everywhere,
+// including /eligibility and /enroll, so the text user_id the UI sends resolves.
+async function resolveUserIdValue(idOrCode) {
+  if (idOrCode === undefined || idOrCode === null || idOrCode === '') return null;
   const userRow = await pool.query(
     'SELECT id FROM users WHERE user_id = $1 OR id = $2',
-    [userId, parseInt(userId) || 0]
+    [String(idOrCode), parseInt(idOrCode) || 0]
   );
-  if (!userRow.rows.length) return null;
-
-  return await partnershipEngine.getPartnership(userRow.rows[0].id);
+  return userRow.rows[0]?.id || null;
 }
 
 async function resolveUserId(req) {
   const userId = req.user?.participant_id || req.user?.userId || req.user?.sub;
-  const userRow = await pool.query(
-    'SELECT id FROM users WHERE user_id = $1 OR id = $2',
-    [userId, parseInt(userId) || 0]
-  );
-  return userRow.rows[0]?.id || null;
+  return resolveUserIdValue(userId);
+}
+
+async function resolvePartnership(req) {
+  const id = await resolveUserId(req);
+  if (!id) return null;
+  return await partnershipEngine.getPartnership(id);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -67,9 +68,13 @@ router.get('/eligibility', async (req, res) => {
     if (!partner_a_id || !partner_b_id) {
       return res.status(400).json({ error: 'partner_a_id and partner_b_id query params required' });
     }
-    const result = await partnershipEngine.checkEligibility(
-      parseInt(partner_a_id), parseInt(partner_b_id)
-    );
+    // Resolve user_id/code -> users.id (the UI sends text ids, not integers).
+    const aId = await resolveUserIdValue(partner_a_id);
+    const bId = await resolveUserIdValue(partner_b_id);
+    if (!aId || !bId) {
+      return res.status(404).json({ error: 'Partner not found', partner_a_resolved: !!aId, partner_b_resolved: !!bId });
+    }
+    const result = await partnershipEngine.checkEligibility(aId, bId);
     res.json(result);
   } catch (err) {
     console.error('[PARTNERSHIP] Eligibility check failed:', err.message);
@@ -84,9 +89,16 @@ router.post('/enroll', async (req, res) => {
     if (!partner_a_id || !partner_b_id) {
       return res.status(400).json({ error: 'partner_a_id and partner_b_id required' });
     }
+    // Resolve user_id/code -> users.id (same resolver), so the UI's text ids
+    // become the integer ids enroll()'s FK + canonical ordering require.
+    const aId = await resolveUserIdValue(partner_a_id);
+    const bId = await resolveUserIdValue(partner_b_id);
+    if (!aId || !bId) {
+      return res.status(404).json({ error: 'Partner not found', partner_a_resolved: !!aId, partner_b_resolved: !!bId });
+    }
     const tenantId = req.tenantId || null;
     const result = await partnershipEngine.enroll(
-      partner_a_id, partner_b_id, family_unit_id, tenantId
+      aId, bId, family_unit_id, tenantId
     );
     if (!result.enrolled) return res.status(400).json(result);
     res.json(result);
@@ -155,6 +167,8 @@ router.post('/session/start', async (req, res) => {
     if (!session_type) return res.status(400).json({ error: 'session_type required' });
 
     const result = await partnershipEngine.startSession(partnership.id, session_type);
+    // B1 — DV deny-by-default gate: structurally impossible to enter ungated.
+    if (result.started === false) return res.status(403).json(result);
     res.json(result);
   } catch (err) {
     console.error('[PARTNERSHIP] Session start failed:', err.message);

@@ -11,7 +11,7 @@
 // what you cannot self-regulate.
 //
 // Architecture:
-//   - Solo before dyad (5+ sessions each)
+//   - Solo before dyad (A1: both partners reach foundation S15)
 //   - Relationship Account gates content (0-100, starts 50)
 //   - Pattern detection is biometric, not behavioral
 //   - System NEVER identifies the "problem partner"
@@ -24,8 +24,12 @@
 const Sentry = require('../instrument');
 const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// A1/B1 — Coupling gates live in the AXIS gate engine (single gate path, no bypass).
+const { evaluateCouplingUnlock, evaluateCouplingDvGate } = require('../axis/gateEvaluationEngine');
 
-const ENROLLMENT_THRESHOLD = 5;  // minimum solo sessions per partner
+// DEPRECATED (A1): the raw 5-solo-session count is superseded by the S15 unlock
+// gate (evaluateCouplingUnlock). Kept exported for backward compatibility only.
+const ENROLLMENT_THRESHOLD = 5;
 const ACCOUNT_START = 30.0;   // Fix #5: start at 30, must earn into high-sensitivity topics
 const ACCOUNT_MIN = 0;
 const ACCOUNT_MAX = 100;
@@ -90,25 +94,22 @@ const WITHDRAWALS = {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Check enrollment eligibility. Both partners need 5+ solo sessions.
+ * A1 — Coupling unlock eligibility. Both partners must have completed foundation
+ * through S15 individually (verified as a completed session at session_number >= 15;
+ * coupling caps at module 14 so it can't self-satisfy). Delegates to the AXIS gate
+ * rule (single gate path); returns locked/unlocked + reason for the UI.
  */
 async function checkEligibility(partnerAId, partnerBId) {
-  const aSessions = await pool.query(
-    'SELECT COUNT(*) FROM session_completions WHERE user_id = $1 AND session_active = false',
-    [partnerAId.toString()]
-  );
-  const bSessions = await pool.query(
-    'SELECT COUNT(*) FROM session_completions WHERE user_id = $1 AND session_active = false',
-    [partnerBId.toString()]
-  );
-
-  const aCount = parseInt(aSessions.rows[0].count) || 0;
-  const bCount = parseInt(bSessions.rows[0].count) || 0;
-
+  const gate = await evaluateCouplingUnlock(partnerAId, partnerBId);
   return {
-    eligible: aCount >= ENROLLMENT_THRESHOLD && bCount >= ENROLLMENT_THRESHOLD,
-    partner_a: { sessions: aCount, needs: Math.max(0, ENROLLMENT_THRESHOLD - aCount) },
-    partner_b: { sessions: bCount, needs: Math.max(0, ENROLLMENT_THRESHOLD - bCount) }
+    eligible: gate.status === 'unlocked',
+    reason: gate.reason,
+    threshold_session: gate.threshold_session,
+    // `.sessions` retained for enroll()'s partner_*_sessions columns — now the
+    // partner's max completed session_number (foundation progress), not a raw count.
+    partner_a: { sessions: gate.partner_a.max_session, reached_s15: gate.partner_a.reached_s15, max_session: gate.partner_a.max_session, needs: gate.partner_a.needs },
+    partner_b: { sessions: gate.partner_b.max_session, reached_s15: gate.partner_b.reached_s15, max_session: gate.partner_b.max_session, needs: gate.partner_b.needs },
+    gate,
   };
 }
 
@@ -122,7 +123,7 @@ async function enroll(partnerAId, partnerBId, familyUnitId, tenantId) {
 
   const eligibility = await checkEligibility(canonA, canonB);
   if (!eligibility.eligible) {
-    return { enrolled: false, reason: 'Both partners need 5+ solo sessions first', eligibility };
+    return { enrolled: false, reason: eligibility.reason, eligibility };
   }
 
   const result = await pool.query(`
@@ -160,6 +161,32 @@ async function getPartnershipById(partnershipId) {
     [partnershipId]
   );
   return result.rows[0] || null;
+}
+
+/**
+ * B1 — DV screening status interface. The clean insertion point for Jenae's
+ * clinical screening protocol to call once it exists. NO screening logic here —
+ * this only SETS the gate's status field. The deny-by-default gate
+ * (gateEvaluationEngine.evaluateCouplingDvGate) reads it; only 'passed' opens
+ * Coupling entry. Valid: passed | flagged (and not_screened to reset).
+ * @param {number} partnershipId
+ * @param {'passed'|'flagged'|'not_screened'} status
+ * @param {string|null} setBy - clinician identifier, for audit
+ */
+async function setDvScreeningStatus(partnershipId, status, setBy = null) {
+  const VALID = ['not_screened', 'pass', 'pass_with_support', 'clinical_review_required', 'not_appropriate'];
+  if (!VALID.includes(status)) {
+    throw new Error(`Invalid dv_screening_status '${status}' — must be one of: ${VALID.join(', ')}`);
+  }
+  const r = await pool.query(
+    `UPDATE partnership_practices
+        SET dv_screening_status = $1, dv_screened_at = NOW(), dv_screened_by = $2, updated_at = NOW()
+      WHERE id = $3
+      RETURNING id, dv_screening_status, dv_screened_at, dv_screened_by`,
+    [status, setBy, partnershipId]
+  );
+  if (!r.rows.length) throw new Error('Partnership not found');
+  return r.rows[0];
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -445,6 +472,14 @@ async function getAccountTrend(partnershipId) {
  * Start a partnership session.
  */
 async function startSession(partnershipId, sessionType) {
+  // B1 — DV deny-by-default gate (scope: ALL Coupling). Entry is structurally
+  // impossible unless dv_screening_status = 'passed'. Single gate path via the
+  // AXIS gate engine; no bypass. Returns { started: false } on deny (route -> 403).
+  const dvGate = await evaluateCouplingDvGate(partnershipId);
+  if (dvGate.status !== 'allowed') {
+    return { started: false, reason: dvGate.reason, gate: dvGate };
+  }
+
   const result = await pool.query(`
     INSERT INTO partnership_sessions (partnership_id, session_type)
     VALUES ($1, $2) RETURNING id
@@ -455,7 +490,13 @@ async function startSession(partnershipId, sessionType) {
     [partnershipId]
   );
 
-  return { session_id: result.rows[0].id, session_type: sessionType };
+  // pass_with_support entry carries a monitoring flag so downstream can schedule
+  // check-ins + give the clinician visibility.
+  return {
+    session_id: result.rows[0].id,
+    session_type: sessionType,
+    requires_support_monitoring: dvGate.requires_support_monitoring === true,
+  };
 }
 
 /**
@@ -726,6 +767,7 @@ module.exports = {
   enroll,
   getPartnership,
   getPartnershipById,
+  setDvScreeningStatus,
   captureDyadicBaseline,
   detectPatterns,
   determineIntervention,
