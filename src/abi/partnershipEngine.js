@@ -214,7 +214,7 @@ async function resolveUserIdValue(idOrCode) {
  */
 async function getActiveSession(sessionId) {
   const r = await pool.query(
-    `SELECT ps.id, ps.partnership_id, ps.session_type, ps.completed_at,
+    `SELECT ps.id, ps.partnership_id, ps.session_type, ps.completed_at, ps.abandoned_at,
             pp.partner_a_id, pp.partner_b_id, pp.status AS partnership_status
        FROM partnership_sessions ps
        JOIN partnership_practices pp ON pp.id = ps.partnership_id
@@ -235,6 +235,7 @@ async function validateRoomAdmission(sessionId, userId) {
   const s = await getActiveSession(sessionId);
   if (!s) return { ok: false, reason: 'session not found' };
   if (s.completed_at) return { ok: false, reason: 'session already completed' };
+  if (s.abandoned_at) return { ok: false, reason: 'session abandoned' };
   const uid = await resolveUserIdValue(userId);
   if (!uid) return { ok: false, reason: 'user not found' };
   if (uid !== s.partner_a_id && uid !== s.partner_b_id) {
@@ -273,6 +274,45 @@ function deriveCoBreathParams(sessionType) {
     source: 'server_protocol_default',
     session_type: sessionType,
   };
+}
+
+/**
+ * L4 — finalize a LIVE co-breath session. IDEMPOTENT by construction: the stamp is
+ * an atomic UPDATE guarded by `completed_at IS NULL AND abandoned_at IS NULL`, so
+ * exactly ONE caller transitions the row and deposits to the account. Concurrent
+ * callers (e.g. an explicit-end and a disconnect-timeout racing) see rowCount 0 and
+ * do NOT deposit. This is the durable guard against corrupting the account.
+ */
+async function finalizeLiveSession(sessionId, finalMetrics) {
+  const upd = await pool.query(
+    `UPDATE partnership_sessions
+        SET dyadic_metrics = COALESCE(dyadic_metrics, '{}'::jsonb) || $2::jsonb,
+            completed_at = NOW()
+      WHERE id = $1 AND completed_at IS NULL AND abandoned_at IS NULL
+      RETURNING id, partnership_id`,
+    [sessionId, JSON.stringify(finalMetrics || {})]
+  );
+  if (upd.rowCount === 0) return { completed: false, already: true };
+  const partnershipId = upd.rows[0].partnership_id;
+  const balance = await updateAccount(partnershipId, DEPOSITS.co_breath_completed, 'co_breath_completed');
+  return { completed: true, account_balance: balance, partnership_id: partnershipId };
+}
+
+/**
+ * L4 — stale-session reaper. Marks an abandoned session abandoned_at (NOT
+ * completed_at): no account deposit, excluded from the 48h gap (keys off
+ * completed_at) and from room admission. Idempotent — only an open, unabandoned
+ * row transitions.
+ */
+async function abandonSession(sessionId, reason) {
+  const upd = await pool.query(
+    `UPDATE partnership_sessions
+        SET abandoned_at = NOW()
+      WHERE id = $1 AND completed_at IS NULL AND abandoned_at IS NULL
+      RETURNING id`,
+    [sessionId]
+  );
+  return { abandoned: upd.rowCount === 1, reason: reason || null };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -868,6 +908,8 @@ module.exports = {
   getActiveSession,
   validateRoomAdmission,
   getSessionBreathParams,
+  finalizeLiveSession,
+  abandonSession,
   captureDyadicBaseline,
   detectPatterns,
   determineIntervention,

@@ -92,7 +92,42 @@ async function ingestBio(sessionId, isPartnerA, bio) {
 }
 
 function getAggregate(sessionId) { const s = sessions.get(sessionId); return s ? summarize(s) : null; }
-function endSession(sessionId) { const s = sessions.get(sessionId); const agg = s ? summarize(s) : null; sessions.delete(sessionId); return agg; }
 function hasSession(sessionId) { return sessions.has(sessionId); }
 
-module.exports = { ensureSession, ingestBio, getAggregate, endSession, hasSession, regulationCategory, _sessions: sessions };
+// L4 — in-memory fast guard against concurrent completion (same process). The
+// check+add is synchronous (no await between), so it is race-safe in single-thread
+// JS. The DURABLE exactly-once guard is the atomic DB UPDATE in finalizeLiveSession.
+const completing = new Set();
+
+// L4 — complete a live session: read the in-memory aggregate as final metrics, then
+// idempotently finalize in the DB (deposit happens exactly once) and drop the
+// in-memory state. Engagement logging is done by the caller (WS layer) to avoid a
+// require cycle.
+async function endLiveSession(sessionId, reason) {
+  if (completing.has(sessionId)) return { skipped: true, reason: 'already completing' };
+  completing.add(sessionId);
+  try {
+    const s = sessions.get(sessionId);
+    const finalMetrics = Object.assign({}, s ? summarize(s) : {}, { end_reason: reason || 'ended' });
+    const r = await partnershipEngine.finalizeLiveSession(sessionId, finalMetrics);
+    sessions.delete(sessionId);
+    return Object.assign({ end_reason: reason || 'ended' }, r);
+  } finally {
+    completing.delete(sessionId);
+  }
+}
+
+// L4 — reaper: mark a session abandoned (no deposit, doesn't count toward the gap).
+async function abandonLiveSession(sessionId, reason) {
+  if (completing.has(sessionId)) return { skipped: true, reason: 'already completing' };
+  completing.add(sessionId);
+  try {
+    const r = await partnershipEngine.abandonSession(sessionId, reason);
+    sessions.delete(sessionId);
+    return r;
+  } finally {
+    completing.delete(sessionId);
+  }
+}
+
+module.exports = { ensureSession, ingestBio, getAggregate, hasSession, regulationCategory, endLiveSession, abandonLiveSession, _sessions: sessions };

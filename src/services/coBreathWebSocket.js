@@ -10,6 +10,9 @@
 const WebSocket = require('ws');
 // L1 — gated room admission: the room token IS the gated partnership_sessions.id.
 const partnershipEngine = require('../abi/partnershipEngine');
+// L4 — completion/abandon orchestration (in-memory session manager). One-directional
+// require (coBreathSession does NOT require this module) — no cycle.
+const coBreathSession = require('./coBreathSession');
 
 const rooms = new Map(); // roomCode → { initiator, partner, state, breathParams, lastActivity }
 
@@ -71,6 +74,7 @@ function initCoBreathWS(server) {
           case 'ready': handleReady(ws, msg); break;
           case 'breath_phase': handleBreathPhase(ws, msg); break;
           case 'regulation_state': handleRegulationState(ws, msg); break;
+          case 'end': await handleEnd(ws, msg); break;
         }
       } catch (err) {
         ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
@@ -92,6 +96,10 @@ function initCoBreathWS(server) {
     const now = Date.now();
     for (const [code, room] of rooms) {
       if (now - room.lastActivity > 15 * 60 * 1000) {
+        // L4 reaper — abandon (no deposit, excluded from the 48h gap) so a crashed /
+        // inactive room can't leave a permanently-open partnership_sessions row.
+        coBreathSession.abandonLiveSession(code, 'expired').catch(() => {});
+        logEngagementEvent(code, { event_type: 'abandoned', reason: 'expired' });
         broadcast(room, { type: 'room_expired' });
         rooms.delete(code);
       }
@@ -154,6 +162,7 @@ async function handleJoin(ws, msg) {
 
   room.lastActivity = Date.now();
   ws.send(JSON.stringify({ type: 'joined', role: ws.role, roomCode }));
+  logEngagementEvent(roomCode, { event_type: 'join', user_id: ws.userDbId, role: ws.role });
 
   // If both connected, notify
   if (room.initiator && room.partner) {
@@ -182,9 +191,27 @@ function handleReady(ws, msg) {
       } catch (err) {
         console.error('[CoBreath WS] breath_params load failed:', err.message);
       }
+      room.everBreathed = true; // L4 — distinguishes a real session from an abandoned-before-start one
       broadcast(room, { type: 'breathing_start', breathParams });
+      logEngagementEvent(room.sessionId, { event_type: 'breathing_start' });
     }
   }, 3000);
+}
+
+// L4 — explicit session end from a client. Completes (idempotent) + logs + closes.
+async function handleEnd(ws, msg) {
+  const room = rooms.get(ws.roomCode);
+  if (!room) return;
+  const sessionId = ws.roomCode;
+  let result = null;
+  try {
+    result = await coBreathSession.endLiveSession(sessionId, 'explicit');
+    logEngagementEvent(sessionId, { event_type: 'complete', reason: 'explicit', result });
+  } catch (err) {
+    console.error('[CoBreath WS] end failed:', err.message);
+  }
+  broadcast(room, { type: 'session_ended', result });
+  rooms.delete(sessionId);
 }
 
 function handleBreathPhase(ws, msg) {
@@ -232,11 +259,25 @@ function handleDisconnect(ws) {
     remaining.send(JSON.stringify({ type: 'partner_disconnected', message: 'Connection paused — reconnecting...' }));
   }
 
-  // If both gone, clean up after 30 seconds
+  // If both gone, finalize after 30 seconds (reconnect grace). If the dyad ever
+  // reached breathing, this is a real completion (deposit); otherwise it's abandoned.
   if (!room.initiator && !room.partner) {
-    setTimeout(() => {
-      const r = rooms.get(ws.roomCode);
-      if (r && !r.initiator && !r.partner) rooms.delete(ws.roomCode);
+    const sessionId = ws.roomCode;
+    const everBreathed = room.everBreathed;
+    setTimeout(async () => {
+      const r = rooms.get(sessionId);
+      if (r && !r.initiator && !r.partner) {
+        try {
+          if (everBreathed) {
+            const result = await coBreathSession.endLiveSession(sessionId, 'both_disconnected');
+            logEngagementEvent(sessionId, { event_type: 'complete', reason: 'both_disconnected', result });
+          } else {
+            await coBreathSession.abandonLiveSession(sessionId, 'abandoned_before_start');
+            logEngagementEvent(sessionId, { event_type: 'abandoned', reason: 'abandoned_before_start' });
+          }
+        } catch (e) { console.error('[CoBreath WS] disconnect finalize failed:', e.message); }
+        rooms.delete(sessionId);
+      }
     }, 30000);
   }
 }
