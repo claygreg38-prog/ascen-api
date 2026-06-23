@@ -24,8 +24,8 @@
 const Sentry = require('../instrument');
 const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-// A1/B1 — Coupling gates live in the AXIS gate engine (single gate path, no bypass).
-const { evaluateCouplingUnlock, evaluateCouplingDvGate } = require('../axis/gateEvaluationEngine');
+// A1/B1/B2 — Coupling gates live in the AXIS gate engine (single gate path, no bypass).
+const { evaluateCouplingUnlock, evaluateCouplingDvGate, evaluateCouplingGap } = require('../axis/gateEvaluationEngine');
 
 // DEPRECATED (A1): the raw 5-solo-session count is superseded by the S15 unlock
 // gate (evaluateCouplingUnlock). Kept exported for backward compatibility only.
@@ -480,6 +480,13 @@ async function startSession(partnershipId, sessionType) {
     return { started: false, reason: dvGate.reason, gate: dvGate };
   }
 
+  // B2 — 48h minimum gap between modules (first module is allowed). Returns the
+  // next-available time + reason; surfaces in the UI via the same 403 path as DV.
+  const gapGate = await evaluateCouplingGap(partnershipId);
+  if (gapGate.status !== 'allowed') {
+    return { started: false, reason: gapGate.reason, gate: gapGate };
+  }
+
   const result = await pool.query(`
     INSERT INTO partnership_sessions (partnership_id, session_type)
     VALUES ($1, $2) RETURNING id
@@ -590,7 +597,8 @@ async function completeSession(sessionId, partnershipId, metrics) {
   await pool.query(`
     UPDATE partnership_sessions SET
       partner_a_biometrics = $1, partner_b_biometrics = $2,
-      dyadic_metrics = $3, detected_patterns = $4
+      dyadic_metrics = $3, detected_patterns = $4,
+      completed_at = NOW()
     WHERE id = $5
   `, [
     JSON.stringify(partner_a_biometrics || {}),

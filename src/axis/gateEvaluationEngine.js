@@ -382,4 +382,44 @@ async function evaluateCouplingDvGate(partnershipId) {
   };
 }
 
-module.exports = { evaluateGate, evaluateAllGates, getGateStatus, GATE_CRITERIA, evaluateCouplingUnlock, evaluateCouplingDvGate };
+// ════════════════════════════════════════════════════════════════
+// COUPLING MIN-GAP GATE (Tending) — B2
+// Reject starting a new Coupling module within 48h of the partnership's last
+// COMPLETED module. First module (no prior completion) is allowed — the gap only
+// applies between modules. Gap measured against the DB clock (NOW()) to avoid
+// app/DB skew. Returns next-available time + a human reason for the UI. Extends
+// this engine (no parallel gate path); checked at partnershipEngine.startSession.
+// ════════════════════════════════════════════════════════════════
+const COUPLING_MIN_GAP_HOURS = 48;
+
+async function evaluateCouplingGap(partnershipId) {
+  const r = await pool.query(
+    `SELECT MAX(completed_at) AS last_completed,
+            EXTRACT(EPOCH FROM (NOW() - MAX(completed_at))) AS elapsed_sec
+     FROM partnership_sessions
+     WHERE partnership_id = $1 AND completed_at IS NOT NULL`,
+    [partnershipId]
+  );
+  const last = r.rows[0] && r.rows[0].last_completed;
+  if (!last) {
+    // first module — no prior completion
+    return { gate: 'coupling_min_gap', status: 'allowed', last_module_completed_at: null, reason: null };
+  }
+  const elapsedSec = parseFloat(r.rows[0].elapsed_sec) || 0;
+  const minSec = COUPLING_MIN_GAP_HOURS * 3600;
+  if (elapsedSec >= minSec) {
+    return { gate: 'coupling_min_gap', status: 'allowed', last_module_completed_at: last, reason: null };
+  }
+  const hoursRemaining = Math.ceil((minSec - elapsedSec) / 3600);
+  const nextAvailableAt = new Date(new Date(last).getTime() + minSec * 1000).toISOString();
+  return {
+    gate: 'coupling_min_gap',
+    status: 'denied',
+    last_module_completed_at: last,
+    next_available_at: nextAvailableAt,
+    hours_remaining: hoursRemaining,
+    reason: `Your next session unlocks in ${hoursRemaining} hour${hoursRemaining === 1 ? '' : 's'}.`,
+  };
+}
+
+module.exports = { evaluateGate, evaluateAllGates, getGateStatus, GATE_CRITERIA, evaluateCouplingUnlock, evaluateCouplingDvGate, evaluateCouplingGap };
