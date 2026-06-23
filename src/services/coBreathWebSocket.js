@@ -139,6 +139,7 @@ async function handleJoin(ws, msg) {
   ws.userId = userId;
   ws.sessionId = roomCode;                       // L1 — gated session token
   ws.partnershipId = admission.partnership_id;   // for L3/L4 (server-side tick + completion)
+  ws.userDbId = admission.user_db_id;            // L3 — partner targeting for regulation forward
 
   if (!room.initiator) {
     room.initiator = ws;
@@ -246,4 +247,20 @@ function broadcast(room, data) {
   if (room.partner?.readyState === WebSocket.OPEN) room.partner.send(msg);
 }
 
-module.exports = { initCoBreathWS, logEngagementEvent, getEngagementEvents, clearEngagementEvents };
+// L3 — forward a server-derived regulation CATEGORY to the PARTNER of `fromUserDbId`
+// in the session's room. Called by the REST bio-tick route after server-side
+// processTick. Raw HRV never crosses the socket — only the category does.
+function pushPartnerRegulation(sessionId, fromUserDbId, category) {
+  const room = rooms.get(sessionId);
+  if (!room) return false;
+  let sent = false;
+  for (const t of [room.initiator, room.partner]) {
+    if (t && t.userDbId !== fromUserDbId && t.readyState === WebSocket.OPEN) {
+      t.send(JSON.stringify({ type: 'partner_regulation', state: category }));
+      sent = true;
+    }
+  }
+  return sent;
+}
+
+module.exports = { initCoBreathWS, logEngagementEvent, getEngagementEvents, clearEngagementEvents, pushPartnerRegulation };

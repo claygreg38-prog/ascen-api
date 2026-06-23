@@ -30,6 +30,9 @@ const express = require('express');
 const router = express.Router();
 const { Pool } = require('pg');
 const partnershipEngine = require('../abi/partnershipEngine');
+// L3 — server-side dyadic compute + WS regulation forward.
+const coBreathSession = require('../services/coBreathSession');
+const coBreathWS = require('../services/coBreathWebSocket');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -209,6 +212,35 @@ router.post('/session/complete', async (req, res) => {
     console.error('[PARTNERSHIP] Session complete failed:', err.message);
     Sentry.captureException(err);
     res.status(500).json({ error: 'Failed to complete session' });
+  }
+});
+
+// L3 — Parallel authed RAW bio tick, keyed by session_id. Raw biometrics reach the
+// SERVER here (never the WS). Server-side processTick runs in the in-memory session
+// manager; only the server-derived regulation CATEGORY is forwarded to the partner
+// over WS. Membership is validated via L1's validateRoomAdmission.
+router.post('/session/:id/tick-bio', async (req, res) => {
+  try {
+    const sessionId = req.params.id;
+    const { biometrics } = req.body;
+    if (!biometrics) return res.status(400).json({ error: 'biometrics required' });
+
+    const userId = req.user?.participant_id || req.user?.userId || req.user?.sub || req.body.user_id;
+    const admission = await partnershipEngine.validateRoomAdmission(sessionId, userId);
+    if (!admission.ok) return res.status(403).json({ error: 'Not admitted to session', reason: admission.reason });
+
+    const result = await coBreathSession.ingestBio(sessionId, admission.is_partner_a, biometrics);
+
+    // Forward ONLY the server-derived regulation category to the partner over WS.
+    coBreathWS.pushPartnerRegulation(sessionId, admission.user_db_id, result.regulation_category);
+
+    // Response: sender's own category + shared dyad metrics + rolling aggregate.
+    // Never the partner's raw bio.
+    res.json({ ok: true, regulation_category: result.regulation_category, metrics: result.metrics, aggregate: result.aggregate });
+  } catch (err) {
+    console.error('[PARTNERSHIP] bio-tick failed:', err.message);
+    Sentry.captureException(err);
+    res.status(500).json({ error: 'Failed to process bio tick' });
   }
 });
 
