@@ -35,21 +35,11 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── Helper: resolve user's active partnership ────────────────
 
-// Resolve a user_id / code / numeric id -> internal users.id. THE single resolver
-// (the same lookup /session/start uses via resolvePartnership); reused everywhere,
-// including /eligibility and /enroll, so the text user_id the UI sends resolves.
-async function resolveUserIdValue(idOrCode) {
-  if (idOrCode === undefined || idOrCode === null || idOrCode === '') return null;
-  const userRow = await pool.query(
-    'SELECT id FROM users WHERE user_id = $1 OR id = $2',
-    [String(idOrCode), parseInt(idOrCode) || 0]
-  );
-  return userRow.rows[0]?.id || null;
-}
-
+// The canonical resolver now lives in partnershipEngine (one implementation shared
+// by these routes and the WS room-admission check). Use it everywhere.
 async function resolveUserId(req) {
   const userId = req.user?.participant_id || req.user?.userId || req.user?.sub;
-  return resolveUserIdValue(userId);
+  return partnershipEngine.resolveUserIdValue(userId);
 }
 
 async function resolvePartnership(req) {
@@ -69,8 +59,8 @@ router.get('/eligibility', async (req, res) => {
       return res.status(400).json({ error: 'partner_a_id and partner_b_id query params required' });
     }
     // Resolve user_id/code -> users.id (the UI sends text ids, not integers).
-    const aId = await resolveUserIdValue(partner_a_id);
-    const bId = await resolveUserIdValue(partner_b_id);
+    const aId = await partnershipEngine.resolveUserIdValue(partner_a_id);
+    const bId = await partnershipEngine.resolveUserIdValue(partner_b_id);
     if (!aId || !bId) {
       return res.status(404).json({ error: 'Partner not found', partner_a_resolved: !!aId, partner_b_resolved: !!bId });
     }
@@ -91,8 +81,8 @@ router.post('/enroll', async (req, res) => {
     }
     // Resolve user_id/code -> users.id (same resolver), so the UI's text ids
     // become the integer ids enroll()'s FK + canonical ordering require.
-    const aId = await resolveUserIdValue(partner_a_id);
-    const bId = await resolveUserIdValue(partner_b_id);
+    const aId = await partnershipEngine.resolveUserIdValue(partner_a_id);
+    const bId = await partnershipEngine.resolveUserIdValue(partner_b_id);
     if (!aId || !bId) {
       return res.status(404).json({ error: 'Partner not found', partner_a_resolved: !!aId, partner_b_resolved: !!bId });
     }

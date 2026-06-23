@@ -190,6 +190,92 @@ async function setDvScreeningStatus(partnershipId, status, setBy = null) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// L1 — SESSION TOKEN + WS ROOM ADMISSION (live co-breath unification)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Resolve a user_id / code / numeric id -> internal users.id. THE single resolver
+ * (canonical home; partnershipRoutes imports this). One implementation used by
+ * both the REST routes and the WS room-admission check.
+ */
+async function resolveUserIdValue(idOrCode) {
+  if (idOrCode === undefined || idOrCode === null || idOrCode === '') return null;
+  const r = await pool.query(
+    'SELECT id FROM users WHERE user_id = $1 OR id = $2',
+    [String(idOrCode), parseInt(idOrCode) || 0]
+  );
+  return r.rows[0] ? r.rows[0].id : null;
+}
+
+/**
+ * Look up an ACTIVE (not completed) co-breath session + its partnership/partners.
+ * The session id (partnership_sessions.id, minted by the gated startSession) is the
+ * shared room token.
+ */
+async function getActiveSession(sessionId) {
+  const r = await pool.query(
+    `SELECT ps.id, ps.partnership_id, ps.session_type, ps.completed_at,
+            pp.partner_a_id, pp.partner_b_id, pp.status AS partnership_status
+       FROM partnership_sessions ps
+       JOIN partnership_practices pp ON pp.id = ps.partnership_id
+      WHERE ps.id = $1`,
+    [sessionId]
+  );
+  return r.rows[0] || null;
+}
+
+/**
+ * L1 — WS room admission. A room is valid ONLY if a gated startSession minted it
+ * (roomCode === the session token), the session is still open, and the joining
+ * user is one of its two partners. The gates (S15/DV/48h) themselves run in
+ * startSession; this only verifies the minted token — no gate logic duplicated.
+ */
+async function validateRoomAdmission(sessionId, userId) {
+  if (!sessionId) return { ok: false, reason: 'session token required' };
+  const s = await getActiveSession(sessionId);
+  if (!s) return { ok: false, reason: 'session not found' };
+  if (s.completed_at) return { ok: false, reason: 'session already completed' };
+  const uid = await resolveUserIdValue(userId);
+  if (!uid) return { ok: false, reason: 'user not found' };
+  if (uid !== s.partner_a_id && uid !== s.partner_b_id) {
+    return { ok: false, reason: 'not a partner of this session' };
+  }
+  return {
+    ok: true,
+    partnership_id: s.partnership_id,
+    user_db_id: uid,
+    is_partner_a: uid === s.partner_a_id,
+  };
+}
+
+/**
+ * L2 — load the server-derived breath params for a session. The WS breathing_start
+ * reads from here; the server is the ONLY source of pacing.
+ */
+async function getSessionBreathParams(sessionId) {
+  const r = await pool.query('SELECT breath_params FROM partnership_sessions WHERE id = $1', [sessionId]);
+  return r.rows[0] ? (r.rows[0].breath_params || null) : null;
+}
+
+/**
+ * L2 — derive the dyad's breath pacing server-side. Shared coherent pace for
+ * co-breathing together; the ONLY source of breath params (clients never supply
+ * them). A richer per-partner / per-module derivation can refine this later
+ * without changing the session contract.
+ */
+function deriveCoBreathParams(sessionType) {
+  return {
+    mode: 'coherence',
+    ratio: '5:5',
+    inhale_sec: 5,
+    exhale_sec: 5,
+    cycle_sec: 10,
+    source: 'server_protocol_default',
+    session_type: sessionType,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // DYADIC BASELINE
 // ═══════════════════════════════════════════════════════════════
 
@@ -487,10 +573,12 @@ async function startSession(partnershipId, sessionType) {
     return { started: false, reason: gapGate.reason, gate: gapGate };
   }
 
+  // L2 — server-derived breath pacing, persisted on the session (the ONLY source).
+  const breathParams = deriveCoBreathParams(sessionType);
   const result = await pool.query(`
-    INSERT INTO partnership_sessions (partnership_id, session_type)
-    VALUES ($1, $2) RETURNING id
-  `, [partnershipId, sessionType]);
+    INSERT INTO partnership_sessions (partnership_id, session_type, breath_params)
+    VALUES ($1, $2, $3) RETURNING id
+  `, [partnershipId, sessionType, JSON.stringify(breathParams)]);
 
   await pool.query(
     'UPDATE partnership_practices SET last_session_at = NOW(), updated_at = NOW() WHERE id = $1',
@@ -776,6 +864,10 @@ module.exports = {
   getPartnership,
   getPartnershipById,
   setDvScreeningStatus,
+  resolveUserIdValue,
+  getActiveSession,
+  validateRoomAdmission,
+  getSessionBreathParams,
   captureDyadicBaseline,
   detectPatterns,
   determineIntervention,

@@ -8,6 +8,8 @@
 // ============================================================
 
 const WebSocket = require('ws');
+// L1 — gated room admission: the room token IS the gated partnership_sessions.id.
+const partnershipEngine = require('../abi/partnershipEngine');
 
 const rooms = new Map(); // roomCode → { initiator, partner, state, breathParams, lastActivity }
 
@@ -61,11 +63,11 @@ function initCoBreathWS(server) {
 
     ws.on('pong', () => { ws.isAlive = true; });
 
-    ws.on('message', (data) => {
+    ws.on('message', async (data) => {
       try {
         const msg = JSON.parse(data);
         switch (msg.type) {
-          case 'join': handleJoin(ws, msg); break;
+          case 'join': await handleJoin(ws, msg); break;
           case 'ready': handleReady(ws, msg); break;
           case 'breath_phase': handleBreathPhase(ws, msg); break;
           case 'regulation_state': handleRegulationState(ws, msg); break;
@@ -101,21 +103,42 @@ function initCoBreathWS(server) {
   return wss;
 }
 
-function handleJoin(ws, msg) {
+async function handleJoin(ws, msg) {
   const { roomCode, userId } = msg;
   if (!roomCode || !userId) {
     ws.send(JSON.stringify({ type: 'error', message: 'roomCode and userId required' }));
     return;
   }
 
+  // L1 — roomCode IS the gated session token (partnership_sessions.id). Admit only
+  // if a gated startSession minted it and this user is one of its partners. The
+  // gates (S15/DV/48h) run in startSession; this only verifies the minted token,
+  // so a co-breath room can never exist ungated.
+  let admission;
+  try {
+    admission = await partnershipEngine.validateRoomAdmission(roomCode, userId);
+  } catch (err) {
+    console.error('[CoBreath WS] Admission check failed:', err.message);
+    ws.send(JSON.stringify({ type: 'error', message: 'Admission check failed' }));
+    return;
+  }
+  if (!admission.ok) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Room admission denied: ' + admission.reason }));
+    return;
+  }
+
   let room = rooms.get(roomCode);
   if (!room) {
-    room = { initiator: null, partner: null, state: 'waiting', breathParams: msg.breathParams || {}, lastActivity: Date.now() };
+    // L2 — NO client-supplied breathParams. The session (server) is the only source;
+    // breathing_start loads breath_params from it. Store the session token on the room.
+    room = { initiator: null, partner: null, state: 'waiting', sessionId: roomCode, lastActivity: Date.now() };
     rooms.set(roomCode, room);
   }
 
   ws.roomCode = roomCode;
   ws.userId = userId;
+  ws.sessionId = roomCode;                       // L1 — gated session token
+  ws.partnershipId = admission.partnership_id;   // for L3/L4 (server-side tick + completion)
 
   if (!room.initiator) {
     room.initiator = ws;
@@ -147,10 +170,18 @@ function handleReady(ws, msg) {
   broadcast(room, { type: 'countdown', seconds: 3 });
 
   // After 3 seconds, start breathing
-  setTimeout(() => {
+  setTimeout(async () => {
     if (room.state === 'countdown') {
       room.state = 'breathing';
-      broadcast(room, { type: 'breathing_start', breathParams: room.breathParams });
+      // L2 — breath params come ONLY from the session (server-derived), loaded at
+      // broadcast time. Client-supplied breathParams are never read.
+      let breathParams = {};
+      try {
+        breathParams = (await partnershipEngine.getSessionBreathParams(room.sessionId)) || {};
+      } catch (err) {
+        console.error('[CoBreath WS] breath_params load failed:', err.message);
+      }
+      broadcast(room, { type: 'breathing_start', breathParams });
     }
   }, 3000);
 }
