@@ -130,4 +130,105 @@ async function abandonLiveSession(sessionId, reason) {
   }
 }
 
-module.exports = { ensureSession, ingestBio, getAggregate, hasSession, regulationCategory, endLiveSession, abandonLiveSession, _sessions: sessions };
+// ════════════════════════════════════════════════════════════════
+// PHASE E — ECHO MODE: recipient breathes WITH a recorded capsule trace.
+// metricKind = entrainment (convergence toward the trace), not mutual sync.
+// ════════════════════════════════════════════════════════════════
+const echoSessions = new Map();
+const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+function phaseFromCadence(cadence, elapsedSec) {
+  const inhale = (cadence && cadence.inhale_seconds) || 4;
+  const exhale = (cadence && cadence.exhale_seconds) || 6;
+  return (elapsedSec % (inhale + exhale)) < inhale ? 'inhale' : 'exhale';
+}
+
+async function ensureEchoSession(sessionId) {
+  let s = echoSessions.get(sessionId);
+  if (s) return s;
+  let trace = null;
+  try { trace = await partnershipEngine.getEchoTrace(sessionId); } catch (e) { /* fall back to cadence */ }
+  s = {
+    mode: 'echo', metricKind: 'entrainment',
+    trace: trace || { resolution: 'cadence_only', series: null, cadence: null },
+    recipientCoh: [], traceCoh: [], ns3Series: [], synchronyEvents: [],
+    somaticResetFired: false, startedAt: Date.now(),
+  };
+  echoSessions.set(sessionId, s);
+  return s;
+}
+
+function currentEntrainment(s) {
+  const n = s.recipientCoh.length;
+  if (n < 4) return null;
+  const k = Math.max(2, Math.floor(n / 4));
+  const settling = avg(s.recipientCoh.slice(-k)) - avg(s.recipientCoh.slice(0, k)); // + = settling toward calm
+  const settlingScore = Math.max(0, Math.min(1, 0.5 + settling));
+  let corr = null;
+  if (s.traceCoh.length >= 5 && s.recipientCoh.length >= 5) {
+    corr = partnershipEngine.computeCorrelation(s.recipientCoh, s.traceCoh);
+  }
+  const score = corr != null
+    ? (settlingScore * 0.5) + (((corr + 1) / 2) * 0.5)
+    : settlingScore;
+  return Math.round(score * 100) / 100;
+}
+function echoSummary(s) {
+  return { ticks: s.recipientCoh.length, synchrony_events: s.synchronyEvents.length, somatic_reset_fired: s.somaticResetFired, entrainment_score: currentEntrainment(s) };
+}
+
+// Ingest the RECIPIENT's raw bio (single participant). Computes entrainment toward
+// the recorded trace; records synchrony events + ns3 + somatic-reset.
+async function ingestEchoBio(sessionId, bio) {
+  const s = await ensureEchoSession(sessionId);
+  const elapsedSec = Math.floor((Date.now() - s.startedAt) / 1000);
+  let tracePhase, traceCoh = null;
+  if (s.trace.series && s.trace.series.length) {
+    const sample = s.trace.series[Math.min(elapsedSec, s.trace.series.length - 1)];
+    tracePhase = sample.phase;
+    traceCoh = (sample.coherence != null ? sample.coherence : null);
+  } else {
+    tracePhase = phaseFromCadence(s.trace.cadence, elapsedSec);
+  }
+  const rCoh = bio.coherence != null ? bio.coherence : 0;
+  const rPhase = phaseFromCadence(s.trace.cadence, elapsedSec); // recipient breathes the same cadence
+  s.recipientCoh.push(rCoh);
+  if (traceCoh != null) s.traceCoh.push(traceCoh);
+  if (bio.ns3 != null) s.ns3Series.push(bio.ns3);
+  if (rPhase === tracePhase) s.synchronyEvents.push({ t_ms: elapsedSec * 1000, phase: tracePhase });
+  if (bio.ns3 != null && bio.ns3 <= 20) s.somaticResetFired = true;
+  return { regulation_category: regulationCategory(bio), metrics: echoSummary(s), aggregate: echoSummary(s) };
+}
+
+async function endEchoSession(sessionId, reason) {
+  if (completing.has(sessionId)) return { skipped: true, reason: 'already completing' };
+  completing.add(sessionId);
+  try {
+    const s = echoSessions.get(sessionId);
+    const m = s ? {
+      entrainment_score: currentEntrainment(s),
+      synchrony_events: s.synchronyEvents,
+      recipient_ns3_series: s.ns3Series,
+      somatic_reset_fired: s.somaticResetFired,
+    } : {};
+    const r = await partnershipEngine.finalizeEchoSession(sessionId, m);
+    echoSessions.delete(sessionId);
+    return Object.assign({ reason: reason || 'ended' }, r);
+  } finally { completing.delete(sessionId); }
+}
+
+async function abandonEcho(sessionId, reason) {
+  if (completing.has(sessionId)) return { skipped: true, reason: 'already completing' };
+  completing.add(sessionId);
+  try {
+    const r = await partnershipEngine.abandonEchoSession(sessionId, reason);
+    echoSessions.delete(sessionId);
+    return r;
+  } finally { completing.delete(sessionId); }
+}
+
+module.exports = {
+  ensureSession, ingestBio, getAggregate, hasSession, regulationCategory,
+  endLiveSession, abandonLiveSession,
+  ensureEchoSession, ingestEchoBio, endEchoSession, abandonEcho,
+  _sessions: sessions, _echoSessions: echoSessions,
+};

@@ -232,21 +232,28 @@ async function getActiveSession(sessionId) {
  */
 async function validateRoomAdmission(sessionId, userId) {
   if (!sessionId) return { ok: false, reason: 'session token required' };
-  const s = await getActiveSession(sessionId);
-  if (!s) return { ok: false, reason: 'session not found' };
-  if (s.completed_at) return { ok: false, reason: 'session already completed' };
-  if (s.abandoned_at) return { ok: false, reason: 'session abandoned' };
   const uid = await resolveUserIdValue(userId);
-  if (!uid) return { ok: false, reason: 'user not found' };
-  if (uid !== s.partner_a_id && uid !== s.partner_b_id) {
-    return { ok: false, reason: 'not a partner of this session' };
+
+  // LIVE — partnership_sessions token
+  const s = await getActiveSession(sessionId);
+  if (s) {
+    if (s.completed_at) return { ok: false, reason: 'session already completed' };
+    if (s.abandoned_at) return { ok: false, reason: 'session abandoned' };
+    if (!uid) return { ok: false, reason: 'user not found' };
+    if (uid !== s.partner_a_id && uid !== s.partner_b_id) {
+      return { ok: false, reason: 'not a partner of this session' };
+    }
+    return { ok: true, mode: 'live', partnership_id: s.partnership_id, user_db_id: uid, is_partner_a: uid === s.partner_a_id };
   }
-  return {
-    ok: true,
-    partnership_id: s.partnership_id,
-    user_db_id: uid,
-    is_partner_a: uid === s.partner_a_id,
-  };
+
+  // ECHO — echo_sessions token (single recipient; the "partner" is the recorded trace)
+  const e = await getActiveEchoSession(sessionId);
+  if (!e) return { ok: false, reason: 'session not found' };
+  if (e.completed_at) return { ok: false, reason: 'session already completed' };
+  if (e.abandoned_at) return { ok: false, reason: 'session abandoned' };
+  if (!uid) return { ok: false, reason: 'user not found' };
+  if (uid !== e.recipient_participant_id) return { ok: false, reason: 'not the recipient of this echo' };
+  return { ok: true, mode: 'echo', echo_session_id: e.id, capsule_id: e.capsule_id, user_db_id: uid, is_recipient: true };
 }
 
 /**
@@ -255,7 +262,14 @@ async function validateRoomAdmission(sessionId, userId) {
  */
 async function getSessionBreathParams(sessionId) {
   const r = await pool.query('SELECT breath_params FROM partnership_sessions WHERE id = $1', [sessionId]);
-  return r.rows[0] ? (r.rows[0].breath_params || null) : null;
+  if (r.rows[0]) return r.rows[0].breath_params || null;
+  // ECHO — derive the recipient's pacer from the capsule's recorded cadence.
+  const er = await pool.query(
+    `SELECT lc.breath_cadence FROM echo_sessions es JOIN legacy_capsules lc ON lc.id = es.capsule_id WHERE es.id = $1`,
+    [sessionId]
+  );
+  if (er.rows[0]) return deriveEchoBreathParams(er.rows[0].breath_cadence);
+  return null;
 }
 
 /**
@@ -310,6 +324,116 @@ async function abandonSession(sessionId, reason) {
         SET abandoned_at = NOW()
       WHERE id = $1 AND completed_at IS NULL AND abandoned_at IS NULL
       RETURNING id`,
+    [sessionId]
+  );
+  return { abandoned: upd.rowCount === 1, reason: reason || null };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE E — ECHO (ASYNC) MODE
+// One recipient breathes WITH a recorded capsule trace. Same session/token/manager
+// substrate as live (L1-L4): echo_sessions.id is the token; the "partner" phase
+// source is a server trace-player (not a second socket); metric is entrainment
+// (convergence toward the recorded trace), not mutual sync. Honors the original
+// Breath Echo rules: NO synthetic — full_trace playback requires a REAL captured
+// trace AND sharing consent, else cadence_only (phases derived from the recorded
+// cadence, never fabricated physiology).
+// ═══════════════════════════════════════════════════════════════
+
+function deriveEchoBreathParams(breathCadence) {
+  const bc = breathCadence || {};
+  const inhale = bc.inhale_seconds || 4;
+  const exhale = bc.exhale_seconds || 6;
+  return {
+    mode: 'echo',
+    ratio: bc.ratio || (inhale + ':' + exhale),
+    inhale_sec: inhale, exhale_sec: exhale, cycle_sec: inhale + exhale,
+    source: 'echo_capsule_cadence',
+  };
+}
+
+async function getActiveEchoSession(sessionId) {
+  const r = await pool.query(
+    `SELECT id, capsule_id, recipient_participant_id, echo_type, completed_at, abandoned_at
+       FROM echo_sessions WHERE id = $1`,
+    [sessionId]
+  );
+  return r.rows[0] || null;
+}
+
+// Mint an echo session (gated): resolves the capsule's playable trace under the
+// no-synthetic + consent rules. Carries sample_source through.
+async function startEchoSession(recipientUserId, capsuleId, echoType) {
+  const recipientId = await resolveUserIdValue(recipientUserId);
+  if (!recipientId) throw new Error('recipient not found');
+  const cr = await pool.query(
+    `SELECT id, breath_trace_json, trace_resolution, consent_layers_json, breath_cadence, sample_source
+       FROM legacy_capsules WHERE id = $1`,
+    [capsuleId]
+  );
+  const cap = cr.rows[0];
+  if (!cap) throw new Error('capsule not found');
+  const consent = cap.consent_layers_json || {};
+  const traceArr = Array.isArray(cap.breath_trace_json) ? cap.breath_trace_json : null;
+  const hasFullTrace = cap.trace_resolution === 'full_trace' && traceArr && traceArr.length > 0;
+  const resolution = (hasFullTrace && consent.full_trace === true) ? 'full_trace' : 'cadence_only';
+  const ins = await pool.query(
+    `INSERT INTO echo_sessions (capsule_id, recipient_participant_id, echo_type, started_at)
+     VALUES ($1, $2, $3, NOW()) RETURNING id`,
+    [capsuleId, recipientId, echoType || 'echo']
+  );
+  return {
+    session_id: ins.rows[0].id,
+    mode: 'echo',
+    trace_resolution: resolution,
+    sample_source: cap.sample_source || null,
+    breath_params: deriveEchoBreathParams(cap.breath_cadence),
+  };
+}
+
+// Load the capsule's playable trace for the server trace-player. full_trace -> the
+// real 1 Hz series; cadence_only -> null series (player derives phases from cadence).
+async function getEchoTrace(sessionId) {
+  const r = await pool.query(
+    `SELECT lc.breath_trace_json, lc.trace_resolution, lc.consent_layers_json, lc.breath_cadence
+       FROM echo_sessions es JOIN legacy_capsules lc ON lc.id = es.capsule_id
+      WHERE es.id = $1`,
+    [sessionId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  const consent = row.consent_layers_json || {};
+  const traceArr = Array.isArray(row.breath_trace_json) ? row.breath_trace_json : null;
+  const hasFullTrace = row.trace_resolution === 'full_trace' && traceArr && traceArr.length > 0;
+  if (hasFullTrace && consent.full_trace === true) {
+    return { resolution: 'full_trace', series: traceArr, cadence: row.breath_cadence || null };
+  }
+  return { resolution: 'cadence_only', series: null, cadence: row.breath_cadence || null };
+}
+
+// Idempotent echo completion — atomic guard mirrors finalizeLiveSession.
+async function finalizeEchoSession(sessionId, m) {
+  m = m || {};
+  const upd = await pool.query(
+    `UPDATE echo_sessions
+        SET completed_at = NOW(),
+            entrainment_score = $2,
+            synchrony_events_json = $3,
+            recipient_ns3_series_json = $4,
+            somatic_reset_fired = COALESCE($5, somatic_reset_fired, false)
+      WHERE id = $1 AND completed_at IS NULL AND abandoned_at IS NULL
+      RETURNING id`,
+    [sessionId, m.entrainment_score == null ? null : m.entrainment_score,
+     JSON.stringify(m.synchrony_events || []), JSON.stringify(m.recipient_ns3_series || []),
+     m.somatic_reset_fired == null ? null : m.somatic_reset_fired]
+  );
+  return { completed: upd.rowCount === 1, already: upd.rowCount === 0 };
+}
+
+async function abandonEchoSession(sessionId, reason) {
+  const upd = await pool.query(
+    `UPDATE echo_sessions SET abandoned_at = NOW()
+      WHERE id = $1 AND completed_at IS NULL AND abandoned_at IS NULL RETURNING id`,
     [sessionId]
   );
   return { abandoned: upd.rowCount === 1, reason: reason || null };
@@ -910,6 +1034,11 @@ module.exports = {
   getSessionBreathParams,
   finalizeLiveSession,
   abandonSession,
+  startEchoSession,
+  getActiveEchoSession,
+  getEchoTrace,
+  finalizeEchoSession,
+  abandonEchoSession,
   captureDyadicBaseline,
   detectPatterns,
   determineIntervention,

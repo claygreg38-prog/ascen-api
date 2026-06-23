@@ -229,9 +229,14 @@ router.post('/session/:id/tick-bio', async (req, res) => {
     const admission = await partnershipEngine.validateRoomAdmission(sessionId, userId);
     if (!admission.ok) return res.status(403).json({ error: 'Not admitted to session', reason: admission.reason });
 
-    const result = await coBreathSession.ingestBio(sessionId, admission.is_partner_a, biometrics);
+    // ECHO — single recipient breathing with a recorded trace; compute entrainment.
+    if (admission.mode === 'echo') {
+      const er = await coBreathSession.ingestEchoBio(sessionId, biometrics);
+      return res.json({ ok: true, mode: 'echo', metrics: er.metrics, aggregate: er.aggregate });
+    }
 
-    // Forward ONLY the server-derived regulation category to the partner over WS.
+    // LIVE — dyadic; forward ONLY the server-derived regulation category to the partner.
+    const result = await coBreathSession.ingestBio(sessionId, admission.is_partner_a, biometrics);
     coBreathWS.pushPartnerRegulation(sessionId, admission.user_db_id, result.regulation_category);
 
     // Response: sender's own category + shared dyad metrics + rolling aggregate.
