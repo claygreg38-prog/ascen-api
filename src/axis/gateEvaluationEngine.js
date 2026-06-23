@@ -279,4 +279,147 @@ async function getGateStatus(familyUnitId) {
   return result.rows;
 }
 
-module.exports = { evaluateGate, evaluateAllGates, getGateStatus, GATE_CRITERIA };
+// ════════════════════════════════════════════════════════════════
+// COUPLING UNLOCK GATE (Tending) — A1
+// Both partners must have completed foundation through S15 individually
+// before Coupling unlocks. Curriculum track is NOT recorded on
+// session_completions (the `track` column is NULL across all rows), so
+// "reached S15" is verified as a COMPLETED session at session_number >= 15.
+// Coupling modules cap at 14, so a coupling completion can never self-satisfy
+// this. The ~8-day calendar minimum is a natural consequence of reaching S15
+// at AM/PM cadence — no separate timer. Extends this engine (no parallel gate
+// path); partnershipEngine calls it.
+// ════════════════════════════════════════════════════════════════
+const COUPLING_UNLOCK_SESSION = 15;
+
+async function partnerUnlockStatus(userId) {
+  // session_completions.user_id is stored inconsistently — text user_id on some
+  // rows, integer-id-as-text on others. Match on ALL of this user's id forms so
+  // the gate finds completions whether the route passed a text id or a resolved
+  // users.id, and regardless of how the session was originally started.
+  const forms = new Set([String(userId)]);
+  try {
+    const u = await pool.query(
+      `SELECT id, user_id, participant_id FROM users WHERE id = $1 OR user_id = $2`,
+      [parseInt(userId) || 0, String(userId)]
+    );
+    if (u.rows[0]) {
+      forms.add(String(u.rows[0].id));
+      if (u.rows[0].user_id) forms.add(String(u.rows[0].user_id));
+      if (u.rows[0].participant_id) forms.add(String(u.rows[0].participant_id));
+    }
+  } catch (e) { /* fall back to the raw id form */ }
+
+  const r = await pool.query(
+    `SELECT COALESCE(MAX(session_number), 0) AS max_session,
+            COALESCE(BOOL_OR(session_number >= $2), false) AS reached
+     FROM session_completions
+     WHERE user_id = ANY($1) AND session_active = false`,
+    [Array.from(forms), COUPLING_UNLOCK_SESSION]
+  );
+  const maxSession = parseInt(r.rows[0].max_session, 10) || 0;
+  const reached = r.rows[0].reached === true;
+  return {
+    reached_s15: reached,
+    max_session: maxSession,
+    needs: reached ? 0 : Math.max(0, COUPLING_UNLOCK_SESSION - maxSession),
+  };
+}
+
+async function evaluateCouplingUnlock(partnerAId, partnerBId) {
+  const [a, b] = await Promise.all([
+    partnerUnlockStatus(partnerAId),
+    partnerUnlockStatus(partnerBId),
+  ]);
+  const unlocked = a.reached_s15 && b.reached_s15;
+  return {
+    gate: 'coupling_unlock',
+    status: unlocked ? 'unlocked' : 'locked',
+    threshold_session: COUPLING_UNLOCK_SESSION,
+    reason: unlocked
+      ? 'Coupling is unlocked — both of you have reached S15.'
+      : 'Coupling unlocks when both of you reach S15.',
+    partner_a: { user_id: partnerAId, ...a },
+    partner_b: { user_id: partnerBId, ...b },
+  };
+}
+
+// ════════════════════════════════════════════════════════════════
+// COUPLING DV-SCREENING GATE (Tending) — B1 (Jenae's 5-state framework)
+// Deny-by-default entry gate for ALL Coupling modules. Entry is ALLOWED only when
+// dv_screening_status IN ('pass','pass_with_support'); every other value
+// (not_screened | clinical_review_required | not_appropriate | missing row)
+// DENIES — so it is structurally impossible to enter ungated, even before the
+// screening intake exists. 'pass_with_support' allows but flags
+// requires_support_monitoring so downstream can schedule check-ins + give the
+// clinician visibility. NO screening/scoring logic lives here (Jenae owns the
+// intake build). Extends this engine (no parallel gate path).
+//
+// Fast-follow room (NOT built): 90-day re-screen expiry keyed on dv_screened_at
+// (returned below); active protective-order -> auto clinical_review_required.
+// ════════════════════════════════════════════════════════════════
+const COUPLING_DV_ALLOWED = ['pass', 'pass_with_support'];
+const COUPLING_DV_REASONS = {
+  not_screened: 'DV screening required before Coupling.',
+  clinical_review_required: 'Pending clinician review.',
+  not_appropriate: 'Not available at this time.',
+};
+
+async function evaluateCouplingDvGate(partnershipId) {
+  const r = await pool.query(
+    `SELECT dv_screening_status, dv_screened_at FROM partnership_practices WHERE id = $1`,
+    [partnershipId]
+  );
+  const dvStatus = r.rows[0]?.dv_screening_status || 'not_screened';
+  const allowed = COUPLING_DV_ALLOWED.includes(dvStatus);
+  return {
+    gate: 'coupling_dv_screening',
+    status: allowed ? 'allowed' : 'denied',
+    dv_screening_status: dvStatus,
+    dv_screened_at: r.rows[0]?.dv_screened_at || null, // surfaced for the 90-day expiry fast-follow
+    reason: allowed ? null : (COUPLING_DV_REASONS[dvStatus] || 'DV screening required before Coupling.'),
+    requires_support_monitoring: dvStatus === 'pass_with_support',
+  };
+}
+
+// ════════════════════════════════════════════════════════════════
+// COUPLING MIN-GAP GATE (Tending) — B2
+// Reject starting a new Coupling module within 48h of the partnership's last
+// COMPLETED module. First module (no prior completion) is allowed — the gap only
+// applies between modules. Gap measured against the DB clock (NOW()) to avoid
+// app/DB skew. Returns next-available time + a human reason for the UI. Extends
+// this engine (no parallel gate path); checked at partnershipEngine.startSession.
+// ════════════════════════════════════════════════════════════════
+const COUPLING_MIN_GAP_HOURS = 48;
+
+async function evaluateCouplingGap(partnershipId) {
+  const r = await pool.query(
+    `SELECT MAX(completed_at) AS last_completed,
+            EXTRACT(EPOCH FROM (NOW() - MAX(completed_at))) AS elapsed_sec
+     FROM partnership_sessions
+     WHERE partnership_id = $1 AND completed_at IS NOT NULL`,
+    [partnershipId]
+  );
+  const last = r.rows[0] && r.rows[0].last_completed;
+  if (!last) {
+    // first module — no prior completion
+    return { gate: 'coupling_min_gap', status: 'allowed', last_module_completed_at: null, reason: null };
+  }
+  const elapsedSec = parseFloat(r.rows[0].elapsed_sec) || 0;
+  const minSec = COUPLING_MIN_GAP_HOURS * 3600;
+  if (elapsedSec >= minSec) {
+    return { gate: 'coupling_min_gap', status: 'allowed', last_module_completed_at: last, reason: null };
+  }
+  const hoursRemaining = Math.ceil((minSec - elapsedSec) / 3600);
+  const nextAvailableAt = new Date(new Date(last).getTime() + minSec * 1000).toISOString();
+  return {
+    gate: 'coupling_min_gap',
+    status: 'denied',
+    last_module_completed_at: last,
+    next_available_at: nextAvailableAt,
+    hours_remaining: hoursRemaining,
+    reason: `Your next session unlocks in ${hoursRemaining} hour${hoursRemaining === 1 ? '' : 's'}.`,
+  };
+}
+
+module.exports = { evaluateGate, evaluateAllGates, getGateStatus, GATE_CRITERIA, evaluateCouplingUnlock, evaluateCouplingDvGate, evaluateCouplingGap };

@@ -121,18 +121,18 @@
 #srcBadge.src-synthetic { background: rgba(255,136,68,0.10); border: 1px solid rgba(255,136,68,0.45); color: rgba(255,170,100,0.98); }
 #srcBadge.src-synthetic .src-pip { background: #ff8844; box-shadow: 0 0 6px rgba(255,136,68,0.7); }
 #srcBadge.src-hidden { display: none; }
-#srcGateOv { position: fixed; inset: 0; background: rgba(8,18,32,0.92); display: none; z-index: 1500; align-items: center; justify-content: center; padding: 32px; }
-#srcGateOv.active { display: flex; }
-#srcGateOv .sg-c { max-width: 420px; text-align: center; color: #e8f1ff; font-family: 'Outfit', sans-serif; }
-#srcGateOv .sg-title { font-size: 18px; letter-spacing: 1px; margin-bottom: 12px; color: #e8f1ff; }
-#srcGateOv .sg-body { font-size: 14px; line-height: 1.6; color: #a8c4e0; margin-bottom: 24px; }
-#srcGateOv .sg-actions { display: flex; flex-direction: column; gap: 10px; }
-#srcGateOv .sg-btn { padding: 12px 18px; border-radius: 6px; font-size: 13px; letter-spacing: 1.5px; cursor: pointer; font-family: 'Outfit', sans-serif; transition: all 0.2s; }
-#srcGateOv .sg-btn-primary { background: rgba(78,205,196,0.15); border: 1px solid rgba(78,205,196,0.5); color: #4ecdc4; }
-#srcGateOv .sg-btn-primary:hover { background: rgba(78,205,196,0.25); }
-#srcGateOv .sg-btn-secondary { background: transparent; border: 1px solid rgba(255,255,255,0.25); color: rgba(232,241,255,0.85); }
-#srcGateOv .sg-btn-secondary:hover { border-color: rgba(255,255,255,0.45); }
-#srcGateOv .sg-disclosure { display: none; font-size: 12px; line-height: 1.6; color: rgba(255,170,100,0.95); margin-top: 18px; padding: 12px; border: 1px solid rgba(255,136,68,0.35); border-radius: 6px; background: rgba(255,136,68,0.06); text-align: left; }
+#srcGateOv, #couplingEnrollOv { position: fixed; inset: 0; background: rgba(8,18,32,0.92); display: none; z-index: 1500; align-items: center; justify-content: center; padding: 32px; }
+#srcGateOv.active, #couplingEnrollOv.active { display: flex; }
+#srcGateOv .sg-c, #couplingEnrollOv .sg-c { max-width: 420px; text-align: center; color: #e8f1ff; font-family: 'Outfit', sans-serif; }
+#srcGateOv .sg-title, #couplingEnrollOv .sg-title { font-size: 18px; letter-spacing: 1px; margin-bottom: 12px; color: #e8f1ff; }
+#srcGateOv .sg-body, #couplingEnrollOv .sg-body { font-size: 14px; line-height: 1.6; color: #a8c4e0; margin-bottom: 24px; }
+#srcGateOv .sg-actions, #couplingEnrollOv .sg-actions { display: flex; flex-direction: column; gap: 10px; }
+#srcGateOv .sg-btn, #couplingEnrollOv .sg-btn { padding: 12px 18px; border-radius: 6px; font-size: 13px; letter-spacing: 1.5px; cursor: pointer; font-family: 'Outfit', sans-serif; transition: all 0.2s; }
+#srcGateOv .sg-btn-primary, #couplingEnrollOv .sg-btn-primary { background: rgba(78,205,196,0.15); border: 1px solid rgba(78,205,196,0.5); color: #4ecdc4; }
+#srcGateOv .sg-btn-primary:hover, #couplingEnrollOv .sg-btn-primary:hover { background: rgba(78,205,196,0.25); }
+#srcGateOv .sg-btn-secondary, #couplingEnrollOv .sg-btn-secondary { background: transparent; border: 1px solid rgba(255,255,255,0.25); color: rgba(232,241,255,0.85); }
+#srcGateOv .sg-btn-secondary:hover, #couplingEnrollOv .sg-btn-secondary:hover { border-color: rgba(255,255,255,0.45); }
+#srcGateOv .sg-disclosure, #couplingEnrollOv .sg-disclosure { display: none; font-size: 12px; line-height: 1.6; color: rgba(255,170,100,0.95); margin-top: 18px; padding: 12px; border: 1px solid rgba(255,136,68,0.35); border-radius: 6px; background: rgba(255,136,68,0.06); text-align: left; }
 #srcGateOv.show-disclosure .sg-disclosure { display: block; }
 #mirrorOv .m-synth-notice { display: none; margin-top: 16px; padding: 10px 14px; border: 1px solid rgba(255,136,68,0.4); border-radius: 6px; background: rgba(255,136,68,0.08); color: rgba(255,170,100,0.95); font-size: 12px; line-height: 1.5; text-align: left; }
 #mirrorOv.synth-used .m-synth-notice { display: block; }
@@ -391,6 +391,24 @@
       <button class="sg-btn sg-btn-secondary" id="sgContinue">Continue without sensor</button>
     </div>
     <div class="sg-disclosure" id="sgDisclosure">Synthetic mode: heart rate, HRV, and coherence will be simulated, not measured. The session will run, but biometric feedback is not based on your body. Tap "Confirm" to proceed, or "Pair Now" to connect a sensor.</div>
+  </div></div>
+
+  <!-- COUPLING (TENDING) ENROLLMENT/ENTRY OVERLAY — A2. Gated entry wired to existing /api/partnership/* endpoints. HOS copy. -->
+  <div id="couplingEnrollOv"><div class="sg-c">
+    <div class="sg-title">Tending · Coupling</div>
+    <div class="sg-body">Coupling unlocks when both of you reach S15. Breathe alongside each other when you're both ready.</div>
+    <div class="sg-actions" style="flex-direction:column;gap:8px;margin-top:14px">
+      <input id="couplingPartnerId" placeholder="Your partner's code" style="width:100%;padding:9px;border-radius:6px;border:1px solid rgba(160,196,232,0.3);background:rgba(8,18,32,0.6);color:#dce8f5;font-size:14px;text-align:center">
+      <button class="sg-btn sg-btn-primary" id="couplingCheck">Check together</button>
+    </div>
+    <div id="couplingYou" class="sg-body" style="margin-top:12px">You: —</div>
+    <div id="couplingPartner" class="sg-body">Partner: —</div>
+    <div id="couplingReason" class="sg-body" style="color:#a0c4e8;min-height:18px"></div>
+    <div class="sg-actions" style="margin-top:10px">
+      <button class="sg-btn sg-btn-primary" id="couplingEnter" style="display:none">Enter together</button>
+      <button class="sg-btn sg-btn-secondary" id="couplingWait">Continue solo</button>
+    </div>
+    <div class="sg-disclosure" id="couplingSupport" style="display:none">A support guide will check in with the two of you during this season of Tending.</div>
   </div></div>
 
   <div class="ctrls">
@@ -2779,6 +2797,45 @@ var Integration = (function() {
   AbiService.prototype.verifyOnChain=async function(d){return this._req('POST','/api/blockchain/verify-session',d);};
   AbiService.prototype.selectDrill=async function(drillId){return this._req('POST','/api/abi/drill/select',{session_key:this.sessionKey,drill_id:drillId});};
 
+  // ── COUPLING (Tending) ENROLLMENT/ENTRY SURFACE — A2 ──
+  // Gated entry wired to existing /api/partnership/* endpoints (no new backend).
+  // Uses a raw fetch (not AbiService._req) so DV-deny 403 / not-eligible 400 bodies
+  // (which carry `reason`, not `error`) survive instead of being collapsed to "HTTP 4xx".
+  var CouplingUI=(function(){
+    function $c(id){return document.getElementById(id);}
+    function _hdrs(){var h={'Content-Type':'application/json'};if(_abi&&_abi.token)h['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)h['x-api-key']=_abi.apiKey;return h;}
+    async function _raw(method,path,body){var opts={method:method,headers:_hdrs()};if(body)opts.body=JSON.stringify(body);var res=await fetch((_apiBase||'')+path,opts);var data={};try{data=await res.json();}catch(e){}return{status:res.status,ok:res.ok,data:data};}
+    function open(){var ov=$c('couplingEnrollOv');if(ov)ov.classList.add('active');}
+    function close(){var ov=$c('couplingEnrollOv');if(ov)ov.classList.remove('active');}
+    function _prog(p,label){if(!p)return label+': —';return label+': S'+(p.max_session||0)+' / 15'+(p.reached_s15?' ✓':' ('+(p.needs||0)+' to go)');}
+    async function check(){
+      var partner=(($c('couplingPartnerId')||{}).value||'').trim();var me=String(_userId||'');
+      if(!partner){$c('couplingReason').textContent='Enter your partner’s code to continue.';return;}
+      $c('couplingReason').textContent='Checking…';$c('couplingEnter').style.display='none';
+      try{
+        var r=await _raw('GET','/api/partnership/eligibility?partner_a_id='+encodeURIComponent(me)+'&partner_b_id='+encodeURIComponent(partner),null);
+        var d=r.data||{};
+        $c('couplingYou').textContent=_prog(d.partner_a,'You');
+        $c('couplingPartner').textContent=_prog(d.partner_b,'Partner');
+        $c('couplingReason').textContent=d.reason||'';
+        if(d.eligible){var e=$c('couplingEnter');e.style.display='block';e.setAttribute('data-partner',partner);}
+      }catch(err){$c('couplingReason').textContent='Could not check right now.';}
+    }
+    async function enter(){
+      var e=$c('couplingEnter');var partner=e.getAttribute('data-partner')||'';var me=String(_userId||'');
+      $c('couplingReason').textContent='Opening…';$c('couplingSupport').style.display='none';
+      var en=await _raw('POST','/api/partnership/enroll',{partner_a_id:me,partner_b_id:partner});
+      if(en.data&&en.data.enrolled===false){$c('couplingReason').textContent=en.data.reason||'Not available yet.';return;}
+      var st=await _raw('POST','/api/partnership/session/start',{session_type:'co_breath'});
+      if(st.status===403||(st.data&&st.data.started===false)){$c('couplingReason').textContent=(st.data&&st.data.reason)||'Not available at this time.';return;}
+      var mon=!!(st.data&&st.data.requires_support_monitoring);
+      $c('couplingReason').textContent='You’re in. Breathing together begins.';
+      $c('couplingSupport').style.display=mon?'block':'none';
+    }
+    function init(){var e=$c('couplingEnter');if(e)e.addEventListener('click',enter);var c=$c('couplingCheck');if(c)c.addEventListener('click',check);var w=$c('couplingWait');if(w)w.addEventListener('click',close);}
+    return{open:open,close:close,check:check,enter:enter,init:init};
+  })();
+
   // Breathwork Modes
   function _bmParseRatio(r){if(!r)return[4,6];if(r==='user_chosen')throw new Error('parseRatio: user_chosen requires explicit ratio selection');return r.split(':').map(Number).filter(function(n){return!isNaN(n)&&n>0});}
   var MODES={simple_pacer:{name:'Simple Pacer',phases:['inhale','exhale'],visual:'circle_expand',getTimings:function(r){var p=_bmParseRatio(r);return{inhale:{duration:p[0],label:'Breathe In',pacer:'expand',orbit_start:0,orbit_end:0.5},exhale:{duration:p[1],label:'Breathe Out',pacer:'contract',orbit_start:0.5,orbit_end:1.0}};},tracks:{standard:{ratio:'4:6',total_cycle:10,color_base:[120,170,210]},gentle:{ratio:'3:5',total_cycle:8,color_base:[140,185,210]},minimal:{ratio:'3:4',total_cycle:7,color_base:[155,195,215]}}},user_chosen:{name:'Your Choice',phases:['inhale','exhale'],visual:'circle_expand',requiresSelection:true,availableRatios:{standard:['4:6','4:7','4:8','5:7'],gentle:['3:5','3:6','4:6'],minimal:['3:4','3:5','4:5']},getTimings:function(r){var p=_bmParseRatio(r);return{inhale:{duration:p[0],label:'Breathe In',pacer:'expand',orbit_start:0,orbit_end:0.5},exhale:{duration:p[1],label:'Breathe Out',pacer:'contract',orbit_start:0.5,orbit_end:1.0}};},tracks:{standard:{ratio:'4:6',total_cycle:10,color_base:[120,170,210]},gentle:{ratio:'3:5',total_cycle:8,color_base:[140,185,210]},minimal:{ratio:'3:4',total_cycle:7,color_base:[155,195,215]}}},coherence:{name:'Coherence',phases:['inhale','exhale'],visual:'coherence_rings',locked_ratio:'6:6',getTimings:function(){return{inhale:{duration:6,label:'Breathe In',pacer:'symmetrical_expand',orbit_start:0,orbit_end:0.5},exhale:{duration:6,label:'Breathe Out',pacer:'symmetrical_contract',orbit_start:0.5,orbit_end:1.0}};},tracks:{standard:{ratio:'6:6',total_cycle:12,color_base:[180,170,140]}}}};
@@ -2807,6 +2864,7 @@ var Integration = (function() {
     var urlParams=new URLSearchParams(window.location.search);_isEmbedded=urlParams.get('embedded')==='true';
     _replay=urlParams.get('replay')==='1';if(_replay)console.log('[ASCEN] REPLAY/DEMO mode — H10 stays connected across restarts; no /progress writes; parent not notified on complete');
     if(_isEmbedded)_initEmbeddedMode();_setApiStatus('connecting');
+    CouplingUI.init();if(urlParams.get('coupling')==='1')setTimeout(CouplingUI.open,300);
   }
   function _initEmbeddedMode(){console.log('[EMBEDDED] Mode active');window.parent.postMessage({type:'iframe_ready'},'*');var readyInterval=setInterval(function(){if(_embeddedAuthReceived){clearInterval(readyInterval);return;}window.parent.postMessage({type:'iframe_ready'},'*');},500);window.addEventListener('message',function(event){var data=event.data||{};if(data.type!=='auth')return;if(!data.token){console.warn('[EMBEDDED] Auth message arrived without token — staying in harness mode');_embeddedAuthReceived=true;return;}_embeddedAuthReceived=true;if(_abi)_abi.token=data.token;localStorage.setItem('ascen_jwt',data.token);if(data.apiKey&&_abi)_abi.apiKey=data.apiKey;try{var payload=JSON.parse(atob(data.token.split('.')[1]));var _newUserId=payload.userId||payload.sub||payload.id||_userId;if(_newUserId!==_userId&&_userId&&typeof BioBridge!=='undefined')BioBridge.destroyUser(_userId);_userId=_newUserId;localStorage.setItem('ascen_uid',String(_userId));}catch(e){}console.log('[EMBEDDED] Auth received | userId:',_userId);loadSessions();});}
   function _notifyParentComplete(sessionNumber){if(_isEmbedded)window.parent.postMessage({type:'session_complete',data:{session_number:sessionNumber}},'*');}

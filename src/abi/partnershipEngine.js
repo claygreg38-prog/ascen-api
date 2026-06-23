@@ -11,7 +11,7 @@
 // what you cannot self-regulate.
 //
 // Architecture:
-//   - Solo before dyad (5+ sessions each)
+//   - Solo before dyad (A1: both partners reach foundation S15)
 //   - Relationship Account gates content (0-100, starts 50)
 //   - Pattern detection is biometric, not behavioral
 //   - System NEVER identifies the "problem partner"
@@ -24,8 +24,12 @@
 const Sentry = require('../instrument');
 const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// A1/B1/B2 — Coupling gates live in the AXIS gate engine (single gate path, no bypass).
+const { evaluateCouplingUnlock, evaluateCouplingDvGate, evaluateCouplingGap } = require('../axis/gateEvaluationEngine');
 
-const ENROLLMENT_THRESHOLD = 5;  // minimum solo sessions per partner
+// DEPRECATED (A1): the raw 5-solo-session count is superseded by the S15 unlock
+// gate (evaluateCouplingUnlock). Kept exported for backward compatibility only.
+const ENROLLMENT_THRESHOLD = 5;
 const ACCOUNT_START = 30.0;   // Fix #5: start at 30, must earn into high-sensitivity topics
 const ACCOUNT_MIN = 0;
 const ACCOUNT_MAX = 100;
@@ -90,25 +94,22 @@ const WITHDRAWALS = {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Check enrollment eligibility. Both partners need 5+ solo sessions.
+ * A1 — Coupling unlock eligibility. Both partners must have completed foundation
+ * through S15 individually (verified as a completed session at session_number >= 15;
+ * coupling caps at module 14 so it can't self-satisfy). Delegates to the AXIS gate
+ * rule (single gate path); returns locked/unlocked + reason for the UI.
  */
 async function checkEligibility(partnerAId, partnerBId) {
-  const aSessions = await pool.query(
-    'SELECT COUNT(*) FROM session_completions WHERE user_id = $1 AND session_active = false',
-    [partnerAId.toString()]
-  );
-  const bSessions = await pool.query(
-    'SELECT COUNT(*) FROM session_completions WHERE user_id = $1 AND session_active = false',
-    [partnerBId.toString()]
-  );
-
-  const aCount = parseInt(aSessions.rows[0].count) || 0;
-  const bCount = parseInt(bSessions.rows[0].count) || 0;
-
+  const gate = await evaluateCouplingUnlock(partnerAId, partnerBId);
   return {
-    eligible: aCount >= ENROLLMENT_THRESHOLD && bCount >= ENROLLMENT_THRESHOLD,
-    partner_a: { sessions: aCount, needs: Math.max(0, ENROLLMENT_THRESHOLD - aCount) },
-    partner_b: { sessions: bCount, needs: Math.max(0, ENROLLMENT_THRESHOLD - bCount) }
+    eligible: gate.status === 'unlocked',
+    reason: gate.reason,
+    threshold_session: gate.threshold_session,
+    // `.sessions` retained for enroll()'s partner_*_sessions columns — now the
+    // partner's max completed session_number (foundation progress), not a raw count.
+    partner_a: { sessions: gate.partner_a.max_session, reached_s15: gate.partner_a.reached_s15, max_session: gate.partner_a.max_session, needs: gate.partner_a.needs },
+    partner_b: { sessions: gate.partner_b.max_session, reached_s15: gate.partner_b.reached_s15, max_session: gate.partner_b.max_session, needs: gate.partner_b.needs },
+    gate,
   };
 }
 
@@ -122,7 +123,7 @@ async function enroll(partnerAId, partnerBId, familyUnitId, tenantId) {
 
   const eligibility = await checkEligibility(canonA, canonB);
   if (!eligibility.eligible) {
-    return { enrolled: false, reason: 'Both partners need 5+ solo sessions first', eligibility };
+    return { enrolled: false, reason: eligibility.reason, eligibility };
   }
 
   const result = await pool.query(`
@@ -160,6 +161,282 @@ async function getPartnershipById(partnershipId) {
     [partnershipId]
   );
   return result.rows[0] || null;
+}
+
+/**
+ * B1 — DV screening status interface. The clean insertion point for Jenae's
+ * clinical screening protocol to call once it exists. NO screening logic here —
+ * this only SETS the gate's status field. The deny-by-default gate
+ * (gateEvaluationEngine.evaluateCouplingDvGate) reads it; only 'passed' opens
+ * Coupling entry. Valid: passed | flagged (and not_screened to reset).
+ * @param {number} partnershipId
+ * @param {'passed'|'flagged'|'not_screened'} status
+ * @param {string|null} setBy - clinician identifier, for audit
+ */
+async function setDvScreeningStatus(partnershipId, status, setBy = null) {
+  const VALID = ['not_screened', 'pass', 'pass_with_support', 'clinical_review_required', 'not_appropriate'];
+  if (!VALID.includes(status)) {
+    throw new Error(`Invalid dv_screening_status '${status}' — must be one of: ${VALID.join(', ')}`);
+  }
+  const r = await pool.query(
+    `UPDATE partnership_practices
+        SET dv_screening_status = $1, dv_screened_at = NOW(), dv_screened_by = $2, updated_at = NOW()
+      WHERE id = $3
+      RETURNING id, dv_screening_status, dv_screened_at, dv_screened_by`,
+    [status, setBy, partnershipId]
+  );
+  if (!r.rows.length) throw new Error('Partnership not found');
+  return r.rows[0];
+}
+
+// ═══════════════════════════════════════════════════════════════
+// L1 — SESSION TOKEN + WS ROOM ADMISSION (live co-breath unification)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Resolve a user_id / code / numeric id -> internal users.id. THE single resolver
+ * (canonical home; partnershipRoutes imports this). One implementation used by
+ * both the REST routes and the WS room-admission check.
+ */
+async function resolveUserIdValue(idOrCode) {
+  if (idOrCode === undefined || idOrCode === null || idOrCode === '') return null;
+  const r = await pool.query(
+    'SELECT id FROM users WHERE user_id = $1 OR id = $2',
+    [String(idOrCode), parseInt(idOrCode) || 0]
+  );
+  return r.rows[0] ? r.rows[0].id : null;
+}
+
+/**
+ * Look up an ACTIVE (not completed) co-breath session + its partnership/partners.
+ * The session id (partnership_sessions.id, minted by the gated startSession) is the
+ * shared room token.
+ */
+async function getActiveSession(sessionId) {
+  const r = await pool.query(
+    `SELECT ps.id, ps.partnership_id, ps.session_type, ps.completed_at, ps.abandoned_at,
+            pp.partner_a_id, pp.partner_b_id, pp.status AS partnership_status
+       FROM partnership_sessions ps
+       JOIN partnership_practices pp ON pp.id = ps.partnership_id
+      WHERE ps.id = $1`,
+    [sessionId]
+  );
+  return r.rows[0] || null;
+}
+
+/**
+ * L1 — WS room admission. A room is valid ONLY if a gated startSession minted it
+ * (roomCode === the session token), the session is still open, and the joining
+ * user is one of its two partners. The gates (S15/DV/48h) themselves run in
+ * startSession; this only verifies the minted token — no gate logic duplicated.
+ */
+async function validateRoomAdmission(sessionId, userId) {
+  if (!sessionId) return { ok: false, reason: 'session token required' };
+  const uid = await resolveUserIdValue(userId);
+
+  // LIVE — partnership_sessions token
+  const s = await getActiveSession(sessionId);
+  if (s) {
+    if (s.completed_at) return { ok: false, reason: 'session already completed' };
+    if (s.abandoned_at) return { ok: false, reason: 'session abandoned' };
+    if (!uid) return { ok: false, reason: 'user not found' };
+    if (uid !== s.partner_a_id && uid !== s.partner_b_id) {
+      return { ok: false, reason: 'not a partner of this session' };
+    }
+    return { ok: true, mode: 'live', partnership_id: s.partnership_id, user_db_id: uid, is_partner_a: uid === s.partner_a_id };
+  }
+
+  // ECHO — echo_sessions token (single recipient; the "partner" is the recorded trace)
+  const e = await getActiveEchoSession(sessionId);
+  if (!e) return { ok: false, reason: 'session not found' };
+  if (e.completed_at) return { ok: false, reason: 'session already completed' };
+  if (e.abandoned_at) return { ok: false, reason: 'session abandoned' };
+  if (!uid) return { ok: false, reason: 'user not found' };
+  if (uid !== e.recipient_participant_id) return { ok: false, reason: 'not the recipient of this echo' };
+  return { ok: true, mode: 'echo', echo_session_id: e.id, capsule_id: e.capsule_id, user_db_id: uid, is_recipient: true };
+}
+
+/**
+ * L2 — load the server-derived breath params for a session. The WS breathing_start
+ * reads from here; the server is the ONLY source of pacing.
+ */
+async function getSessionBreathParams(sessionId) {
+  const r = await pool.query('SELECT breath_params FROM partnership_sessions WHERE id = $1', [sessionId]);
+  if (r.rows[0]) return r.rows[0].breath_params || null;
+  // ECHO — derive the recipient's pacer from the capsule's recorded cadence.
+  const er = await pool.query(
+    `SELECT lc.breath_cadence FROM echo_sessions es JOIN legacy_capsules lc ON lc.id = es.capsule_id WHERE es.id = $1`,
+    [sessionId]
+  );
+  if (er.rows[0]) return deriveEchoBreathParams(er.rows[0].breath_cadence);
+  return null;
+}
+
+/**
+ * L2 — derive the dyad's breath pacing server-side. Shared coherent pace for
+ * co-breathing together; the ONLY source of breath params (clients never supply
+ * them). A richer per-partner / per-module derivation can refine this later
+ * without changing the session contract.
+ */
+function deriveCoBreathParams(sessionType) {
+  return {
+    mode: 'coherence',
+    ratio: '5:5',
+    inhale_sec: 5,
+    exhale_sec: 5,
+    cycle_sec: 10,
+    source: 'server_protocol_default',
+    session_type: sessionType,
+  };
+}
+
+/**
+ * L4 — finalize a LIVE co-breath session. IDEMPOTENT by construction: the stamp is
+ * an atomic UPDATE guarded by `completed_at IS NULL AND abandoned_at IS NULL`, so
+ * exactly ONE caller transitions the row and deposits to the account. Concurrent
+ * callers (e.g. an explicit-end and a disconnect-timeout racing) see rowCount 0 and
+ * do NOT deposit. This is the durable guard against corrupting the account.
+ */
+async function finalizeLiveSession(sessionId, finalMetrics) {
+  const upd = await pool.query(
+    `UPDATE partnership_sessions
+        SET dyadic_metrics = COALESCE(dyadic_metrics, '{}'::jsonb) || $2::jsonb,
+            completed_at = NOW()
+      WHERE id = $1 AND completed_at IS NULL AND abandoned_at IS NULL
+      RETURNING id, partnership_id`,
+    [sessionId, JSON.stringify(finalMetrics || {})]
+  );
+  if (upd.rowCount === 0) return { completed: false, already: true };
+  const partnershipId = upd.rows[0].partnership_id;
+  const balance = await updateAccount(partnershipId, DEPOSITS.co_breath_completed, 'co_breath_completed');
+  return { completed: true, account_balance: balance, partnership_id: partnershipId };
+}
+
+/**
+ * L4 — stale-session reaper. Marks an abandoned session abandoned_at (NOT
+ * completed_at): no account deposit, excluded from the 48h gap (keys off
+ * completed_at) and from room admission. Idempotent — only an open, unabandoned
+ * row transitions.
+ */
+async function abandonSession(sessionId, reason) {
+  const upd = await pool.query(
+    `UPDATE partnership_sessions
+        SET abandoned_at = NOW()
+      WHERE id = $1 AND completed_at IS NULL AND abandoned_at IS NULL
+      RETURNING id`,
+    [sessionId]
+  );
+  return { abandoned: upd.rowCount === 1, reason: reason || null };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE E — ECHO (ASYNC) MODE
+// One recipient breathes WITH a recorded capsule trace. Same session/token/manager
+// substrate as live (L1-L4): echo_sessions.id is the token; the "partner" phase
+// source is a server trace-player (not a second socket); metric is entrainment
+// (convergence toward the recorded trace), not mutual sync. Honors the original
+// Breath Echo rules: NO synthetic — full_trace playback requires a REAL captured
+// trace AND sharing consent, else cadence_only (phases derived from the recorded
+// cadence, never fabricated physiology).
+// ═══════════════════════════════════════════════════════════════
+
+function deriveEchoBreathParams(breathCadence) {
+  const bc = breathCadence || {};
+  const inhale = bc.inhale_seconds || 4;
+  const exhale = bc.exhale_seconds || 6;
+  return {
+    mode: 'echo',
+    ratio: bc.ratio || (inhale + ':' + exhale),
+    inhale_sec: inhale, exhale_sec: exhale, cycle_sec: inhale + exhale,
+    source: 'echo_capsule_cadence',
+  };
+}
+
+async function getActiveEchoSession(sessionId) {
+  const r = await pool.query(
+    `SELECT id, capsule_id, recipient_participant_id, echo_type, completed_at, abandoned_at
+       FROM echo_sessions WHERE id = $1`,
+    [sessionId]
+  );
+  return r.rows[0] || null;
+}
+
+// Mint an echo session (gated): resolves the capsule's playable trace under the
+// no-synthetic + consent rules. Carries sample_source through.
+async function startEchoSession(recipientUserId, capsuleId, echoType) {
+  const recipientId = await resolveUserIdValue(recipientUserId);
+  if (!recipientId) throw new Error('recipient not found');
+  const cr = await pool.query(
+    `SELECT id, breath_trace_json, trace_resolution, consent_layers_json, breath_cadence, sample_source
+       FROM legacy_capsules WHERE id = $1`,
+    [capsuleId]
+  );
+  const cap = cr.rows[0];
+  if (!cap) throw new Error('capsule not found');
+  const consent = cap.consent_layers_json || {};
+  const traceArr = Array.isArray(cap.breath_trace_json) ? cap.breath_trace_json : null;
+  const hasFullTrace = cap.trace_resolution === 'full_trace' && traceArr && traceArr.length > 0;
+  const resolution = (hasFullTrace && consent.full_trace === true) ? 'full_trace' : 'cadence_only';
+  const ins = await pool.query(
+    `INSERT INTO echo_sessions (capsule_id, recipient_participant_id, echo_type, started_at)
+     VALUES ($1, $2, $3, NOW()) RETURNING id`,
+    [capsuleId, recipientId, echoType || 'echo']
+  );
+  return {
+    session_id: ins.rows[0].id,
+    mode: 'echo',
+    trace_resolution: resolution,
+    sample_source: cap.sample_source || null,
+    breath_params: deriveEchoBreathParams(cap.breath_cadence),
+  };
+}
+
+// Load the capsule's playable trace for the server trace-player. full_trace -> the
+// real 1 Hz series; cadence_only -> null series (player derives phases from cadence).
+async function getEchoTrace(sessionId) {
+  const r = await pool.query(
+    `SELECT lc.breath_trace_json, lc.trace_resolution, lc.consent_layers_json, lc.breath_cadence
+       FROM echo_sessions es JOIN legacy_capsules lc ON lc.id = es.capsule_id
+      WHERE es.id = $1`,
+    [sessionId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  const consent = row.consent_layers_json || {};
+  const traceArr = Array.isArray(row.breath_trace_json) ? row.breath_trace_json : null;
+  const hasFullTrace = row.trace_resolution === 'full_trace' && traceArr && traceArr.length > 0;
+  if (hasFullTrace && consent.full_trace === true) {
+    return { resolution: 'full_trace', series: traceArr, cadence: row.breath_cadence || null };
+  }
+  return { resolution: 'cadence_only', series: null, cadence: row.breath_cadence || null };
+}
+
+// Idempotent echo completion — atomic guard mirrors finalizeLiveSession.
+async function finalizeEchoSession(sessionId, m) {
+  m = m || {};
+  const upd = await pool.query(
+    `UPDATE echo_sessions
+        SET completed_at = NOW(),
+            entrainment_score = $2,
+            synchrony_events_json = $3,
+            recipient_ns3_series_json = $4,
+            somatic_reset_fired = COALESCE($5, somatic_reset_fired, false)
+      WHERE id = $1 AND completed_at IS NULL AND abandoned_at IS NULL
+      RETURNING id`,
+    [sessionId, m.entrainment_score == null ? null : m.entrainment_score,
+     JSON.stringify(m.synchrony_events || []), JSON.stringify(m.recipient_ns3_series || []),
+     m.somatic_reset_fired == null ? null : m.somatic_reset_fired]
+  );
+  return { completed: upd.rowCount === 1, already: upd.rowCount === 0 };
+}
+
+async function abandonEchoSession(sessionId, reason) {
+  const upd = await pool.query(
+    `UPDATE echo_sessions SET abandoned_at = NOW()
+      WHERE id = $1 AND completed_at IS NULL AND abandoned_at IS NULL RETURNING id`,
+    [sessionId]
+  );
+  return { abandoned: upd.rowCount === 1, reason: reason || null };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -445,17 +722,40 @@ async function getAccountTrend(partnershipId) {
  * Start a partnership session.
  */
 async function startSession(partnershipId, sessionType) {
+  // B1 — DV deny-by-default gate (scope: ALL Coupling). Entry is structurally
+  // impossible unless dv_screening_status = 'passed'. Single gate path via the
+  // AXIS gate engine; no bypass. Returns { started: false } on deny (route -> 403).
+  const dvGate = await evaluateCouplingDvGate(partnershipId);
+  if (dvGate.status !== 'allowed') {
+    return { started: false, reason: dvGate.reason, gate: dvGate };
+  }
+
+  // B2 — 48h minimum gap between modules (first module is allowed). Returns the
+  // next-available time + reason; surfaces in the UI via the same 403 path as DV.
+  const gapGate = await evaluateCouplingGap(partnershipId);
+  if (gapGate.status !== 'allowed') {
+    return { started: false, reason: gapGate.reason, gate: gapGate };
+  }
+
+  // L2 — server-derived breath pacing, persisted on the session (the ONLY source).
+  const breathParams = deriveCoBreathParams(sessionType);
   const result = await pool.query(`
-    INSERT INTO partnership_sessions (partnership_id, session_type)
-    VALUES ($1, $2) RETURNING id
-  `, [partnershipId, sessionType]);
+    INSERT INTO partnership_sessions (partnership_id, session_type, breath_params)
+    VALUES ($1, $2, $3) RETURNING id
+  `, [partnershipId, sessionType, JSON.stringify(breathParams)]);
 
   await pool.query(
     'UPDATE partnership_practices SET last_session_at = NOW(), updated_at = NOW() WHERE id = $1',
     [partnershipId]
   );
 
-  return { session_id: result.rows[0].id, session_type: sessionType };
+  // pass_with_support entry carries a monitoring flag so downstream can schedule
+  // check-ins + give the clinician visibility.
+  return {
+    session_id: result.rows[0].id,
+    session_type: sessionType,
+    requires_support_monitoring: dvGate.requires_support_monitoring === true,
+  };
 }
 
 /**
@@ -549,7 +849,8 @@ async function completeSession(sessionId, partnershipId, metrics) {
   await pool.query(`
     UPDATE partnership_sessions SET
       partner_a_biometrics = $1, partner_b_biometrics = $2,
-      dyadic_metrics = $3, detected_patterns = $4
+      dyadic_metrics = $3, detected_patterns = $4,
+      completed_at = NOW()
     WHERE id = $5
   `, [
     JSON.stringify(partner_a_biometrics || {}),
@@ -726,6 +1027,18 @@ module.exports = {
   enroll,
   getPartnership,
   getPartnershipById,
+  setDvScreeningStatus,
+  resolveUserIdValue,
+  getActiveSession,
+  validateRoomAdmission,
+  getSessionBreathParams,
+  finalizeLiveSession,
+  abandonSession,
+  startEchoSession,
+  getActiveEchoSession,
+  getEchoTrace,
+  finalizeEchoSession,
+  abandonEchoSession,
   captureDyadicBaseline,
   detectPatterns,
   determineIntervention,

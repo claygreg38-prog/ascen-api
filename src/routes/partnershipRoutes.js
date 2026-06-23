@@ -30,31 +30,25 @@ const express = require('express');
 const router = express.Router();
 const { Pool } = require('pg');
 const partnershipEngine = require('../abi/partnershipEngine');
+// L3 — server-side dyadic compute + WS regulation forward.
+const coBreathSession = require('../services/coBreathSession');
+const coBreathWS = require('../services/coBreathWebSocket');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ── Helper: resolve user's active partnership ────────────────
 
-async function resolvePartnership(req) {
-  const userId = req.user?.participant_id || req.user?.userId || req.user?.sub;
-  if (!userId) return null;
-
-  const userRow = await pool.query(
-    'SELECT id FROM users WHERE user_id = $1 OR id = $2',
-    [userId, parseInt(userId) || 0]
-  );
-  if (!userRow.rows.length) return null;
-
-  return await partnershipEngine.getPartnership(userRow.rows[0].id);
-}
-
+// The canonical resolver now lives in partnershipEngine (one implementation shared
+// by these routes and the WS room-admission check). Use it everywhere.
 async function resolveUserId(req) {
   const userId = req.user?.participant_id || req.user?.userId || req.user?.sub;
-  const userRow = await pool.query(
-    'SELECT id FROM users WHERE user_id = $1 OR id = $2',
-    [userId, parseInt(userId) || 0]
-  );
-  return userRow.rows[0]?.id || null;
+  return partnershipEngine.resolveUserIdValue(userId);
+}
+
+async function resolvePartnership(req) {
+  const id = await resolveUserId(req);
+  if (!id) return null;
+  return await partnershipEngine.getPartnership(id);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -67,9 +61,13 @@ router.get('/eligibility', async (req, res) => {
     if (!partner_a_id || !partner_b_id) {
       return res.status(400).json({ error: 'partner_a_id and partner_b_id query params required' });
     }
-    const result = await partnershipEngine.checkEligibility(
-      parseInt(partner_a_id), parseInt(partner_b_id)
-    );
+    // Resolve user_id/code -> users.id (the UI sends text ids, not integers).
+    const aId = await partnershipEngine.resolveUserIdValue(partner_a_id);
+    const bId = await partnershipEngine.resolveUserIdValue(partner_b_id);
+    if (!aId || !bId) {
+      return res.status(404).json({ error: 'Partner not found', partner_a_resolved: !!aId, partner_b_resolved: !!bId });
+    }
+    const result = await partnershipEngine.checkEligibility(aId, bId);
     res.json(result);
   } catch (err) {
     console.error('[PARTNERSHIP] Eligibility check failed:', err.message);
@@ -84,9 +82,16 @@ router.post('/enroll', async (req, res) => {
     if (!partner_a_id || !partner_b_id) {
       return res.status(400).json({ error: 'partner_a_id and partner_b_id required' });
     }
+    // Resolve user_id/code -> users.id (same resolver), so the UI's text ids
+    // become the integer ids enroll()'s FK + canonical ordering require.
+    const aId = await partnershipEngine.resolveUserIdValue(partner_a_id);
+    const bId = await partnershipEngine.resolveUserIdValue(partner_b_id);
+    if (!aId || !bId) {
+      return res.status(404).json({ error: 'Partner not found', partner_a_resolved: !!aId, partner_b_resolved: !!bId });
+    }
     const tenantId = req.tenantId || null;
     const result = await partnershipEngine.enroll(
-      partner_a_id, partner_b_id, family_unit_id, tenantId
+      aId, bId, family_unit_id, tenantId
     );
     if (!result.enrolled) return res.status(400).json(result);
     res.json(result);
@@ -155,6 +160,8 @@ router.post('/session/start', async (req, res) => {
     if (!session_type) return res.status(400).json({ error: 'session_type required' });
 
     const result = await partnershipEngine.startSession(partnership.id, session_type);
+    // B1 — DV deny-by-default gate: structurally impossible to enter ungated.
+    if (result.started === false) return res.status(403).json(result);
     res.json(result);
   } catch (err) {
     console.error('[PARTNERSHIP] Session start failed:', err.message);
@@ -205,6 +212,40 @@ router.post('/session/complete', async (req, res) => {
     console.error('[PARTNERSHIP] Session complete failed:', err.message);
     Sentry.captureException(err);
     res.status(500).json({ error: 'Failed to complete session' });
+  }
+});
+
+// L3 — Parallel authed RAW bio tick, keyed by session_id. Raw biometrics reach the
+// SERVER here (never the WS). Server-side processTick runs in the in-memory session
+// manager; only the server-derived regulation CATEGORY is forwarded to the partner
+// over WS. Membership is validated via L1's validateRoomAdmission.
+router.post('/session/:id/tick-bio', async (req, res) => {
+  try {
+    const sessionId = req.params.id;
+    const { biometrics } = req.body;
+    if (!biometrics) return res.status(400).json({ error: 'biometrics required' });
+
+    const userId = req.user?.participant_id || req.user?.userId || req.user?.sub || req.body.user_id;
+    const admission = await partnershipEngine.validateRoomAdmission(sessionId, userId);
+    if (!admission.ok) return res.status(403).json({ error: 'Not admitted to session', reason: admission.reason });
+
+    // ECHO — single recipient breathing with a recorded trace; compute entrainment.
+    if (admission.mode === 'echo') {
+      const er = await coBreathSession.ingestEchoBio(sessionId, biometrics);
+      return res.json({ ok: true, mode: 'echo', metrics: er.metrics, aggregate: er.aggregate });
+    }
+
+    // LIVE — dyadic; forward ONLY the server-derived regulation category to the partner.
+    const result = await coBreathSession.ingestBio(sessionId, admission.is_partner_a, biometrics);
+    coBreathWS.pushPartnerRegulation(sessionId, admission.user_db_id, result.regulation_category);
+
+    // Response: sender's own category + shared dyad metrics + rolling aggregate.
+    // Never the partner's raw bio.
+    res.json({ ok: true, regulation_category: result.regulation_category, metrics: result.metrics, aggregate: result.aggregate });
+  } catch (err) {
+    console.error('[PARTNERSHIP] bio-tick failed:', err.message);
+    Sentry.captureException(err);
+    res.status(500).json({ error: 'Failed to process bio tick' });
   }
 });
 
