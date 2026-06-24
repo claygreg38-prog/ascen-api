@@ -743,9 +743,9 @@ async function startSession(partnershipId, sessionType) {
   // open for this partnership, return THAT token rather than minting a second
   // room. This is what makes simultaneous "enter" taps converge on one room: the
   // first mints, the second reuses. (The gates already ran when it was minted; an
-  // open session means an in-progress, already-gated module.) A truly concurrent
-  // double-INSERT window remains — a partial unique index would close it fully;
-  // flagged as a fast-follow, not built here.
+  // open session means an in-progress, already-gated module.) This SELECT closes
+  // the common case; the truly concurrent double-INSERT window is closed at the
+  // DB layer by migration 090's partial unique index (caught below).
   const existingOpen = await getOpenSessionForPartnership(partnershipId);
   if (existingOpen) {
     return { session_id: existingOpen.id, session_type: existingOpen.session_type, reused: true };
@@ -768,10 +768,23 @@ async function startSession(partnershipId, sessionType) {
 
   // L2 — server-derived breath pacing, persisted on the session (the ONLY source).
   const breathParams = deriveCoBreathParams(sessionType);
-  const result = await pool.query(`
-    INSERT INTO partnership_sessions (partnership_id, session_type, breath_params)
-    VALUES ($1, $2, $3) RETURNING id
-  `, [partnershipId, sessionType, JSON.stringify(breathParams)]);
+  let result;
+  try {
+    result = await pool.query(`
+      INSERT INTO partnership_sessions (partnership_id, session_type, breath_params)
+      VALUES ($1, $2, $3) RETURNING id
+    `, [partnershipId, sessionType, JSON.stringify(breathParams)]);
+  } catch (err) {
+    // 090 — the losing side of a TRUE concurrent race. The partial unique index
+    // (one_open_session_per_partnership) rejects the second open INSERT with a
+    // unique violation (23505); resolve it to the SAME room the winner just
+    // opened, so both callers converge instead of one erroring.
+    if (err.code === '23505') {
+      const open = await getOpenSessionForPartnership(partnershipId);
+      if (open) return { session_id: open.id, session_type: open.session_type, reused: true };
+    }
+    throw err;
+  }
 
   await pool.query(
     'UPDATE partnership_practices SET last_session_at = NOW(), updated_at = NOW() WHERE id = $1',
