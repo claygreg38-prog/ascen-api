@@ -16,7 +16,6 @@ import SessionScreen from './screens/SessionScreen';
 import GalleryScreen from './screens/GalleryScreen';
 import FamilyScreen from './screens/FamilyScreen';
 import ProfileScreen from './screens/ProfileScreen';
-import CoBreathScreen from './screens/CoBreathScreen';
 import CoupleSessionScreen from './screens/CoupleSessionScreen';
 import VaultScreen from './screens/VaultScreen';
 import ShowcaseScreen from './screens/ShowcaseScreen';
@@ -134,7 +133,6 @@ export default function App() {
           <Route path="/app/session" element={<Protected nav={false} showHelp={false}><SessionScreen /></Protected>} />
           <Route path="/app/couple" element={<Protected nav={false} showHelp={false}><CoupleSessionScreen /></Protected>} />
           <Route path="/app/child-breathe" element={<Protected nav={false} showHelp={false}><ChildBreathScreen /></Protected>} />
-          <Route path="/app/cobreath/:roomCode" element={<Protected nav={false} showHelp={false}><CoBreathScreen /></Protected>} />
 
           {/* Feature screens — with nav */}
           <Route path="/app/vault" element={<Protected><VaultScreen /></Protected>} />
