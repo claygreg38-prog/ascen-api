@@ -1,5 +1,5 @@
 # ASCEN BreathWorx — CLAUDE.md
-# Last updated: May 10, 2026
+# Last updated: June 24, 2026 (Item 7 — couples co-breath LIVE in prod)
 # Source of truth: handoff docs in Clay's Downloads + /docs/concepts/ + /docs/reviews/
 # Update this file at the end of every build session.
 
@@ -122,7 +122,7 @@ Port 5 — Data Persistence: integrationLayer.js (methods scattered across route
 
 ## Known Bugs
 - Bug A: Kyto BLE cadence too sparse (~0.5/s) — coherence freezes. H10 works. Diagnostic written, fix not applied.
-- Session auto-advancement (S1→S2→S3): NEVER TESTED. All sessions run via URL override.
+- Session auto-advancement (S1→S2→S3): LIVE-CONFIRMED (pilot). Stateless MAX(session_number)+1 derivation via contextRoute (/api/auth/context); no stored pointer. The ?s= parameter is the internal iframe launch mechanism, not a manual step.
 - Capacity track routing (S0.5-S4.5): Content seeded, routing NOT WIRED. routeToTrackSelector is a console.log stub.
 - 5 failing migrations on deploy (030, 058, 067, 077, 080-082): likely "already applied" — need IF NOT EXISTS guards.
 - session_templates has 205 rows with ambiguous arc values (body/Body/null overlap on S01-S05). Loader determinism unverified.
@@ -144,19 +144,61 @@ Port 5 — Data Persistence: integrationLayer.js (methods scattered across route
 - Ripple Signal: BUILT but spec-deviated (24-hour rate limit, user-scoped, not 30-day relationship-scoped per spec)
 - Migration 075 (FR contamination fix): committed, application status unverified — run scripts/auditFRTrack.js to confirm
 
-## Coupling — Concrete Gaps (audit May 8, 2026)
+## Couples Co-Breath — LIVE IN PROD (Item 7, shipped June 24, 2026 — feat/coupling @ e45a842)
+VERIFIED against prod (resourceful-wisdom Postgres da971b88, host :29763) + the live hearty-optimism deploy.
+CAVEAT: synthetic-bio plumbing proof only so far — no real-strap session has run (see NOT YET DONE).
+
+- System is COUPLES-ONLY. Entry + gating: A1 S15 unlock, B1 DV 5-state deny-by-default, B2 48h gap.
+- DV clinician setter: POST /api/partnership/dv-screening (clinician/admin role) — the key-issuer for the
+  deny-by-default DV gate. Valid statuses: not_screened | pass | pass_with_support | clinical_review_required | not_appropriate. Only pass / pass_with_support open entry.
+- Live co-breath (L1-L4): gated WS rooms keyed to partnership_sessions.id (the room token IS the gated
+  session id — a room can't exist ungated); server-derived breathParams (client params never trusted);
+  REST tick-bio carries raw HRV to the SERVER only — raw HRV NEVER crosses the WS, only the regulation
+  CATEGORY is forwarded to the partner; idempotent completion + stale-room reaper.
+- Async Echo: breathe with a recorded capsule trace (single recipient + server trace-player); same substrate, mode-aware (live | echo).
+- Frontend client lives in index_v8 (public/, dual-file byte-identical), reached via the embedded launcher
+  CoupleSessionScreen at /app/couple (real per-partner JWT handed in via postMessage, never URL). enter() → gated mint → live single-orb surface.
+- Two-browser pairing: GET /api/partnership/active-session — partner B auto-joins the token A minted (same
+  room; resolvePartnership-scoped, no cross-partnership leakage). Double-mint race closed by migration 090's
+  partial unique index one_open_session_per_partnership (UNIQUE on partnership_id WHERE completed_at IS NULL
+  AND abandoned_at IS NULL); startSession catches the 23505 and reuses the winner's token.
+- PROD MIGRATIONS: 085-090 ALL applied (090 verified present w/ correct partial-unique predicate; 0
+  partnerships with >1 open session). server.js runs STARTUP migrations on boot (~line 870) → migrations
+  auto-apply on each deploy. Run order if ever manual: 085 → 086 → 087 → 088 → 089 → 090.
+- frontend/dist is a COMMITTED static artifact, NOT built on deploy (Dockerfile = npm install --production
+  + node server.js; nixpacks build phase is a no-op echo; server.js serves /app via express.static(frontend/dist)).
+  Rebuild (cd frontend && npm run build) + commit frontend/dist whenever frontend/ changes ship, or it won't reach prod.
+- NOT YET DONE — the real-world milestone: NO two-person session with real Polar H10 straps has run. Every
+  validation to date is synthetic-bio plumbing proof (Playwright two-context + node socket harnesses in scripts/capstone_*).
+  Before ANY couple can complete a session, a clinician MUST set dv_screening_status='pass' via the setter — gate is deny-by-default (missing/not_screened DENIES).
+
+### RETIRED (Item 7 Phase 4, git revert e711d12 to restore)
+- Old family co-breath stack REMOVED: src/routes/coBreathRoutes.js, src/abi/coBreathEngine.js, frontend
+  CoBreathScreen.jsx + the /app/cobreath/:roomCode route, and the FamilyScreen "Co-Breath" tab. Was COLD
+  (0 prod rows ever in cobreath_sessions / cobreath_rooms / family_patterns). /api/cobreath/* now 404.
+- New co-breath is COUPLES-ONLY — there is currently NO family co-breath entry point.
+- KEPT (these are the NEW stack, not the old): src/services/coBreathWebSocket.js (the /ws/cobreath WS) + coBreathSession.js (L3).
+
+### PARKED / expansion (NOT built)
+- Dual-signature visual (live surface is single-orb only today).
+- Parent/child track (relationship_type on the partnership).
+- Track-scoped currency ("Presence").
+- Terra ambient awareness layer — consent model gated on Crystal + Jenae; collect-nothing in v1.
+- Family-as-multiple-dyads question for 3+ person families (how a family unit maps to pairwise co-breath).
+
+## Coupling — Concrete Gaps (audit May 8, 2026 — PRE-SHIP historical; superseded by "Couples Co-Breath — LIVE IN PROD" above)
 - 14 sessions seeded in session_templates with dialogue_phases populated
 - breath_mode, ratio, duration_seconds NULL on all 14 (cannot run breathing)
 - Partnership backend SCAFFOLDED (15 endpoints in partnershipEngine.js, migration 048), frontend MISSING
 - Production rows: 0
 - Action 4.6 Gate System: NOT BUILT (clinical authority work, blocks safe rollout — gated on Jenae)
-- Co-breath WebSocket: BUILT and wired (server src/services/coBreathWebSocket.js:52, participant CoBreathScreen.jsx:41, clinician ClinicianDashboardScreen.jsx:107). Production usage cold.
+- Co-breath: SUPERSEDED — the participant CoBreathScreen.jsx was RETIRED (Phase 4); live couples co-breath now runs in index_v8 (see "Couples Co-Breath — LIVE IN PROD"). New WS stack = src/services/coBreathWebSocket.js + coBreathSession.js (clinician trigger ClinicianDashboardScreen.jsx:107 still references the WS).
 - Kitchen Table frontend: BUILT at /app/family/kitchen-table
 - 6 Coupling modules missing visual_narrative blocks: C01, C02, C03, C05, C06, C07, C09
 
 ## Shipped Infrastructure (often not realized)
 - LightBridge v1.0: Wyze smart bulb ambient signaling, caregiver authority model, child practice engine. Demo spike proven end-to-end (ns3_mean → Wyze amber → SendGrid email 0.48s). 5 [DECISION REQUIRED] items pending.
-- Co-breath WebSocket (paired session real-time biometric streaming)
+- Couples co-breath LIVE in prod (Item 7): gated WS rooms + REST tick-bio + async Echo (see "Couples Co-Breath — LIVE IN PROD"). Old family /api/cobreath retired.
 - BLE H10 + Kyto support
 - ABI 14/14 orchestrator, AXIS active
 - verificationService blockchain writes LIVE (block 84319510)
@@ -210,7 +252,7 @@ When any agent (CC, Manus, future) modifies NVE or Port 4 work, these must all p
 - src/blockchain/verificationService.js
 ### Routes
 - src/routes/abiRoutes.js, artRoutes.js, authRoutes.js, familyRoutes.js
-- src/routes/kitchenTableRoutes.js, coBreathRoutes.js, crisisRoutes.js
+- src/routes/kitchenTableRoutes.js, crisisRoutes.js, partnershipRoutes.js (couples co-breath; coBreathRoutes.js RETIRED Item 7 Phase 4)
 - src/routes/v8Routes.js, nextSessionRoute.js, frRoutes.js
 ### Frontend
 - public/index_v8.html (production v8.2, ~2743 lines + NVE integration)
@@ -223,7 +265,7 @@ When any agent (CC, Manus, future) modifies NVE or Port 4 work, these must all p
 ### Family
 - src/family/familyUnitEngine.js, familyIntelligence.js
 - src/family/legacyVaultEngine.js, capsuleUnlockEngine.js
-- src/family/kitchenTableEngine.js, coBreathEngine.js
+- src/family/kitchenTableEngine.js (coBreathEngine.js RETIRED Item 7 Phase 4; couples co-breath lives in src/abi/partnershipEngine.js + src/services/coBreathWebSocket.js + coBreathSession.js)
 ### Clinical
 - src/clinical/crisisEngine.js, therapyReportService.js
 - src/premium/premiumGate.js, facilitatedMessaging.js
