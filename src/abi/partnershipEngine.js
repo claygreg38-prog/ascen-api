@@ -225,6 +225,23 @@ async function getActiveSession(sessionId) {
 }
 
 /**
+ * Phase 2 — the open (in-progress) session for a partnership, if any. "Open" =
+ * minted but not yet completed or abandoned. Shared by GET /active-session (so
+ * partner B auto-joins the token A minted) and startSession's reuse guard (so a
+ * simultaneous second tap joins the existing room instead of double-minting).
+ */
+async function getOpenSessionForPartnership(partnershipId) {
+  const r = await pool.query(
+    `SELECT id, partnership_id, session_type, created_at
+       FROM partnership_sessions
+      WHERE partnership_id = $1 AND completed_at IS NULL AND abandoned_at IS NULL
+      ORDER BY created_at DESC LIMIT 1`,
+    [partnershipId]
+  );
+  return r.rows[0] || null;
+}
+
+/**
  * L1 — WS room admission. A room is valid ONLY if a gated startSession minted it
  * (roomCode === the session token), the session is still open, and the joining
  * user is one of its two partners. The gates (S15/DV/48h) themselves run in
@@ -722,6 +739,18 @@ async function getAccountTrend(partnershipId) {
  * Start a partnership session.
  */
 async function startSession(partnershipId, sessionType) {
+  // Phase 2 — idempotent reuse / double-mint race guard. If a module is already
+  // open for this partnership, return THAT token rather than minting a second
+  // room. This is what makes simultaneous "enter" taps converge on one room: the
+  // first mints, the second reuses. (The gates already ran when it was minted; an
+  // open session means an in-progress, already-gated module.) A truly concurrent
+  // double-INSERT window remains — a partial unique index would close it fully;
+  // flagged as a fast-follow, not built here.
+  const existingOpen = await getOpenSessionForPartnership(partnershipId);
+  if (existingOpen) {
+    return { session_id: existingOpen.id, session_type: existingOpen.session_type, reused: true };
+  }
+
   // B1 — DV deny-by-default gate (scope: ALL Coupling). Entry is structurally
   // impossible unless dv_screening_status = 'passed'. Single gate path via the
   // AXIS gate engine; no bypass. Returns { started: false } on deny (route -> 403).
@@ -1030,6 +1059,7 @@ module.exports = {
   setDvScreeningStatus,
   resolveUserIdValue,
   getActiveSession,
+  getOpenSessionForPartnership,
   validateRoomAdmission,
   getSessionBreathParams,
   finalizeLiveSession,

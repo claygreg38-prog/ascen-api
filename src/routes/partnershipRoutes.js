@@ -192,6 +192,23 @@ router.post('/baseline', async (req, res) => {
 // SESSIONS
 // ═══════════════════════════════════════════════════════════════
 
+// Phase 2 — partner B auto-join. Returns the caller's OWN partnership's currently
+// open session token (or null). resolvePartnership(req) scopes strictly to the
+// caller's partnership, so there is no cross-partnership leakage — a caller can
+// only ever learn a token for a room they are already a partner of.
+router.get('/active-session', async (req, res) => {
+  try {
+    const partnership = await resolvePartnership(req);
+    if (!partnership) return res.json({ session_id: null });
+    const open = await partnershipEngine.getOpenSessionForPartnership(partnership.id);
+    res.json({ session_id: open ? open.id : null });
+  } catch (err) {
+    console.error('[PARTNERSHIP] active-session lookup failed:', err.message);
+    Sentry.captureException(err);
+    res.status(500).json({ error: 'Failed to look up active session' });
+  }
+});
+
 router.post('/session/start', async (req, res) => {
   try {
     const partnership = await resolvePartnership(req);

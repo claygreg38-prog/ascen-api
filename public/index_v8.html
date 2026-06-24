@@ -2794,8 +2794,17 @@ var Integration = (function() {
     function $c(id){return document.getElementById(id);}
     function _hdrs(){var h={'Content-Type':'application/json'};if(_abi&&_abi.token)h['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)h['x-api-key']=_abi.apiKey;return h;}
     async function _raw(method,path,body){var opts={method:method,headers:_hdrs()};if(body)opts.body=JSON.stringify(body);var res=await fetch((_apiBase||'')+path,opts);var data={};try{data=await res.json();}catch(e){}return{status:res.status,ok:res.ok,data:data};}
+    var _poll=null;
     function open(){var ov=$c('couplingEnrollOv');if(ov)ov.classList.add('active');}
-    function close(){var ov=$c('couplingEnrollOv');if(ov)ov.classList.remove('active');}
+    function close(){_stopPoll();var ov=$c('couplingEnrollOv');if(ov)ov.classList.remove('active');}
+    // Phase 2 — caller's own open session token (or null), for partner B auto-join.
+    async function _checkActive(){try{var r=await _raw('GET','/api/partnership/active-session',null);return(r.data&&r.data.session_id)||null;}catch(e){return null;}}
+    function _stopPoll(){if(_poll){clearInterval(_poll);_poll=null;}}
+    function _startPoll(){_stopPoll();_poll=setInterval(async function(){var sid=await _checkActive();if(sid){_stopPoll();close();CoBreathLive.start(sid,{});}},4000);}
+    // Embedded entry: JOIN if my partnership already has an open session (B joins A's
+    // minted token); else show the enroll/mint UI and poll so we still auto-join if
+    // the partner mints while we are deciding.
+    async function autoEntry(){var sid=await _checkActive();if(sid){CoBreathLive.start(sid,{});return;}open();_startPoll();}
     function _prog(p,label){if(!p)return label+': —';return label+': S'+(p.max_session||0)+' / 15'+(p.reached_s15?' ✓':' ('+(p.needs||0)+' to go)');}
     async function check(){
       var partner=(($c('couplingPartnerId')||{}).value||'').trim();var me=String(_userId||'');
@@ -2813,6 +2822,9 @@ var Integration = (function() {
     async function enter(){
       var e=$c('couplingEnter');var partner=e.getAttribute('data-partner')||'';var me=String(_userId||'');
       $c('couplingReason').textContent='Opening…';$c('couplingSupport').style.display='none';
+      // Phase 2 race guard — if the partner already minted, JOIN rather than double-mint.
+      var pre=await _checkActive();
+      if(pre){_stopPoll();close();CoBreathLive.start(pre,{});return;}
       var en=await _raw('POST','/api/partnership/enroll',{partner_a_id:me,partner_b_id:partner});
       if(en.data&&en.data.enrolled===false){$c('couplingReason').textContent=en.data.reason||'Not available yet.';return;}
       var st=await _raw('POST','/api/partnership/session/start',{session_type:'co_breath'});
@@ -2822,11 +2834,11 @@ var Integration = (function() {
       var mon=!!(st.data&&st.data.requires_support_monitoring);
       $c('couplingSupport').style.display=mon?'block':'none';
       // Phase 1b - hand the gated session token to the live co-breath surface (was a dead-end here).
-      close();
+      _stopPoll();close();
       CoBreathLive.start(sid,{requires_support_monitoring:mon});
     }
     function init(){var e=$c('couplingEnter');if(e)e.addEventListener('click',enter);var c=$c('couplingCheck');if(c)c.addEventListener('click',check);var w=$c('couplingWait');if(w)w.addEventListener('click',close);}
-    return{open:open,close:close,check:check,enter:enter,init:init};
+    return{open:open,close:close,check:check,enter:enter,autoEntry:autoEntry,init:init};
   })();
 
   // LIVE CO-BREATH (Item 7 Phase 1b) - gated WS client + self-contained single-orb pacer.
@@ -2940,7 +2952,7 @@ var Integration = (function() {
     if(_isEmbedded)_initEmbeddedMode();_setApiStatus('connecting');
     CouplingUI.init();CoBreathLive.init();if(!_isEmbedded&&urlParams.get('coupling')==='1')setTimeout(CouplingUI.open,300);
   }
-  function _initEmbeddedMode(){console.log('[EMBEDDED] Mode active');window.parent.postMessage({type:'iframe_ready'},'*');var readyInterval=setInterval(function(){if(_embeddedAuthReceived){clearInterval(readyInterval);return;}window.parent.postMessage({type:'iframe_ready'},'*');},500);window.addEventListener('message',function(event){var data=event.data||{};if(data.type!=='auth')return;if(!data.token){console.warn('[EMBEDDED] Auth message arrived without token — staying in harness mode');_embeddedAuthReceived=true;return;}_embeddedAuthReceived=true;if(_abi)_abi.token=data.token;localStorage.setItem('ascen_jwt',data.token);if(data.apiKey&&_abi)_abi.apiKey=data.apiKey;try{var payload=JSON.parse(atob(data.token.split('.')[1]));var _newUserId=payload.userId||payload.sub||payload.id||_userId;if(_newUserId!==_userId&&_userId&&typeof BioBridge!=='undefined')BioBridge.destroyUser(_userId);_userId=_newUserId;localStorage.setItem('ascen_uid',String(_userId));}catch(e){}console.log('[EMBEDDED] Auth received | userId:',_userId);loadSessions();if(new URLSearchParams(window.location.search).get('coupling')==='1'){try{CouplingUI.open();}catch(e){}}});}
+  function _initEmbeddedMode(){console.log('[EMBEDDED] Mode active');window.parent.postMessage({type:'iframe_ready'},'*');var readyInterval=setInterval(function(){if(_embeddedAuthReceived){clearInterval(readyInterval);return;}window.parent.postMessage({type:'iframe_ready'},'*');},500);window.addEventListener('message',function(event){var data=event.data||{};if(data.type!=='auth')return;if(!data.token){console.warn('[EMBEDDED] Auth message arrived without token — staying in harness mode');_embeddedAuthReceived=true;return;}_embeddedAuthReceived=true;if(_abi)_abi.token=data.token;localStorage.setItem('ascen_jwt',data.token);if(data.apiKey&&_abi)_abi.apiKey=data.apiKey;try{var payload=JSON.parse(atob(data.token.split('.')[1]));var _newUserId=payload.userId||payload.sub||payload.id||_userId;if(_newUserId!==_userId&&_userId&&typeof BioBridge!=='undefined')BioBridge.destroyUser(_userId);_userId=_newUserId;localStorage.setItem('ascen_uid',String(_userId));}catch(e){}console.log('[EMBEDDED] Auth received | userId:',_userId);loadSessions();if(new URLSearchParams(window.location.search).get('coupling')==='1'){try{CouplingUI.autoEntry();}catch(e){}}});}
   function _notifyParentComplete(sessionNumber){if(_isEmbedded)window.parent.postMessage({type:'session_complete',data:{session_number:sessionNumber}},'*');}
   function _notifyParentExit(){if(_isEmbedded)window.parent.postMessage({type:'session_exit'},'*');}
   function isEmbedded(){return _isEmbedded}
