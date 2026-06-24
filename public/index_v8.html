@@ -121,17 +121,17 @@
 #srcBadge.src-synthetic { background: rgba(255,136,68,0.10); border: 1px solid rgba(255,136,68,0.45); color: rgba(255,170,100,0.98); }
 #srcBadge.src-synthetic .src-pip { background: #ff8844; box-shadow: 0 0 6px rgba(255,136,68,0.7); }
 #srcBadge.src-hidden { display: none; }
-#srcGateOv, #couplingEnrollOv { position: fixed; inset: 0; background: rgba(8,18,32,0.92); display: none; z-index: 1500; align-items: center; justify-content: center; padding: 32px; }
-#srcGateOv.active, #couplingEnrollOv.active { display: flex; }
-#srcGateOv .sg-c, #couplingEnrollOv .sg-c { max-width: 420px; text-align: center; color: #e8f1ff; font-family: 'Outfit', sans-serif; }
-#srcGateOv .sg-title, #couplingEnrollOv .sg-title { font-size: 18px; letter-spacing: 1px; margin-bottom: 12px; color: #e8f1ff; }
-#srcGateOv .sg-body, #couplingEnrollOv .sg-body { font-size: 14px; line-height: 1.6; color: #a8c4e0; margin-bottom: 24px; }
-#srcGateOv .sg-actions, #couplingEnrollOv .sg-actions { display: flex; flex-direction: column; gap: 10px; }
-#srcGateOv .sg-btn, #couplingEnrollOv .sg-btn { padding: 12px 18px; border-radius: 6px; font-size: 13px; letter-spacing: 1.5px; cursor: pointer; font-family: 'Outfit', sans-serif; transition: all 0.2s; }
+#srcGateOv, #couplingEnrollOv, #coBreathLiveOv { position: fixed; inset: 0; background: rgba(8,18,32,0.92); display: none; z-index: 1500; align-items: center; justify-content: center; padding: 32px; }
+#srcGateOv.active, #couplingEnrollOv.active, #coBreathLiveOv.active { display: flex; }
+#srcGateOv .sg-c, #couplingEnrollOv .sg-c, #coBreathLiveOv .sg-c { max-width: 420px; text-align: center; color: #e8f1ff; font-family: 'Outfit', sans-serif; }
+#srcGateOv .sg-title, #couplingEnrollOv .sg-title, #coBreathLiveOv .sg-title { font-size: 18px; letter-spacing: 1px; margin-bottom: 12px; color: #e8f1ff; }
+#srcGateOv .sg-body, #couplingEnrollOv .sg-body, #coBreathLiveOv .sg-body { font-size: 14px; line-height: 1.6; color: #a8c4e0; margin-bottom: 24px; }
+#srcGateOv .sg-actions, #couplingEnrollOv .sg-actions, #coBreathLiveOv .sg-actions { display: flex; flex-direction: column; gap: 10px; }
+#srcGateOv .sg-btn, #couplingEnrollOv .sg-btn, #coBreathLiveOv .sg-btn { padding: 12px 18px; border-radius: 6px; font-size: 13px; letter-spacing: 1.5px; cursor: pointer; font-family: 'Outfit', sans-serif; transition: all 0.2s; }
 #srcGateOv .sg-btn-primary, #couplingEnrollOv .sg-btn-primary { background: rgba(78,205,196,0.15); border: 1px solid rgba(78,205,196,0.5); color: #4ecdc4; }
 #srcGateOv .sg-btn-primary:hover, #couplingEnrollOv .sg-btn-primary:hover { background: rgba(78,205,196,0.25); }
-#srcGateOv .sg-btn-secondary, #couplingEnrollOv .sg-btn-secondary { background: transparent; border: 1px solid rgba(255,255,255,0.25); color: rgba(232,241,255,0.85); }
-#srcGateOv .sg-btn-secondary:hover, #couplingEnrollOv .sg-btn-secondary:hover { border-color: rgba(255,255,255,0.45); }
+#srcGateOv .sg-btn-secondary, #couplingEnrollOv .sg-btn-secondary, #coBreathLiveOv .sg-btn-secondary { background: transparent; border: 1px solid rgba(255,255,255,0.25); color: rgba(232,241,255,0.85); }
+#srcGateOv .sg-btn-secondary:hover, #couplingEnrollOv .sg-btn-secondary:hover, #coBreathLiveOv .sg-btn-secondary:hover { border-color: rgba(255,255,255,0.45); }
 #srcGateOv .sg-disclosure, #couplingEnrollOv .sg-disclosure { display: none; font-size: 12px; line-height: 1.6; color: rgba(255,170,100,0.95); margin-top: 18px; padding: 12px; border: 1px solid rgba(255,136,68,0.35); border-radius: 6px; background: rgba(255,136,68,0.06); text-align: left; }
 #srcGateOv.show-disclosure .sg-disclosure { display: block; }
 #mirrorOv .m-synth-notice { display: none; margin-top: 16px; padding: 10px 14px; border: 1px solid rgba(255,136,68,0.4); border-radius: 6px; background: rgba(255,136,68,0.08); color: rgba(255,170,100,0.95); font-size: 12px; line-height: 1.5; text-align: left; }
@@ -409,6 +409,18 @@
       <button class="sg-btn sg-btn-secondary" id="couplingWait">Continue solo</button>
     </div>
     <div class="sg-disclosure" id="couplingSupport" style="display:none">A support guide will check in with the two of you during this season of Tending.</div>
+  </div></div>
+
+  <!-- LIVE CO-BREATH SURFACE - Item 7 Phase 1b. Gated WS session; self-contained single-orb pacer driven by SERVER breathParams. -->
+  <div id="coBreathLiveOv"><div class="sg-c">
+    <div class="sg-title">Tending · Together</div>
+    <div id="cbStatus" class="sg-body" style="min-height:18px;margin-bottom:8px">Connecting…</div>
+    <div style="display:flex;justify-content:center;margin:14px 0"><div id="cbOrb" style="width:88px;height:88px;border-radius:50%;background:radial-gradient(circle at 40% 35%,rgba(150,210,235,0.9),rgba(78,205,196,0.25));box-shadow:0 0 34px rgba(120,200,210,0.4);transition:transform 0.18s linear;transform:scale(1)"></div></div>
+    <div id="cbPhase" style="font-size:17px;letter-spacing:2px;color:#cfe6f5;min-height:22px;margin-bottom:6px"></div>
+    <div class="sg-body" style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span>You: <span id="cbYouReg">—</span></span><span>Partner: <span id="cbPartnerReg">—</span></span></div>
+    <div id="cbPartnerPhase" class="sg-body" style="font-size:11px;color:#8fb4d8;min-height:16px;margin-bottom:6px"></div>
+    <div id="cbComplete" class="sg-body" style="display:none;color:#92e0d2;margin-bottom:6px"></div>
+    <div class="sg-actions" style="margin-top:10px"><button class="sg-btn sg-btn-secondary" id="cbEnd">End session</button></div>
   </div></div>
 
   <div class="ctrls">
@@ -2805,12 +2817,101 @@ var Integration = (function() {
       if(en.data&&en.data.enrolled===false){$c('couplingReason').textContent=en.data.reason||'Not available yet.';return;}
       var st=await _raw('POST','/api/partnership/session/start',{session_type:'co_breath'});
       if(st.status===403||(st.data&&st.data.started===false)){$c('couplingReason').textContent=(st.data&&st.data.reason)||'Not available at this time.';return;}
+      var sid=st.data&&st.data.session_id;
+      if(!sid){$c('couplingReason').textContent='Could not open the session.';return;}
       var mon=!!(st.data&&st.data.requires_support_monitoring);
-      $c('couplingReason').textContent='You’re in. Breathing together begins.';
       $c('couplingSupport').style.display=mon?'block':'none';
+      // Phase 1b - hand the gated session token to the live co-breath surface (was a dead-end here).
+      close();
+      CoBreathLive.start(sid,{requires_support_monitoring:mon});
     }
     function init(){var e=$c('couplingEnter');if(e)e.addEventListener('click',enter);var c=$c('couplingCheck');if(c)c.addEventListener('click',check);var w=$c('couplingWait');if(w)w.addEventListener('click',close);}
     return{open:open,close:close,check:check,enter:enter,init:init};
+  })();
+
+  // LIVE CO-BREATH (Item 7 Phase 1b) - gated WS client + self-contained single-orb pacer.
+  // Visual is a self-contained orb (NOT the depthEngine solo orb, to avoid entangling the solo
+  // SSM flow); depthEngine reused via its PUBLIC setCoherence for the ambient backdrop only.
+  // Protocol matches src/services/coBreathWebSocket.js exactly (join/ready/end + REST tick-bio).
+  var CoBreathLive=(function(){
+    function $c(id){return document.getElementById(id);}
+    var ws=null,pacer=null,tickIv=null,sessionId=null,ended=false,breathing=false;
+    function _wsBase(){var b=_apiBase||window.location.origin;return b.replace(/^http/,'ws');}
+    function _show(){var ov=$c('coBreathLiveOv');if(ov)ov.classList.add('active');}
+    function _hide(){var ov=$c('coBreathLiveOv');if(ov)ov.classList.remove('active');}
+    function _status(t){var e=$c('cbStatus');if(e)e.textContent=t;}
+    function _send(o){try{if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}catch(e){}}
+    function _regLabel(s){return s==='regulated'?'settled':(s==='approaching'?'settling':(s==='below'?'activated':(s||'—')));}
+    function start(sid,opts){
+      sessionId=sid;ended=false;breathing=false;
+      var c=$c('cbComplete');if(c)c.style.display='none';
+      var yr=$c('cbYouReg');if(yr)yr.textContent='—';var prr=$c('cbPartnerReg');if(prr)prr.textContent='—';
+      var ppx=$c('cbPartnerPhase');if(ppx)ppx.textContent='';
+      var be=$c('cbEnd');if(be)be.textContent='End session';
+      _show();_status('Connecting…');
+      try{ws=new WebSocket(_wsBase()+'/ws/cobreath');}catch(e){_status('Could not connect.');return;}
+      ws.onopen=function(){_send({type:'join',roomCode:sessionId,userId:String(_userId||'')});};
+      ws.onmessage=function(ev){var m;try{m=JSON.parse(ev.data);}catch(e){return;}_onMsg(m);};
+      ws.onerror=function(){_status('Connection error.');};
+      ws.onclose=function(){if(!ended&&breathing)_status('Disconnected - your partner is being notified.');};
+    }
+    function _onMsg(m){
+      switch(m.type){
+        case 'joined':_status('You’re in — waiting for your partner…');break;
+        case 'both_connected':_status('You’re both here. Settling in…');_send({type:'ready'});break;
+        case 'countdown':_status('Beginning together…');break;
+        case 'breathing_start':_startBreathing(m.breathParams||{});break;
+        case 'partner_regulation':{var pr=$c('cbPartnerReg');if(pr)pr.textContent=_regLabel(m.state);break;}
+        case 'partner_breath_phase':{var pp=$c('cbPartnerPhase');if(pp)pp.textContent='Your partner is breathing '+(m.phase==='inhale'?'in':(m.phase==='exhale'?'out':m.phase))+'…';break;}
+        case 'session_ended':_onEnded(m.result);break;
+        case 'room_expired':_status('The session timed out.');_cleanup();break;
+        case 'partner_disconnected':_status('Your partner stepped away — holding the space…');break;
+        case 'error':_status(m.message||'Not available right now.');break;
+      }
+    }
+    function _startBreathing(bp){
+      breathing=true;
+      var inhale=((bp.inhale_sec||4)*1000),exhale=((bp.exhale_sec||6)*1000),cyc=inhale+exhale;
+      _status('Breathe together.');
+      var orb=$c('cbOrb'),phase=$c('cbPhase'),t0=Date.now();
+      if(pacer)clearInterval(pacer);
+      pacer=setInterval(function(){
+        var t=(Date.now()-t0)%cyc,sc,lbl;
+        if(t<inhale){sc=1+0.6*(t/inhale);lbl='Breathe in';}
+        else{sc=1.6-0.6*((t-inhale)/exhale);lbl='Breathe out';}
+        if(orb)orb.style.transform='scale('+sc.toFixed(3)+')';
+        if(phase)phase.textContent=lbl;
+      },80);
+      if(tickIv)clearInterval(tickIv);
+      tickIv=setInterval(_tick,2000);_tick();
+    }
+    async function _tick(){
+      if(!sessionId||ended||typeof BioBridge==='undefined')return;
+      var src=BioBridge.getActiveSource?BioBridge.getActiveSource():null;
+      if(!src||src==='synthetic')return; // HARD RULE: never POST synthetic bio in a real session
+      var b=BioBridge.getCurrentBiometrics(_userId);if(!b)return;
+      var ns3=BioBridge.getCurrentNS3?BioBridge.getCurrentNS3(_userId):0;
+      var bio={hr:b.heart_rate,hrv:b.hrv_rmssd,rmssd:b.hrv_rmssd,coherence:b.coherence,ns3:ns3};
+      try{
+        var h={'Content-Type':'application/json'};if(_abi&&_abi.token)h['Authorization']='Bearer '+_abi.token;if(_abi&&_abi.apiKey)h['x-api-key']=_abi.apiKey;
+        var res=await fetch((_apiBase||'')+'/api/partnership/session/'+sessionId+'/tick-bio',{method:'POST',headers:h,body:JSON.stringify({biometrics:bio})});
+        var d={};try{d=await res.json();}catch(e){}
+        var yr=$c('cbYouReg');if(yr&&d.regulation_category)yr.textContent=_regLabel(d.regulation_category);
+        if(typeof DepthEngine!=='undefined'&&DepthEngine.setCoherence&&b.coherence!=null)DepthEngine.setCoherence(b.coherence);
+      }catch(e){}
+    }
+    function _onEnded(result){
+      ended=true;breathing=false;_cleanup();
+      _status('You breathed together.');var c=$c('cbComplete');
+      if(c){c.style.display='block';c.textContent=(result&&result.account_balance!=null)?('Shared account: '+result.account_balance+'.'):'This session is saved.';}
+      var orb=$c('cbOrb');if(orb)orb.style.transform='scale(1)';
+      var ph=$c('cbPhase');if(ph)ph.textContent='';
+      var btn=$c('cbEnd');if(btn)btn.textContent='Done';
+    }
+    function _cleanup(){if(pacer){clearInterval(pacer);pacer=null;}if(tickIv){clearInterval(tickIv);tickIv=null;}}
+    function _done(){_cleanup();_hide();if(ws){try{ws.close();}catch(e){}ws=null;}try{_notifyParentExit();}catch(e){}}
+    function init(){var b=$c('cbEnd');if(b)b.addEventListener('click',function(){if(ended)_done();else{_status('Closing the session…');_send({type:'end'});}});}
+    return{start:start,init:init};
   })();
 
   // Breathwork Modes
@@ -2837,7 +2938,7 @@ var Integration = (function() {
     var urlParams=new URLSearchParams(window.location.search);_isEmbedded=urlParams.get('embedded')==='true';
     _replay=urlParams.get('replay')==='1';if(_replay)console.log('[ASCEN] REPLAY/DEMO mode — H10 stays connected across restarts; no /progress writes; parent not notified on complete');
     if(_isEmbedded)_initEmbeddedMode();_setApiStatus('connecting');
-    CouplingUI.init();if(!_isEmbedded&&urlParams.get('coupling')==='1')setTimeout(CouplingUI.open,300);
+    CouplingUI.init();CoBreathLive.init();if(!_isEmbedded&&urlParams.get('coupling')==='1')setTimeout(CouplingUI.open,300);
   }
   function _initEmbeddedMode(){console.log('[EMBEDDED] Mode active');window.parent.postMessage({type:'iframe_ready'},'*');var readyInterval=setInterval(function(){if(_embeddedAuthReceived){clearInterval(readyInterval);return;}window.parent.postMessage({type:'iframe_ready'},'*');},500);window.addEventListener('message',function(event){var data=event.data||{};if(data.type!=='auth')return;if(!data.token){console.warn('[EMBEDDED] Auth message arrived without token — staying in harness mode');_embeddedAuthReceived=true;return;}_embeddedAuthReceived=true;if(_abi)_abi.token=data.token;localStorage.setItem('ascen_jwt',data.token);if(data.apiKey&&_abi)_abi.apiKey=data.apiKey;try{var payload=JSON.parse(atob(data.token.split('.')[1]));var _newUserId=payload.userId||payload.sub||payload.id||_userId;if(_newUserId!==_userId&&_userId&&typeof BioBridge!=='undefined')BioBridge.destroyUser(_userId);_userId=_newUserId;localStorage.setItem('ascen_uid',String(_userId));}catch(e){}console.log('[EMBEDDED] Auth received | userId:',_userId);loadSessions();if(new URLSearchParams(window.location.search).get('coupling')==='1'){try{CouplingUI.open();}catch(e){}}});}
   function _notifyParentComplete(sessionNumber){if(_isEmbedded)window.parent.postMessage({type:'session_complete',data:{session_number:sessionNumber}},'*');}
