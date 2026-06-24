@@ -411,17 +411,10 @@ try {
   console.warn('[KITCHEN TABLE] Could not mount:', err.message);
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CO-BREATH ROUTES — Synchronized Family Breathing
-// ═══════════════════════════════════════════════════════════════
-try {
-  const coBreathRoutes = require('./src/routes/coBreathRoutes');
-  app.use('/api/cobreath', authenticateOrApiKey('participant'));
-  app.use('/api/cobreath', coBreathRoutes);
-  console.log('[COBREATH] Routes mounted at /api/cobreath');
-} catch (err) {
-  console.warn('[COBREATH] Could not mount:', err.message);
-}
+// CO-BREATH (old family REST /api/cobreath) — RETIRED (Item 7 Phase 4). Cold in
+// prod (0 rows ever). The gated couples co-breath lives at /api/partnership +
+// the /ws/cobreath WebSocket (src/services/coBreathWebSocket.js + coBreathSession.js),
+// which are unaffected. Old route + src/abi/coBreathEngine.js removed.
 
 // ═══════════════════════════════════════════════════════════════
 // PREMIUM ROUTES — Guided Bridge (Session 19)

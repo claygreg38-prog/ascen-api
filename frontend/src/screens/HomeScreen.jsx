@@ -254,6 +254,12 @@ export default function HomeScreen() {
           }}>Dive In</div>
         </Card>
 
+        {/* Tending — breathe together (Coupling, Item 7) */}
+        <Card zone="water" onClick={() => navigate('/app/couple')}>
+          <div style={{ fontSize: 9, fontWeight: 500, letterSpacing: 2, color: waterSub, textTransform: 'uppercase', marginBottom: 3 }}>Tending</div>
+          <div style={{ fontSize: 15, fontWeight: 300, color: waterText }}>Breathe together</div>
+        </Card>
+
         {/* Recent art */}
         {recentArt.length > 0 && (
           <Card zone="water" style={{ padding: '14px 16px' }}>
