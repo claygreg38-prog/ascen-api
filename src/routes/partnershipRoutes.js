@@ -33,6 +33,8 @@ const partnershipEngine = require('../abi/partnershipEngine');
 // L3 — server-side dyadic compute + WS regulation forward.
 const coBreathSession = require('../services/coBreathSession');
 const coBreathWS = require('../services/coBreathWebSocket');
+// DV setter — clinician/admin only (requireRole enforces; participant default rejected).
+const { requireRole } = require('../middleware/auth');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -99,6 +101,45 @@ router.post('/enroll', async (req, res) => {
     console.error('[PARTNERSHIP] Enrollment failed:', err.message);
     Sentry.captureException(err);
     res.status(500).json({ error: 'Failed to enroll partnership' });
+  }
+});
+
+// ── DV-SCREENING SETTER (clinician/admin only) ──────────────────
+// The minimal safe way for a clinician to set Jenae's 5-state DV status so couples
+// aren't blocked. requireRole('clinician') admits clinician+admin and rejects
+// participant (incl. the participant-default API key) with 403. The earning logic
+// is partnershipEngine.setDvScreeningStatus (B1): validates the enum + stamps
+// dv_screened_at/by. Body: { partnership_id | (partner_a_id + partner_b_id), status, set_by }.
+router.post('/dv-screening', requireRole('clinician'), async (req, res) => {
+  try {
+    const { partner_a_id, partner_b_id, partnership_id, status, set_by } = req.body;
+    if (!status) return res.status(400).json({ error: 'status required' });
+
+    let pid = partnership_id || null;
+    if (!pid) {
+      if (!partner_a_id || !partner_b_id) {
+        return res.status(400).json({ error: 'partnership_id OR (partner_a_id + partner_b_id) required' });
+      }
+      const aId = await partnershipEngine.resolveUserIdValue(partner_a_id);
+      const bId = await partnershipEngine.resolveUserIdValue(partner_b_id);
+      if (!aId || !bId) return res.status(404).json({ error: 'partner not found' });
+      const partnership = await partnershipEngine.getPartnership(aId);
+      if (!partnership) return res.status(404).json({ error: 'no active partnership for that partner' });
+      if (partnership.partner_a_id !== bId && partnership.partner_b_id !== bId) {
+        return res.status(404).json({ error: 'partner_b is not in that partnership' });
+      }
+      pid = partnership.id;
+    }
+
+    const setBy = set_by || req.user?.userId || 'clinician';
+    const result = await partnershipEngine.setDvScreeningStatus(pid, status, setBy);
+    res.json({ ok: true, partnership_id: pid, dv_screening_status: result.dv_screening_status, dv_screened_at: result.dv_screened_at, dv_screened_by: result.dv_screened_by });
+  } catch (err) {
+    if (/Invalid dv_screening_status/.test(err.message)) return res.status(400).json({ error: err.message });
+    if (/Partnership not found/.test(err.message)) return res.status(404).json({ error: err.message });
+    console.error('[PARTNERSHIP] DV screening set failed:', err.message);
+    Sentry.captureException(err);
+    res.status(500).json({ error: 'Failed to set DV screening status' });
   }
 });
 
